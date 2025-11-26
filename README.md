@@ -13,6 +13,7 @@
 - 🔒 **域名控制**: 支持允许和禁止域名列表
 - 📱 **多平台支持**: 兼容各种消息平台
 - 📊 **内容统计**: 提供详细的内容统计信息
+- 🔗 **多链接处理**: 支持同时处理多条链接，合并成一条合并转发消息发送
 
 ## 安装方法
 
@@ -41,12 +42,27 @@
        [网页截图...]
 ```
 
+支持同时处理多个链接：
+
+```
+用户：看看这些新闻 https://example.com/news/article1 https://example.com/news/article2
+机器人：检测到2个网页链接，正在分析...
+       [合并转发的分析结果...]
+       [网页截图...]
+```
+
 ### 手动分析
 
 使用命令手动分析指定链接：
 
 ```
 /网页分析 https://example.com
+```
+
+支持同时分析多个链接：
+
+```
+/网页分析 https://example.com/article1 https://example.com/article2
 ```
 
 ### 命令别名
@@ -56,6 +72,8 @@
 ```
 /分析 https://example.com
 /总结 https://example.com
+/分析 https://example.com/article1 https://example.com/article2
+/总结 https://example.com/article1 https://example.com/article2
 ```
 
 ### 查看配置

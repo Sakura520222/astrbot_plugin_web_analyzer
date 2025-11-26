@@ -1,21 +1,19 @@
-# -*- coding: utf-8 -*-
 """
 AstrBot 网页分析插件
 自动识别用户发送的网页链接，抓取内容并调用LLM进行分析和总结
 """
 
 import re
-import asyncio
 from typing import List, Optional
 from urllib.parse import urlparse
 
 import httpx
 from bs4 import BeautifulSoup
 
-from astrbot.api.event import filter, AstrMessageEvent, MessageEventResult
+from astrbot.api import AstrBotConfig
+from astrbot.api.event import filter, AstrMessageEvent
 from astrbot.api.star import Context, Star, register
 from astrbot.api import logger
-from astrbot.api.message_components import Plain, Image
 
 
 class WebAnalyzer:
@@ -185,8 +183,6 @@ class WebAnalyzer:
             return None
 
 
-from astrbot.api import AstrBotConfig
-
 @register("astrbot_plugin_web_analyzer", "Sakura520222", "自动识别网页链接并进行内容分析和总结", "1.0.0", "https://github.com/Sakura520222/astrbot_plugin_web_analyzer")
 class WebAnalyzerPlugin(Star):
     """网页分析插件主类"""
@@ -276,53 +272,36 @@ class WebAnalyzerPlugin(Star):
             return False
     
     @filter.command("网页分析", alias={'分析', '总结'})
-    async def analyze_webpage(self, event: AstrMessageEvent, url: str = None):
+    async def analyze_webpage(self, event: AstrMessageEvent):
         """手动分析指定网页链接"""
-        if not url:
+        message_text = event.message_str
+        
+        # 提取所有URL
+        urls = self.analyzer.extract_urls(message_text)
+        if not urls:
             yield event.plain_result("请提供要分析的网页链接，例如：/网页分析 https://example.com")
             return
         
-        if not self.analyzer.is_valid_url(url):
+        # 验证URL并过滤掉不允许访问的域名
+        valid_urls = [url for url in urls if self.analyzer.is_valid_url(url)]
+        if not valid_urls:
             yield event.plain_result("无效的URL链接，请检查格式是否正确")
             return
         
-        # 检查域名是否允许访问
-        if not self._is_domain_allowed(url):
-            yield event.plain_result("该域名不在允许访问的列表中，或已被禁止访问")
+        allowed_urls = [url for url in valid_urls if self._is_domain_allowed(url)]
+        if not allowed_urls:
+            yield event.plain_result("所有域名都不在允许访问的列表中，或已被禁止访问")
             return
         
-        yield event.plain_result(f"正在分析网页: {url}")
+        # 发送处理提示
+        if len(allowed_urls) == 1:
+            yield event.plain_result(f"正在分析网页: {allowed_urls[0]}")
+        else:
+            yield event.plain_result(f"正在分析{len(allowed_urls)}个网页链接...")
         
-        async with WebAnalyzer(self.max_content_length, self.timeout, self.user_agent) as analyzer:
-            # 抓取网页内容
-            html = await analyzer.fetch_webpage(url)
-            if not html:
-                yield event.plain_result("无法抓取网页内容，请检查链接是否可访问")
-                return
-            
-            # 提取内容
-            content_data = analyzer.extract_content(html, url)
-            if not content_data:
-                yield event.plain_result("无法解析网页内容")
-                return
-            
-            # 调用LLM进行分析
-            analysis_result = await self.analyze_with_llm(event, content_data)
-            
-            # 捕获截图
-            screenshot = None
-            if self.enable_screenshot:
-                screenshot = await analyzer.capture_screenshot(
-                    url,
-                    quality=self.screenshot_quality,
-                    width=self.screenshot_width,
-                    full_page=self.screenshot_full_page,
-                    wait_time=self.screenshot_wait_time
-                )
-            
-            # 发送分析结果，使用async for迭代异步生成器
-            async for result in self._send_analysis_result(event, analysis_result, url, screenshot):
-                yield result
+        # 批量处理所有URL
+        async for result in self._batch_process_urls(event, allowed_urls):
+            yield result
     
     @filter.event_message_type(filter.EventMessageType.ALL)
     async def auto_detect_urls(self, event: AstrMessageEvent):
@@ -361,46 +340,79 @@ class WebAnalyzerPlugin(Star):
         if not valid_urls:
             return
         
-        # 只处理第一个URL，避免过多请求
-        url = valid_urls[0]
-        
-        # 检查域名是否允许访问
-        if not self._is_domain_allowed(url):
-            return  # 域名不允许访问，静默忽略
+        # 过滤掉不允许访问的域名
+        allowed_urls = [url for url in valid_urls if self._is_domain_allowed(url)]
+        if not allowed_urls:
+            return  # 没有允许访问的URL，不处理
         
         # 发送处理提示
-        yield event.plain_result(f"检测到网页链接，正在分析: {url}")
+        if len(allowed_urls) == 1:
+            yield event.plain_result(f"检测到网页链接，正在分析: {allowed_urls[0]}")
+        else:
+            yield event.plain_result(f"检测到{len(allowed_urls)}个网页链接，正在分析...")
+        
+        # 批量处理所有URL
+        async for result in self._batch_process_urls(event, allowed_urls):
+            yield result
+    
+    async def _batch_process_urls(self, event: AstrMessageEvent, urls: List[str]):
+        """批量处理多个URL，收集分析结果并发送"""
+        # 收集所有分析结果
+        analysis_results = []
         
         async with WebAnalyzer(self.max_content_length, self.timeout, self.user_agent) as analyzer:
-            # 抓取网页内容
-            html = await analyzer.fetch_webpage(url)
-            if not html:
-                yield event.plain_result("无法抓取网页内容")
-                return
-            
-            # 提取内容
-            content_data = analyzer.extract_content(html, url)
-            if not content_data:
-                yield event.plain_result("无法解析网页内容")
-                return
-            
-            # 调用LLM进行分析
-            analysis_result = await self.analyze_with_llm(event, content_data)
-            
-            # 捕获截图
-            screenshot = None
-            if self.enable_screenshot:
-                screenshot = await analyzer.capture_screenshot(
-                    url,
-                    quality=self.screenshot_quality,
-                    width=self.screenshot_width,
-                    full_page=self.screenshot_full_page,
-                    wait_time=self.screenshot_wait_time
-                )
-            
-            # 发送分析结果，根据配置决定是否使用合并转发
-            async for result in self._send_analysis_result(event, analysis_result, url, screenshot):
-                yield result
+            for url in urls:
+                try:
+                    # 抓取网页内容
+                    html = await analyzer.fetch_webpage(url)
+                    if not html:
+                        analysis_results.append({
+                            'url': url,
+                            'result': f"❌ 无法抓取网页内容: {url}",
+                            'screenshot': None
+                        })
+                        continue
+                    
+                    # 提取内容
+                    content_data = analyzer.extract_content(html, url)
+                    if not content_data:
+                        analysis_results.append({
+                            'url': url,
+                            'result': f"❌ 无法解析网页内容: {url}",
+                            'screenshot': None
+                        })
+                        continue
+                    
+                    # 调用LLM进行分析
+                    analysis_result = await self.analyze_with_llm(event, content_data)
+                    
+                    # 捕获截图
+                    screenshot = None
+                    if self.enable_screenshot:
+                        screenshot = await analyzer.capture_screenshot(
+                            url,
+                            quality=self.screenshot_quality,
+                            width=self.screenshot_width,
+                            full_page=self.screenshot_full_page,
+                            wait_time=self.screenshot_wait_time
+                        )
+                    
+                    analysis_results.append({
+                        'url': url,
+                        'result': analysis_result,
+                        'screenshot': screenshot
+                    })
+                except Exception as e:
+                    logger.error(f"处理URL {url} 时出错: {e}")
+                    analysis_results.append({
+                        'url': url,
+                        'result': f"❌ 处理URL时出错: {url}\n错误信息: {str(e)}",
+                        'screenshot': None
+                    })
+        
+        # 发送所有分析结果
+        async for result in self._send_analysis_result(event, analysis_results):
+            yield result
     
     async def analyze_with_llm(self, event: AstrMessageEvent, content_data: dict) -> str:
         """调用LLM进行内容分析和总结"""
@@ -479,7 +491,7 @@ class WebAnalyzerPlugin(Star):
                 link_emoji = "🔗" if self.enable_emoji else ""
                 title_emoji = "📝" if self.enable_emoji else ""
                 
-                formatted_result = f"**AI智能网页分析报告**\n\n"
+                formatted_result = "**AI智能网页分析报告**\n\n"
                 formatted_result += f"{link_emoji} **分析链接**: {url}\n"
                 formatted_result += f"{title_emoji} **网页标题**: {title}\n\n"
                 formatted_result += "---\n\n"
@@ -504,7 +516,6 @@ class WebAnalyzerPlugin(Star):
         
         # 详细的内容统计
         char_count = len(content)
-        line_count = len(content.split('\n'))
         word_count = len(content.split())
         
         # 智能内容类型检测
@@ -543,7 +554,7 @@ class WebAnalyzerPlugin(Star):
         if self.enable_emoji:
             result += f"**{info_emoji} 基本信息**\n"
         else:
-            result += f"**基本信息**\n"
+            result += "**基本信息**\n"
         result += f"- **标题**: {title}\n"
         result += f"- **链接**: {url}\n"
         result += f"- **内容类型**: {content_type}\n"
@@ -554,7 +565,7 @@ class WebAnalyzerPlugin(Star):
             if self.enable_emoji:
                 result += f"**{stats_emoji} 内容统计**\n"
             else:
-                result += f"**内容统计**\n"
+                result += "**内容统计**\n"
             result += f"- 字符数: {char_count:,}\n"
             result += f"- 段落数: {len(paragraphs)}\n"
             result += f"- 词数: {word_count:,}\n\n"
@@ -562,13 +573,13 @@ class WebAnalyzerPlugin(Star):
         if self.enable_emoji:
             result += f"**{search_emoji} 内容摘要**\n"
         else:
-            result += f"**内容摘要**\n"
+            result += "**内容摘要**\n"
         result += f"{chr(10).join(['• ' + sentence[:100] + ('...' if len(sentence) > 100 else '') for sentence in key_sentences])}\n\n"
         
         if self.enable_emoji:
             result += f"**{light_emoji} 分析说明**\n"
         else:
-            result += f"**分析说明**\n"
+            result += "**分析说明**\n"
         result += "此分析基于网页内容提取，如需更深入的AI智能分析，请确保AstrBot已正确配置LLM功能。\n\n"
         result += "*提示：完整内容预览请查看原始网页*"
         
@@ -735,7 +746,7 @@ class WebAnalyzerPlugin(Star):
         except Exception as e:
             logger.error(f"保存群聊黑名单失败: {e}")
     
-    async def _send_analysis_result(self, event, analysis_result, url, screenshot=None):
+    async def _send_analysis_result(self, event, analysis_results):
         '''发送分析结果，根据开关决定是否使用合并转发'''
         from astrbot.api.message_components import Node, Plain, Nodes, Image
         import tempfile
@@ -750,28 +761,44 @@ class WebAnalyzerPlugin(Star):
         
         # 如果是群聊消息且合并转发功能已启用，使用合并转发
         if group_id and self.merge_forward_enabled:
-            # 使用合并转发 - 将整个分析结果作为一个完整的节点发送
+            # 使用合并转发 - 将所有分析结果合并成一个合并转发消息
             nodes = []
             
-            # 添加标题节点
-            title_node = Node(
+            # 添加总标题节点
+            total_title_node = Node(
                 uin=event.get_sender_id(),
-                name="网页分析结果",
+                name="网页分析结果汇总",
                 content=[
-                    Plain(f"网页分析结果 - {url}")
+                    Plain(f"共{len(analysis_results)}个网页分析结果")
                 ]
             )
-            nodes.append(title_node)
+            nodes.append(total_title_node)
             
-            # 添加内容节点 - 整个分析结果作为一个节点，不分段
-            content_node = Node(
-                uin=event.get_sender_id(),
-                name="详细分析",
-                content=[
-                    Plain(analysis_result)
-                ]
-            )
-            nodes.append(content_node)
+            # 为每个URL添加分析结果节点
+            for i, result_data in enumerate(analysis_results, 1):
+                url = result_data['url']
+                analysis_result = result_data['result']
+                screenshot = result_data['screenshot']
+                
+                # 添加当前URL的标题节点
+                url_title_node = Node(
+                    uin=event.get_sender_id(),
+                    name=f"分析结果 {i}",
+                    content=[
+                        Plain(f"第{i}个网页分析结果 - {url}")
+                    ]
+                )
+                nodes.append(url_title_node)
+                
+                # 添加当前URL的内容节点
+                content_node = Node(
+                    uin=event.get_sender_id(),
+                    name="详细分析",
+                    content=[
+                        Plain(analysis_result)
+                    ]
+                )
+                nodes.append(content_node)
             
             # 使用Nodes包装所有节点，合并成一个合并转发消息
             merge_forward_message = Nodes(nodes)
@@ -779,56 +806,65 @@ class WebAnalyzerPlugin(Star):
             # 发送合并转发消息
             yield event.chain_result([merge_forward_message])
             
-            # 如果有截图，单独发送截图
-            if screenshot:
-                try:
-                    # 创建临时文件保存截图
-                    with tempfile.NamedTemporaryFile(suffix='.jpg', delete=False) as temp_file:
-                        temp_file.write(screenshot)
-                        temp_file_path = temp_file.name
-                    
-                    # 使用Image.fromFileSystem()方法发送图片
-                    image_component = Image.fromFileSystem(temp_file_path)
-                    yield event.chain_result([image_component])
-                    logger.info(f"群聊 {group_id} 使用合并转发发送分析结果，并发送截图")
-                    
-                    # 删除临时文件
-                    os.unlink(temp_file_path)
-                except Exception as e:
-                    logger.error(f"发送截图失败: {e}")
-                    # 确保临时文件被删除
-                    if 'temp_file_path' in locals() and os.path.exists(temp_file_path):
+            # 如果有截图，逐个发送截图
+            for result_data in analysis_results:
+                screenshot = result_data['screenshot']
+                if screenshot:
+                    try:
+                        # 创建临时文件保存截图
+                        with tempfile.NamedTemporaryFile(suffix='.jpg', delete=False) as temp_file:
+                            temp_file.write(screenshot)
+                            temp_file_path = temp_file.name
+                        
+                        # 使用Image.fromFileSystem()方法发送图片
+                        image_component = Image.fromFileSystem(temp_file_path)
+                        yield event.chain_result([image_component])
+                        logger.info(f"群聊 {group_id} 使用合并转发发送分析结果，并发送截图")
+                        
+                        # 删除临时文件
                         os.unlink(temp_file_path)
-            else:
-                logger.info(f"群聊 {group_id} 使用合并转发发送分析结果，不分段")
+                    except Exception as e:
+                        logger.error(f"发送截图失败: {e}")
+                        # 确保临时文件被删除
+                        if 'temp_file_path' in locals() and os.path.exists(temp_file_path):
+                            os.unlink(temp_file_path)
+            logger.info(f"群聊 {group_id} 使用合并转发发送{len(analysis_results)}个分析结果")
         else:
-            # 普通发送
-            result_text = f"网页分析结果：\n{analysis_result}"
-            yield event.plain_result(result_text)
-            
-            # 如果有截图，单独发送截图
-            if screenshot:
-                try:
-                    # 创建临时文件保存截图
-                    with tempfile.NamedTemporaryFile(suffix='.jpg', delete=False) as temp_file:
-                        temp_file.write(screenshot)
-                        temp_file_path = temp_file.name
-                    
-                    # 使用Image.fromFileSystem()方法发送图片
-                    image_component = Image.fromFileSystem(temp_file_path)
-                    yield event.chain_result([image_component])
-                    logger.info(f"普通发送分析结果，并发送截图")
-                    
-                    # 删除临时文件
-                    os.unlink(temp_file_path)
-                except Exception as e:
-                    logger.error(f"发送截图失败: {e}")
-                    # 确保临时文件被删除
-                    if 'temp_file_path' in locals() and os.path.exists(temp_file_path):
+            # 普通发送 - 逐个发送分析结果
+            for i, result_data in enumerate(analysis_results, 1):
+                url = result_data['url']
+                analysis_result = result_data['result']
+                screenshot = result_data['screenshot']
+                
+                # 发送分析结果文本
+                if len(analysis_results) == 1:
+                    result_text = f"网页分析结果：\n{analysis_result}"
+                else:
+                    result_text = f"第{i}/{len(analysis_results)}个网页分析结果：\n{analysis_result}"
+                yield event.plain_result(result_text)
+                
+                # 如果有截图，发送截图
+                if screenshot:
+                    try:
+                        # 创建临时文件保存截图
+                        with tempfile.NamedTemporaryFile(suffix='.jpg', delete=False) as temp_file:
+                            temp_file.write(screenshot)
+                            temp_file_path = temp_file.name
+                        
+                        # 使用Image.fromFileSystem()方法发送图片
+                        image_component = Image.fromFileSystem(temp_file_path)
+                        yield event.chain_result([image_component])
+                        logger.info("普通发送分析结果，并发送截图")
+                        
+                        # 删除临时文件
                         os.unlink(temp_file_path)
-            else:
-                message_type = "群聊" if group_id else "私聊"
-                logger.info(f"{message_type}消息普通发送分析结果")
+                    except Exception as e:
+                        logger.error(f"发送截图失败: {e}")
+                        # 确保临时文件被删除
+                        if 'temp_file_path' in locals() and os.path.exists(temp_file_path):
+                            os.unlink(temp_file_path)
+            message_type = "群聊" if group_id else "私聊"
+            logger.info(f"{message_type}消息普通发送{len(analysis_results)}个分析结果")
     
     async def terminate(self):
         """插件卸载时的清理工作"""
