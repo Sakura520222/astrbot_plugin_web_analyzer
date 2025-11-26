@@ -63,6 +63,36 @@
         "type": "int",
         "hint": "限制分析摘要的最大字符数",
         "default": 2000
+      },
+      "enable_screenshot": {
+        "description": "启用网页截图",
+        "type": "bool",
+        "hint": "在分析结果中包含网页截图",
+        "default": true
+      },
+      "screenshot_quality": {
+        "description": "截图质量",
+        "type": "int",
+        "hint": "网页截图的质量（0-100）",
+        "default": 80
+      },
+      "screenshot_width": {
+        "description": "截图宽度",
+        "type": "int",
+        "hint": "网页截图的宽度像素",
+        "default": 1280
+      },
+      "screenshot_full_page": {
+        "description": "截取整页",
+        "type": "bool",
+        "hint": "是否截取整个网页，而不仅仅是可见部分",
+        "default": false
+      },
+      "screenshot_wait_time": {
+        "description": "截图等待时间",
+        "type": "int",
+        "hint": "截图前等待页面加载的时间（毫秒）",
+        "default": 2000
       }
     }
   },

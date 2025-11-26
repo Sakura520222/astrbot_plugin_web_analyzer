@@ -26,6 +26,7 @@ class WebAnalyzer:
         self.timeout = timeout
         self.user_agent = user_agent or 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
         self.client = None
+        self.browser = None
     
     async def __aenter__(self):
         """异步上下文管理器入口"""
@@ -36,6 +37,8 @@ class WebAnalyzer:
         """异步上下文管理器出口"""
         if self.client:
             await self.client.aclose()
+        if self.browser:
+            await self.browser.close()
     
     def extract_urls(self, text: str) -> List[str]:
         """从文本中提取URL链接"""
@@ -118,6 +121,68 @@ class WebAnalyzer:
         except Exception as e:
             logger.error(f"解析网页内容失败: {e}")
             return None
+    
+    async def capture_screenshot(self, url: str, quality: int = 80, width: int = 1280, full_page: bool = False, wait_time: int = 2000) -> Optional[bytes]:
+        """捕获网页截图"""
+        try:
+            from playwright.async_api import async_playwright
+            import sys
+            import subprocess
+            
+            # 首先尝试安装浏览器（无论是否已安装，playwright install都会检查并更新）
+            logger.info("正在检查并安装浏览器...")
+            result = subprocess.run([sys.executable, "-m", "playwright", "install", "chromium"], 
+                                  capture_output=True, text=True)
+            
+            if result.returncode != 0:
+                logger.error(f"浏览器安装失败: {result.stderr}")
+                return None
+            
+            logger.info("浏览器安装成功，正在尝试截图...")
+            
+            # 尝试启动playwright并截图
+            async with async_playwright() as p:
+                # 启动浏览器（无头模式）
+                self.browser = await p.chromium.launch(
+                    headless=True,
+                    # 添加额外的启动参数，提高兼容性
+                    args=[
+                        '--no-sandbox',
+                        '--disable-setuid-sandbox',
+                        '--disable-dev-shm-usage',
+                        '--disable-gpu',
+                        '--remote-debugging-port=9222'
+                    ]
+                )
+                page = await self.browser.new_page(
+                    viewport={'width': width, 'height': 720},
+                    user_agent=self.user_agent
+                )
+                
+                # 导航到目标URL，使用更宽松的等待条件
+                await page.goto(url, wait_until='domcontentloaded', timeout=60000)
+                
+                # 等待指定时间，确保页面完全加载
+                await page.wait_for_timeout(wait_time)
+                
+                # 捕获截图
+                screenshot_bytes = await page.screenshot(
+                    full_page=full_page,
+                    quality=quality,
+                    type='jpeg'
+                )
+                
+                await self.browser.close()
+                self.browser = None
+                
+                logger.info("截图成功")
+                return screenshot_bytes
+        except Exception as e:
+            logger.error(f"捕获网页截图失败: {url}, 错误: {e}")
+            if self.browser:
+                await self.browser.close()
+                self.browser = None
+            return None
 
 
 from astrbot.api import AstrBotConfig
@@ -144,6 +209,12 @@ class WebAnalyzerPlugin(Star):
         self.enable_emoji = analysis_settings.get('enable_emoji', True)
         self.enable_statistics = analysis_settings.get('enable_statistics', True)
         self.max_summary_length = analysis_settings.get('max_summary_length', 2000)
+        # 截图设置
+        self.enable_screenshot = analysis_settings.get('enable_screenshot', True)
+        self.screenshot_quality = analysis_settings.get('screenshot_quality', 80)
+        self.screenshot_width = analysis_settings.get('screenshot_width', 1280)
+        self.screenshot_full_page = analysis_settings.get('screenshot_full_page', False)
+        self.screenshot_wait_time = analysis_settings.get('screenshot_wait_time', 2000)
         
         # LLM提供商配置
         self.llm_provider = config.get('llm_provider', '')
@@ -238,8 +309,19 @@ class WebAnalyzerPlugin(Star):
             # 调用LLM进行分析
             analysis_result = await self.analyze_with_llm(event, content_data)
             
+            # 捕获截图
+            screenshot = None
+            if self.enable_screenshot:
+                screenshot = await analyzer.capture_screenshot(
+                    url,
+                    quality=self.screenshot_quality,
+                    width=self.screenshot_width,
+                    full_page=self.screenshot_full_page,
+                    wait_time=self.screenshot_wait_time
+                )
+            
             # 发送分析结果，使用async for迭代异步生成器
-            async for result in self._send_analysis_result(event, analysis_result, url):
+            async for result in self._send_analysis_result(event, analysis_result, url, screenshot):
                 yield result
     
     @filter.event_message_type(filter.EventMessageType.ALL)
@@ -305,8 +387,19 @@ class WebAnalyzerPlugin(Star):
             # 调用LLM进行分析
             analysis_result = await self.analyze_with_llm(event, content_data)
             
+            # 捕获截图
+            screenshot = None
+            if self.enable_screenshot:
+                screenshot = await analyzer.capture_screenshot(
+                    url,
+                    quality=self.screenshot_quality,
+                    width=self.screenshot_width,
+                    full_page=self.screenshot_full_page,
+                    wait_time=self.screenshot_wait_time
+                )
+            
             # 发送分析结果，根据配置决定是否使用合并转发
-            async for result in self._send_analysis_result(event, analysis_result, url):
+            async for result in self._send_analysis_result(event, analysis_result, url, screenshot):
                 yield result
     
     async def analyze_with_llm(self, event: AstrMessageEvent, content_data: dict) -> str:
@@ -504,6 +597,11 @@ class WebAnalyzerPlugin(Star):
 - 启用emoji: {'✅ 已启用' if self.enable_emoji else '❌ 已禁用'}
 - 显示统计: {'✅ 已启用' if self.enable_statistics else '❌ 已禁用'}
 - 最大摘要长度: {self.max_summary_length} 字符
+- 启用截图: {'✅ 已启用' if self.enable_screenshot else '❌ 已禁用'}
+- 截图质量: {self.screenshot_quality}
+- 截图宽度: {self.screenshot_width}px
+- 截取整页: {'✅ 已启用' if self.screenshot_full_page else '❌ 已禁用'}
+- 截图等待时间: {self.screenshot_wait_time}ms
 
 **LLM配置**
 - 指定提供商: {self.llm_provider if self.llm_provider else '使用会话默认'}
@@ -637,9 +735,11 @@ class WebAnalyzerPlugin(Star):
         except Exception as e:
             logger.error(f"保存群聊黑名单失败: {e}")
     
-    async def _send_analysis_result(self, event, analysis_result, url):
+    async def _send_analysis_result(self, event, analysis_result, url, screenshot=None):
         '''发送分析结果，根据开关决定是否使用合并转发'''
-        from astrbot.api.message_components import Node, Plain, Nodes
+        from astrbot.api.message_components import Node, Plain, Nodes, Image
+        import tempfile
+        import os
         
         # 检查是否为群聊消息且合并转发功能已启用
         group_id = None
@@ -678,13 +778,57 @@ class WebAnalyzerPlugin(Star):
             
             # 发送合并转发消息
             yield event.chain_result([merge_forward_message])
-            logger.info(f"群聊 {group_id} 使用合并转发发送分析结果，不分段")
+            
+            # 如果有截图，单独发送截图
+            if screenshot:
+                try:
+                    # 创建临时文件保存截图
+                    with tempfile.NamedTemporaryFile(suffix='.jpg', delete=False) as temp_file:
+                        temp_file.write(screenshot)
+                        temp_file_path = temp_file.name
+                    
+                    # 使用Image.fromFileSystem()方法发送图片
+                    image_component = Image.fromFileSystem(temp_file_path)
+                    yield event.chain_result([image_component])
+                    logger.info(f"群聊 {group_id} 使用合并转发发送分析结果，并发送截图")
+                    
+                    # 删除临时文件
+                    os.unlink(temp_file_path)
+                except Exception as e:
+                    logger.error(f"发送截图失败: {e}")
+                    # 确保临时文件被删除
+                    if 'temp_file_path' in locals() and os.path.exists(temp_file_path):
+                        os.unlink(temp_file_path)
+            else:
+                logger.info(f"群聊 {group_id} 使用合并转发发送分析结果，不分段")
         else:
             # 普通发送
             result_text = f"网页分析结果：\n{analysis_result}"
             yield event.plain_result(result_text)
-            message_type = "群聊" if group_id else "私聊"
-            logger.info(f"{message_type}消息普通发送分析结果")
+            
+            # 如果有截图，单独发送截图
+            if screenshot:
+                try:
+                    # 创建临时文件保存截图
+                    with tempfile.NamedTemporaryFile(suffix='.jpg', delete=False) as temp_file:
+                        temp_file.write(screenshot)
+                        temp_file_path = temp_file.name
+                    
+                    # 使用Image.fromFileSystem()方法发送图片
+                    image_component = Image.fromFileSystem(temp_file_path)
+                    yield event.chain_result([image_component])
+                    logger.info(f"普通发送分析结果，并发送截图")
+                    
+                    # 删除临时文件
+                    os.unlink(temp_file_path)
+                except Exception as e:
+                    logger.error(f"发送截图失败: {e}")
+                    # 确保临时文件被删除
+                    if 'temp_file_path' in locals() and os.path.exists(temp_file_path):
+                        os.unlink(temp_file_path)
+            else:
+                message_type = "群聊" if group_id else "私聊"
+                logger.info(f"{message_type}消息普通发送分析结果")
     
     async def terminate(self):
         """插件卸载时的清理工作"""
