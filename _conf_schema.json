@@ -1,0 +1,93 @@
+{
+  "max_content_length": {
+    "description": "最大网页内容长度",
+    "type": "int",
+    "hint": "限制抓取的网页内容字符数，避免处理过大的网页",
+    "default": 10000
+  },
+  "request_timeout": {
+    "description": "请求超时时间(秒)",
+    "type": "int",
+    "hint": "网页请求的超时时间，超过该时间将放弃抓取",
+    "default": 30
+  },
+  "llm_enabled": {
+    "description": "启用LLM智能分析",
+    "type": "bool",
+    "hint": "是否启用大语言模型进行智能分析和总结",
+    "default": true
+  },
+  "auto_analyze": {
+    "description": "自动分析检测到的链接",
+    "type": "bool",
+    "hint": "是否自动分析消息中检测到的网页链接",
+    "default": true
+  },
+  "user_agent": {
+    "description": "自定义User-Agent",
+    "type": "string",
+    "hint": "自定义请求头中的User-Agent，用于绕过某些网站的访问限制",
+    "default": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+  },
+  "allowed_domains": {
+    "description": "允许的域名列表",
+    "type": "text",
+    "hint": "只分析指定域名的网页，每行一个域名（留空表示允许所有域名）",
+    "default": ""
+  },
+  "blocked_domains": {
+    "description": "禁止的域名列表",
+    "type": "text",
+    "hint": "不分析指定域名的网页，每行一个域名",
+    "default": ""
+  },
+  "analysis_settings": {
+    "description": "分析设置",
+    "type": "object",
+    "hint": "高级分析配置选项",
+    "items": {
+      "enable_emoji": {
+        "description": "启用emoji图标",
+        "type": "bool",
+        "hint": "在分析结果中使用emoji图标增强可读性",
+        "default": true
+      },
+      "enable_statistics": {
+        "description": "显示内容统计",
+        "type": "bool",
+        "hint": "在分析结果中显示字符数、段落数等统计信息",
+        "default": true
+      },
+      "max_summary_length": {
+        "description": "最大摘要长度",
+        "type": "int",
+        "hint": "限制分析摘要的最大字符数",
+        "default": 2000
+      }
+    }
+  },
+  "llm_provider": {
+    "description": "LLM提供商",
+    "type": "string",
+    "hint": "选择用于网页分析的LLM提供商",
+    "_special": "select_provider"
+  },
+  "group_blacklist": {
+    "description": "群聊黑名单",
+    "type": "text",
+    "hint": "在这些群聊中禁用自动分析功能，每行一个群号",
+    "default": ""
+  },
+  "merge_forward_enabled": {
+    "description": "启用合并转发功能",
+    "type": "bool",
+    "hint": "是否启用合并转发功能（仅群聊有效）",
+    "default": false
+  },
+  "custom_prompt": {
+    "description": "自定义分析提示词",
+    "type": "text",
+    "hint": "自定义LLM分析提示词模板，可使用变量：{title}、{url}、{content}、{max_length}",
+    "default": ""
+  }
+}

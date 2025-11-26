@@ -1,0 +1,4 @@
+# 网页分析插件依赖
+httpx>=0.24.0
+beautifulsoup4>=4.12.0
+lxml>=4.9.0
