@@ -852,6 +852,230 @@ class WebAnalyzerPlugin(Star):
         else:
             yield event.plain_result("无效的操作，请使用: clear")
     
+    @filter.command("web_export", alias={'导出分析结果', '网页导出'})
+    async def export_analysis_result(self, event: AstrMessageEvent):
+        """导出分析结果，支持Markdown、JSON等格式"""
+        # 解析命令参数
+        message_parts = event.message_str.strip().split()
+        
+        # 检查参数
+        if len(message_parts) < 2:
+            yield event.plain_result("请提供要导出的URL链接和格式，例如：/web_export https://example.com md 或 /web_export all json")
+            return
+        
+        url_or_all = message_parts[1]
+        format_type = message_parts[2] if len(message_parts) > 2 else "md"
+        
+        # 验证格式类型
+        supported_formats = ["md", "markdown", "json", "txt"]
+        if format_type.lower() not in supported_formats:
+            yield event.plain_result(f"不支持的格式类型，请使用：{', '.join(supported_formats)}")
+            return
+        
+        # 准备导出数据
+        export_results = []
+        
+        if url_or_all.lower() == "all":
+            # 导出所有缓存的分析结果
+            if not self.cache:
+                yield event.plain_result("当前没有缓存的分析结果")
+                return
+            
+            for url, cache_data in self.cache.items():
+                export_results.append({
+                    "url": url,
+                    "result": cache_data["result"]
+                })
+        else:
+            # 导出指定URL的分析结果
+            url = url_or_all
+            
+            # 检查URL是否有效
+            if not self.analyzer.is_valid_url(url):
+                yield event.plain_result("无效的URL链接")
+                return
+            
+            # 检查缓存中是否有该URL的分析结果
+            cached_result = self._check_cache(url)
+            if cached_result:
+                export_results.append({
+                    "url": url,
+                    "result": cached_result
+                })
+            else:
+                # 如果缓存中没有，先进行分析
+                yield event.plain_result(f"缓存中没有该URL的分析结果，正在进行分析...")
+                
+                # 抓取并分析网页
+                async with WebAnalyzer(self.max_content_length, self.timeout, self.user_agent) as analyzer:
+                    html = await analyzer.fetch_webpage(url)
+                    if not html:
+                        yield event.plain_result(f"无法抓取网页内容: {url}")
+                        return
+                    
+                    content_data = analyzer.extract_content(html, url)
+                    if not content_data:
+                        yield event.plain_result(f"无法解析网页内容: {url}")
+                        return
+                    
+                    # 调用LLM进行分析
+                    if self.enable_translation:
+                        translated_content = await self._translate_content(event, content_data['content'])
+                        translated_content_data = content_data.copy()
+                        translated_content_data['content'] = translated_content
+                        analysis_result = await self.analyze_with_llm(event, translated_content_data)
+                    else:
+                        analysis_result = await self.analyze_with_llm(event, content_data)
+                    
+                    # 提取特定内容
+                    specific_content = self._extract_specific_content(html, url)
+                    if specific_content:
+                        # 在分析结果中添加特定内容
+                        specific_content_str = "\n\n**特定内容提取**\n"
+                        
+                        if 'images' in specific_content and specific_content['images']:
+                            specific_content_str += f"\n📷 图片链接 ({len(specific_content['images'])}):\n"
+                            for img_url in specific_content['images']:
+                                specific_content_str += f"- {img_url}\n"
+                        
+                        if 'links' in specific_content and specific_content['links']:
+                            specific_content_str += f"\n🔗 相关链接 ({len(specific_content['links'])}):\n"
+                            for link in specific_content['links'][:5]:  # 只显示前5个链接
+                                specific_content_str += f"- [{link['text']}]({link['url']})\n"
+                        
+                        if 'code_blocks' in specific_content and specific_content['code_blocks']:
+                            specific_content_str += f"\n💻 代码块 ({len(specific_content['code_blocks'])}):\n"
+                            for i, code in enumerate(specific_content['code_blocks'][:2]):  # 只显示前2个代码块
+                                specific_content_str += f"```\n{code}\n```\n"
+                        
+                        analysis_result += specific_content_str
+                    
+                    # 准备导出数据
+                    export_results.append({
+                        "url": url,
+                        "result": {
+                            "url": url,
+                            "result": analysis_result,
+                            "screenshot": None
+                        }
+                    })
+        
+        # 执行导出
+        try:
+            import os
+            import json
+            import tempfile
+            import time
+            
+            # 创建data目录（如果不存在）
+            data_dir = os.path.join(os.path.dirname(__file__), "data")
+            os.makedirs(data_dir, exist_ok=True)
+            
+            # 生成文件名
+            timestamp = int(time.time())
+            if len(export_results) == 1:
+                # 单个URL导出
+                url = export_results[0]["url"]
+                # 从URL中提取域名作为文件名的一部分
+                from urllib.parse import urlparse
+                parsed = urlparse(url)
+                domain = parsed.netloc.replace(".", "_")
+                filename = f"web_analysis_{domain}_{timestamp}"
+            else:
+                # 多个URL导出
+                filename = f"web_analysis_all_{timestamp}"
+            
+            # 根据格式生成文件内容
+            file_extension = format_type.lower()
+            if file_extension == "markdown":
+                file_extension = "md"
+            
+            file_path = os.path.join(data_dir, f"{filename}.{file_extension}")
+            
+            if format_type.lower() in ["md", "markdown"]:
+                # 生成Markdown格式内容
+                md_content = "# 网页分析结果导出\n\n"
+                md_content += f"导出时间: {time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(timestamp))}\n\n"
+                md_content += f"共 {len(export_results)} 个分析结果\n\n"
+                md_content += "---\n\n"
+                
+                for i, export_item in enumerate(export_results, 1):
+                    url = export_item["url"]
+                    result_data = export_item["result"]
+                    
+                    md_content += f"## {i}. {url}\n\n"
+                    md_content += result_data["result"]
+                    md_content += "\n\n"
+                    md_content += "---\n\n"
+                
+                # 写入文件
+                with open(file_path, "w", encoding="utf-8") as f:
+                    f.write(md_content)
+            
+            elif format_type.lower() == "json":
+                # 生成JSON格式内容
+                json_data = {
+                    "export_time": timestamp,
+                    "export_time_str": time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(timestamp)),
+                    "total_results": len(export_results),
+                    "results": []
+                }
+                
+                for export_item in export_results:
+                    url = export_item["url"]
+                    result_data = export_item["result"]
+                    
+                    json_data["results"].append({
+                        "url": url,
+                        "analysis_result": result_data["result"],
+                        "has_screenshot": result_data["screenshot"] is not None
+                    })
+                
+                # 写入文件
+                with open(file_path, "w", encoding="utf-8") as f:
+                    json.dump(json_data, f, ensure_ascii=False, indent=2)
+            
+            elif format_type.lower() == "txt":
+                # 生成纯文本格式内容
+                txt_content = f"网页分析结果导出\n"
+                txt_content += f"导出时间: {time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(timestamp))}\n"
+                txt_content += f"共 {len(export_results)} 个分析结果\n"
+                txt_content += "=" * 50 + "\n\n"
+                
+                for i, export_item in enumerate(export_results, 1):
+                    url = export_item["url"]
+                    result_data = export_item["result"]
+                    
+                    txt_content += f"{i}. {url}\n"
+                    txt_content += "-" * 30 + "\n"
+                    txt_content += result_data["result"]
+                    txt_content += "\n\n"
+                    txt_content += "=" * 50 + "\n\n"
+                
+                # 写入文件
+                with open(file_path, "w", encoding="utf-8") as f:
+                    f.write(txt_content)
+            
+            # 发送导出成功消息，并附带导出文件
+            from astrbot.api.message_components import Plain, File
+            
+            # 构建消息链
+            message_chain = [
+                Plain(f"✅ 分析结果导出成功！\n\n"),
+                Plain(f"导出格式: {format_type}\n"),
+                Plain(f"导出数量: {len(export_results)}\n\n"),
+                Plain("📁 导出文件：\n"),
+                File(file=file_path, name=os.path.basename(file_path))
+            ]
+            
+            yield event.chain_result(message_chain)
+            
+            logger.info(f"成功导出 {len(export_results)} 个分析结果到 {file_path}，并发送给用户")
+        
+        except Exception as e:
+            logger.error(f"导出分析结果失败: {e}")
+            yield event.plain_result(f"❌ 导出分析结果失败: {str(e)}")
+    
     def _save_group_blacklist(self):
         """保存群聊黑名单到配置"""
         try:
