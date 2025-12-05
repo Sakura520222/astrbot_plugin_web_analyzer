@@ -164,7 +164,7 @@
 - **llm_enabled**: 启用LLM智能分析（默认：true）
 - **auto_analyze**: 自动分析检测到的链接（默认：true）
 - **user_agent**: 自定义User-Agent
-- **proxy**: HTTP代理配置，格式为http://username:password@host:port，留空表示不使用代理
+- **proxy**: HTTP代理配置，格式为http://username:password@host:port ，留空表示不使用代理
 
 ### 域名控制
 
