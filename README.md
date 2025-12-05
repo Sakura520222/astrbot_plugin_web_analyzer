@@ -23,11 +23,15 @@
 - 🔄 **请求重试机制**: 自动重试失败的请求，提高抓取成功率
 - ✅ **配置验证**: 自动验证配置项的有效性，确保插件稳定运行
 
+## Star
+
+[![Star History Chart](https://api.star-history.com/svg?repos=Sakura520222/astrbot_plugin_web_analyzer&type=Date)](https://star-history.com/#Sakura520222/astrbot_plugin_web_analyzer&Date)
+
 ## 安装方法
 
 1. 将插件目录复制到AstrBot的插件目录：
    ```bash
-   cp -r astrbot_plugin_web_analyzer /AstrBot/data/plugins/
+   AstrBot/data/plugins/
    ```
 
 2. 安装依赖：
@@ -164,7 +168,7 @@
 - **llm_enabled**: 启用LLM智能分析（默认：true）
 - **auto_analyze**: 自动分析检测到的链接（默认：true）
 - **user_agent**: 自定义User-Agent
-- **proxy**: HTTP代理配置，格式为http://username:password@host:port，留空表示不使用代理
+- **proxy**: HTTP代理配置，格式为http://username:password@host:port ，留空表示不使用代理
 
 ### 域名控制
 
@@ -335,4 +339,4 @@
 
 ## 许可证
 
-MIT License
+本项目采用 [MIT License](LICENSE) 开源协议。
