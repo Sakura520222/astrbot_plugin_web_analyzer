@@ -113,25 +113,22 @@ class WebAnalyzerPlugin(Star):
         super().__init__(context)
         self.config = config
 
-        # 基本配置加载与验证
+        # 网络设置加载与验证
+        network_settings = config.get("network_settings", {})
         # 最大内容长度：限制抓取的网页内容大小，避免内存占用过高
-        self.max_content_length = max(1000, config.get("max_content_length", 10000))
+        self.max_content_length = max(1000, network_settings.get("max_content_length", 10000))
         # 请求超时时间：设置合理的超时范围，避免请求过长时间阻塞
-        self.timeout = max(5, min(300, config.get("request_timeout", 30)))
+        self.timeout = max(5, min(300, network_settings.get("request_timeout", 30)))
         # 重试次数：请求失败时的重试次数
-        self.retry_count = max(0, min(10, config.get("retry_count", 3)))
+        self.retry_count = max(0, min(10, network_settings.get("retry_count", 3)))
         # 重试延迟：每次重试之间的等待时间
-        self.retry_delay = max(0, min(10, config.get("retry_delay", 2)))
-        # 是否启用LLM分析：控制是否调用大语言模型进行智能分析
-        self.llm_enabled = bool(config.get("llm_enabled", True))
-        # 是否自动分析：控制是否自动识别消息中的链接并分析
-        self.auto_analyze = bool(config.get("auto_analyze", True))
+        self.retry_delay = max(0, min(10, network_settings.get("retry_delay", 2)))
         # 用户代理：用于模拟浏览器请求，避免被网站封禁
-        self.user_agent = config.get(
+        self.user_agent = network_settings.get(
             "user_agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
         )
         # 代理设置：用于网络代理，加速或绕过网络限制
-        self.proxy = config.get("proxy", "")
+        self.proxy = network_settings.get("proxy", "")
 
         # 验证代理格式是否正确
         if self.proxy:
@@ -146,16 +143,20 @@ class WebAnalyzerPlugin(Star):
                 logger.warning(f"解析代理失败: {self.proxy}，将忽略代理设置，错误: {e}")
                 self.proxy = ""
 
+        # 域名设置加载与验证
+        domain_settings = config.get("domain_settings", {})
         # 解析允许和禁止的域名列表
         self.allowed_domains = self._parse_domain_list(
-            config.get("allowed_domains", "")
+            domain_settings.get("allowed_domains", "")
         )
         self.blocked_domains = self._parse_domain_list(
-            config.get("blocked_domains", "")
+            domain_settings.get("blocked_domains", "")
         )
 
         # 分析设置验证
         analysis_settings = config.get("analysis_settings", {})
+        # 是否自动分析检测到的链接
+        self.auto_analyze = bool(analysis_settings.get("auto_analyze", True))
         # 是否在结果中使用emoji
         self.enable_emoji = bool(analysis_settings.get("enable_emoji", True))
         # 是否显示内容统计信息
@@ -164,36 +165,6 @@ class WebAnalyzerPlugin(Star):
         self.max_summary_length = max(
             500, min(10000, analysis_settings.get("max_summary_length", 2000))
         )
-
-        # 截图设置验证
-        self.enable_screenshot = bool(analysis_settings.get("enable_screenshot", True))
-        # 截图质量：控制截图的清晰度和文件大小
-        self.screenshot_quality = max(
-            10, min(100, analysis_settings.get("screenshot_quality", 80))
-        )
-        # 截图宽度和高度：控制截图的分辨率
-        self.screenshot_width = max(
-            320, min(4096, analysis_settings.get("screenshot_width", 1280))
-        )
-        self.screenshot_height = max(
-            240, min(4096, analysis_settings.get("screenshot_height", 720))
-        )
-        # 是否截取整页：控制是否截取完整的网页内容
-        self.screenshot_full_page = bool(
-            analysis_settings.get("screenshot_full_page", False)
-        )
-        # 截图等待时间：页面加载完成后等待的时间，确保内容完整显示
-        self.screenshot_wait_time = max(
-            0, min(10000, analysis_settings.get("screenshot_wait_time", 2000))
-        )
-
-        # 验证截图格式是否支持
-        screenshot_format = analysis_settings.get("screenshot_format", "jpeg").lower()
-        if screenshot_format not in ["jpeg", "png"]:
-            logger.warning(f"无效的截图格式: {screenshot_format}，将使用默认格式 jpeg")
-            self.screenshot_format = "jpeg"
-        else:
-            self.screenshot_format = screenshot_format
 
         # 发送内容类型设置
         self.send_content_type = analysis_settings.get("send_content_type", "both")
@@ -204,15 +175,55 @@ class WebAnalyzerPlugin(Star):
             )
             self.send_content_type = "both"
 
-        # LLM提供商配置：指定使用的大语言模型提供商
-        self.llm_provider = config.get("llm_provider", "")
+        # 截图设置验证
+        screenshot_settings = config.get("screenshot_settings", {})
+        # 是否启用网页截图
+        self.enable_screenshot = bool(screenshot_settings.get("enable_screenshot", True))
+        # 截图质量：控制截图的清晰度和文件大小
+        self.screenshot_quality = max(
+            10, min(100, screenshot_settings.get("screenshot_quality", 80))
+        )
+        # 截图宽度和高度：控制截图的分辨率
+        self.screenshot_width = max(
+            320, min(4096, screenshot_settings.get("screenshot_width", 1280))
+        )
+        self.screenshot_height = max(
+            240, min(4096, screenshot_settings.get("screenshot_height", 720))
+        )
+        # 是否截取整页：控制是否截取完整的网页内容
+        self.screenshot_full_page = bool(
+            screenshot_settings.get("screenshot_full_page", False)
+        )
+        # 截图等待时间：页面加载完成后等待的时间，确保内容完整显示
+        self.screenshot_wait_time = max(
+            0, min(10000, screenshot_settings.get("screenshot_wait_time", 2000))
+        )
 
+        # 验证截图格式是否支持
+        screenshot_format = screenshot_settings.get("screenshot_format", "jpeg").lower()
+        if screenshot_format not in ["jpeg", "png"]:
+            logger.warning(f"无效的截图格式: {screenshot_format}，将使用默认格式 jpeg")
+            self.screenshot_format = "jpeg"
+        else:
+            self.screenshot_format = screenshot_format
+
+        # LLM设置加载与验证
+        llm_settings = config.get("llm_settings", {})
+        # 是否启用LLM智能分析
+        self.llm_enabled = bool(llm_settings.get("llm_enabled", True))
+        # LLM提供商配置：指定使用的大语言模型提供商
+        self.llm_provider = llm_settings.get("llm_provider", "")
+        # 自定义提示词配置：允许用户自定义LLM分析的提示词
+        self.custom_prompt = llm_settings.get("custom_prompt", "")
+
+        # 群聊设置加载与验证
+        group_settings = config.get("group_settings", {})
         # 群聊黑名单配置：用于控制哪些群聊不允许使用插件
-        group_blacklist_text = config.get("group_blacklist", "")
+        group_blacklist_text = group_settings.get("group_blacklist", "")
         self.group_blacklist = self._parse_group_list(group_blacklist_text)
 
         # 合并转发配置：控制是否使用合并转发功能发送分析结果
-        merge_forward_config = config.get("merge_forward_enabled", {})
+        merge_forward_config = config.get("merge_forward_settings", {})
         self.merge_forward_enabled = {
             "group": bool(merge_forward_config.get("group", False)),
             "private": bool(merge_forward_config.get("private", False)),
@@ -220,9 +231,6 @@ class WebAnalyzerPlugin(Star):
                 merge_forward_config.get("include_screenshot", False)
             ),
         }
-
-        # 自定义提示词配置：允许用户自定义LLM分析的提示词
-        self.custom_prompt = config.get("custom_prompt", "")
 
         # 翻译设置验证：控制是否自动翻译网页内容
         translation_settings = config.get("translation_settings", {})
@@ -1614,15 +1622,19 @@ class WebAnalyzerPlugin(Star):
 
         功能说明：
         - 将群聊ID列表转换为换行分隔的文本
-        - 更新配置文件中的group_blacklist字段
+        - 更新配置文件中的group_settings.group_blacklist字段
         - 保存配置更改
         - 处理保存过程中可能出现的异常
         """
         try:
             # 将群聊列表转换为文本格式，每行一个群聊ID
             group_text = "\n".join(self.group_blacklist)
+            # 获取当前group_settings配置
+            group_settings = self.config.get("group_settings", {})
+            # 更新group_blacklist
+            group_settings["group_blacklist"] = group_text
             # 更新配置并保存到文件
-            self.config["group_blacklist"] = group_text
+            self.config["group_settings"] = group_settings
             self.config.save_config()
         except Exception as e:
             logger.error(f"保存群聊黑名单失败: {e}")

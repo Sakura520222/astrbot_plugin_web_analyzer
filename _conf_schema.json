@@ -1,69 +1,77 @@
 {
-  "max_content_length": {
-    "description": "最大网页内容长度",
-    "type": "int",
-    "hint": "限制抓取的网页内容字符数，避免处理过大的网页",
-    "default": 10000
+  "network_settings": {
+    "description": "网络请求设置",
+    "type": "object",
+    "hint": "网页请求相关配置选项",
+    "items": {
+      "max_content_length": {
+        "description": "最大网页内容长度",
+        "type": "int",
+        "hint": "限制抓取的网页内容字符数，避免处理过大的网页",
+        "default": 10000
+      },
+      "request_timeout": {
+        "description": "请求超时时间(秒)",
+        "type": "int",
+        "hint": "网页请求的超时时间，超过该时间将放弃抓取",
+        "default": 30
+      },
+      "retry_count": {
+        "description": "请求重试次数",
+        "type": "int",
+        "hint": "网页请求失败后的重试次数",
+        "default": 3
+      },
+      "retry_delay": {
+        "description": "请求重试间隔(秒)",
+        "type": "int",
+        "hint": "网页请求失败后，重试前的等待时间",
+        "default": 2
+      },
+      "user_agent": {
+        "description": "自定义User-Agent",
+        "type": "string",
+        "hint": "自定义请求头中的User-Agent，用于绕过某些网站的访问限制",
+        "default": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+      },
+      "proxy": {
+        "description": "HTTP代理配置",
+        "type": "string",
+        "hint": "HTTP代理地址，格式为http://username:password@host:port，留空表示不使用代理",
+        "default": ""
+      }
+    }
   },
-  "request_timeout": {
-    "description": "请求超时时间(秒)",
-    "type": "int",
-    "hint": "网页请求的超时时间，超过该时间将放弃抓取",
-    "default": 30
-  },
-  "retry_count": {
-    "description": "请求重试次数",
-    "type": "int",
-    "hint": "网页请求失败后的重试次数",
-    "default": 3
-  },
-  "retry_delay": {
-    "description": "请求重试间隔(秒)",
-    "type": "int",
-    "hint": "网页请求失败后，重试前的等待时间",
-    "default": 2
-  },
-  "llm_enabled": {
-    "description": "启用LLM智能分析",
-    "type": "bool",
-    "hint": "是否启用大语言模型进行智能分析和总结",
-    "default": true
-  },
-  "auto_analyze": {
-    "description": "自动分析检测到的链接",
-    "type": "bool",
-    "hint": "是否自动分析消息中检测到的网页链接",
-    "default": true
-  },
-  "user_agent": {
-    "description": "自定义User-Agent",
-    "type": "string",
-    "hint": "自定义请求头中的User-Agent，用于绕过某些网站的访问限制",
-    "default": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
-  },
-  "proxy": {
-    "description": "HTTP代理配置",
-    "type": "string",
-    "hint": "HTTP代理地址，格式为http://username:password@host:port，留空表示不使用代理",
-    "default": ""
-  },
-  "allowed_domains": {
-    "description": "允许的域名列表",
-    "type": "text",
-    "hint": "只分析指定域名的网页，每行一个域名（留空表示允许所有域名）",
-    "default": ""
-  },
-  "blocked_domains": {
-    "description": "禁止的域名列表",
-    "type": "text",
-    "hint": "不分析指定域名的网页，每行一个域名",
-    "default": ""
+  "domain_settings": {
+    "description": "域名管理设置",
+    "type": "object",
+    "hint": "控制允许和禁止分析的域名",
+    "items": {
+      "allowed_domains": {
+        "description": "允许的域名列表",
+        "type": "text",
+        "hint": "只分析指定域名的网页，每行一个域名（留空表示允许所有域名）",
+        "default": ""
+      },
+      "blocked_domains": {
+        "description": "禁止的域名列表",
+        "type": "text",
+        "hint": "不分析指定域名的网页，每行一个域名",
+        "default": ""
+      }
+    }
   },
   "analysis_settings": {
     "description": "分析设置",
     "type": "object",
-    "hint": "高级分析配置选项",
+    "hint": "网页分析相关配置选项",
     "items": {
+      "auto_analyze": {
+        "description": "自动分析检测到的链接",
+        "type": "bool",
+        "hint": "是否自动分析消息中检测到的网页链接",
+        "default": true
+      },
       "enable_emoji": {
         "description": "启用emoji图标",
         "type": "bool",
@@ -82,6 +90,21 @@
         "hint": "限制分析摘要的最大字符数",
         "default": 2000
       },
+      "send_content_type": {
+        "description": "发送内容类型",
+        "type": "string",
+        "hint": "允许自定义发送的内容类型：both（分析结果+截图）、analysis_only（仅分析结果）、screenshot_only（仅截图）",
+        "default": "both",
+        "_special": "select",
+        "options": ["both", "analysis_only", "screenshot_only"]
+      }
+    }
+  },
+  "screenshot_settings": {
+    "description": "截图设置",
+    "type": "object",
+    "hint": "网页截图相关配置选项",
+    "items": {
       "enable_screenshot": {
         "description": "启用网页截图",
         "type": "bool",
@@ -100,6 +123,12 @@
         "hint": "网页截图的宽度像素",
         "default": 1280
       },
+      "screenshot_height": {
+        "description": "截图高度",
+        "type": "int",
+        "hint": "网页截图的高度像素",
+        "default": 720
+      },
       "screenshot_full_page": {
         "description": "截取整页",
         "type": "bool",
@@ -112,70 +141,38 @@
         "hint": "截图前等待页面加载的时间（毫秒）",
         "default": 2000
       },
-      "screenshot_height": {
-        "description": "截图高度",
-        "type": "int",
-        "hint": "网页截图的高度像素",
-        "default": 720
-      },
       "screenshot_format": {
         "description": "截图格式",
         "type": "string",
         "hint": "网页截图的格式，支持jpeg和png",
         "default": "jpeg"
-      },
-      "send_content_type": {
-        "description": "发送内容类型",
-        "type": "string",
-        "hint": "允许自定义发送的内容类型：both（分析结果+截图）、analysis_only（仅分析结果）、screenshot_only（仅截图）",
-        "default": "both",
-        "_special": "select",
-        "options": ["both", "analysis_only", "screenshot_only"]
       }
     }
   },
-  "llm_provider": {
-    "description": "LLM提供商",
-    "type": "string",
-    "hint": "选择用于网页分析的LLM提供商",
-    "_special": "select_provider"
-  },
-  "group_blacklist": {
-    "description": "群聊黑名单",
-    "type": "text",
-    "hint": "在这些群聊中禁用自动分析功能，每行一个群号",
-    "default": ""
-  },
-  "merge_forward_enabled": {
-    "description": "合并转发功能设置",
+  "llm_settings": {
+    "description": "LLM设置",
     "type": "object",
-    "hint": "分别控制群聊和私聊是否启用合并转发功能",
+    "hint": "大语言模型相关配置选项",
     "items": {
-      "group": {
-        "description": "群聊启用合并转发",
+      "llm_enabled": {
+        "description": "启用LLM智能分析",
         "type": "bool",
-        "hint": "是否在群聊中启用合并转发功能",
-        "default": false
+        "hint": "是否启用大语言模型进行智能分析和总结",
+        "default": true
       },
-      "private": {
-        "description": "私聊启用合并转发",
-        "type": "bool",
-        "hint": "是否在私聊中启用合并转发功能",
-        "default": false
+      "llm_provider": {
+        "description": "LLM提供商",
+        "type": "string",
+        "hint": "选择用于网页分析的LLM提供商",
+        "_special": "select_provider"
       },
-      "include_screenshot": {
-        "description": "合并转发包含截图",
-        "type": "bool",
-        "hint": "是否将截图合并到转发消息中，而不是单独发送",
-        "default": false
+      "custom_prompt": {
+        "description": "自定义分析提示词",
+        "type": "text",
+        "hint": "自定义LLM分析提示词模板，可使用变量：{title}、{url}、{content}、{max_length}",
+        "default": ""
       }
     }
-  },
-  "custom_prompt": {
-    "description": "自定义分析提示词",
-    "type": "text",
-    "hint": "自定义LLM分析提示词模板，可使用变量：{title}、{url}、{content}、{max_length}",
-    "default": ""
   },
   "translation_settings": {
     "description": "翻译设置",
@@ -249,6 +246,44 @@
         "type": "text",
         "hint": "要提取的特定内容类型，每行一个，支持：title, content, images, links, tables, lists, code",
         "default": "title\ncontent"
+      }
+    }
+  },
+  "merge_forward_settings": {
+    "description": "合并转发设置",
+    "type": "object",
+    "hint": "消息合并转发相关配置选项",
+    "items": {
+      "group": {
+        "description": "群聊启用合并转发",
+        "type": "bool",
+        "hint": "是否在群聊中启用合并转发功能",
+        "default": false
+      },
+      "private": {
+        "description": "私聊启用合并转发",
+        "type": "bool",
+        "hint": "是否在私聊中启用合并转发功能",
+        "default": false
+      },
+      "include_screenshot": {
+        "description": "合并转发包含截图",
+        "type": "bool",
+        "hint": "是否将截图合并到转发消息中，而不是单独发送",
+        "default": false
+      }
+    }
+  },
+  "group_settings": {
+    "description": "群聊设置",
+    "type": "object",
+    "hint": "群聊相关配置选项",
+    "items": {
+      "group_blacklist": {
+        "description": "群聊黑名单",
+        "type": "text",
+        "hint": "在这些群聊中禁用自动分析功能，每行一个群号",
+        "default": ""
       }
     }
   }

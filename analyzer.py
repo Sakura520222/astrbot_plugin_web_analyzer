@@ -307,13 +307,15 @@ class WebAnalyzer:
                 # 启动浏览器（无头模式，不显示GUI）
                 browser = await p.chromium.launch(
                     headless=True,
+                    # 增加浏览器启动超时时间到60秒
+                    timeout=20000,
                     # 添加额外的启动参数，提高兼容性和稳定性
                     args=[
                         "--no-sandbox",  # 禁用沙箱，提高兼容性
                         "--disable-setuid-sandbox",  # 禁用setuid沙箱
                         "--disable-dev-shm-usage",  # 禁用/dev/shm使用
                         "--disable-gpu",  # 禁用GPU加速
-                        "--remote-debugging-port=9222",  # 启用远程调试端口
+                        # 移除固定端口，让playwright自动分配可用端口
                     ],
                 )
 

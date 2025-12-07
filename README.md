@@ -1,8 +1,19 @@
 # AstrBot 网页分析插件
 
+[![License](https://img.shields.io/github/license/Sakura520222/astrbot_plugin_web_analyzer)](https://github.com/Sakura520222/astrbot_plugin_web_analyzer/blob/main/LICENSE)
+[![Python Version](https://img.shields.io/badge/python-3.8%2B-blue)](https://www.python.org/)
+[![Version](https://img.shields.io/github/v/release/Sakura520222/astrbot_plugin_web_analyzer?include_prereleases)](https://github.com/Sakura520222/astrbot_plugin_web_analyzer/releases)
+[![Last Commit](https://img.shields.io/github/last-commit/Sakura520222/astrbot_plugin_web_analyzer)](https://github.com/Sakura520222/astrbot_plugin_web_analyzer/commits/main)
+[![Dependencies](https://img.shields.io/badge/dependencies-up%20to%20date-brightgreen)](https://github.com/Sakura520222/astrbot_plugin_web_analyzer/blob/main/requirements.txt)
+[![GitHub Stars](https://img.shields.io/github/stars/Sakura520222/astrbot_plugin_web_analyzer?style=social)](https://github.com/Sakura520222/astrbot_plugin_web_analyzer/stargazers)
+[![GitHub Forks](https://img.shields.io/github/forks/Sakura520222/astrbot_plugin_web_analyzer?style=social)](https://github.com/Sakura520222/astrbot_plugin_web_analyzer/network/members)
+
 这是一个AstrBot插件，能够自动识别用户发送的网页链接，抓取网页内容并调用LLM进行分析和总结，同时支持网页截图功能。
 
 ## 更新日志
+
+> [⚠警告]
+> **v1.2.4版本重要更新**：配置文件结构已发生改变，请在AstrBot管理面板中重新设置所有配置项。
 
 详见 [更新日志](CHANGELOG.md) 文件。
 
