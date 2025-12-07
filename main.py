@@ -195,6 +195,15 @@ class WebAnalyzerPlugin(Star):
         else:
             self.screenshot_format = screenshot_format
 
+        # 发送内容类型设置
+        self.send_content_type = analysis_settings.get("send_content_type", "both")
+        # 验证发送内容类型是否有效
+        if self.send_content_type not in ["both", "analysis_only", "screenshot_only"]:
+            logger.warning(
+                f"无效的发送内容类型: {self.send_content_type}，将使用默认值 both"
+            )
+            self.send_content_type = "both"
+
         # LLM提供商配置：指定使用的大语言模型提供商
         self.llm_provider = config.get("llm_provider", "")
 
@@ -685,9 +694,9 @@ class WebAnalyzerPlugin(Star):
                 # 将特定内容添加到分析结果中
                 analysis_result += specific_content_str
 
-            # 如果启用了截图功能，捕获网页截图
+            # 根据发送内容类型决定是否需要生成截图
             screenshot = None
-            if self.enable_screenshot:
+            if self.enable_screenshot and self.send_content_type != "analysis_only":
                 screenshot = await analyzer.capture_screenshot(
                     url,
                     quality=self.screenshot_quality,
@@ -1073,6 +1082,7 @@ class WebAnalyzerPlugin(Star):
 - 启用emoji: {"✅ 已启用" if self.enable_emoji else "❌ 已禁用"}
 - 显示统计: {"✅ 已启用" if self.enable_statistics else "❌ 已禁用"}
 - 最大摘要长度: {self.max_summary_length} 字符
+- 发送内容类型: {self.send_content_type}
 - 启用截图: {"✅ 已启用" if self.enable_screenshot else "❌ 已禁用"}
 - 截图质量: {self.screenshot_quality}
 - 截图宽度: {self.screenshot_width}px
@@ -1793,14 +1803,12 @@ class WebAnalyzerPlugin(Star):
                     )
                     nodes.append(url_title_node)
 
-                    # 添加当前URL的内容节点
-                    content = [Plain(analysis_result)]
-
-                    # 处理截图，准备创建单独的截图节点
+                    # 处理截图，准备创建图片组件
                     image_component = None
                     if (
                         self.merge_forward_enabled.get("include_screenshot", False)
                         and screenshot
+                        and self.send_content_type != "analysis_only"
                     ):
                         try:
                             # 根据截图格式设置文件后缀
@@ -1816,7 +1824,7 @@ class WebAnalyzerPlugin(Star):
                                 temp_file.write(screenshot)
                                 temp_file_path = temp_file.name
 
-                            # 创建图片组件，但不添加到分析结果内容中
+                            # 创建图片组件
                             image_component = Image.fromFileSystem(temp_file_path)
 
                             # 保存临时文件路径，以便后续清理
@@ -1831,17 +1839,21 @@ class WebAnalyzerPlugin(Star):
                             ):
                                 os.unlink(temp_file_path)
 
-                    content_node = Node(
-                        uin=event.get_sender_id(),
-                        name="详细分析",
-                        content=content,
-                    )
-                    nodes.append(content_node)
+                    # 根据发送内容类型决定是否添加分析结果节点
+                    if self.send_content_type != "screenshot_only":
+                        content = [Plain(analysis_result)]
+                        content_node = Node(
+                            uin=event.get_sender_id(),
+                            name="详细分析",
+                            content=content,
+                        )
+                        nodes.append(content_node)
 
-                    # 如果启用了合并转发包含截图功能，并且有截图，则创建单独的截图节点
+                    # 如果启用了合并转发包含截图功能，并且有截图，且需要发送截图，则创建单独的截图节点
                     if (
                         self.merge_forward_enabled.get("include_screenshot", False)
                         and screenshot
+                        and self.send_content_type != "analysis_only"
                     ):
                         try:
                             # 创建单独的截图节点
@@ -1860,8 +1872,11 @@ class WebAnalyzerPlugin(Star):
                 # 发送合并转发消息
                 yield event.chain_result([merge_forward_message])
 
-                # 如果未启用合并转发包含截图功能，且有截图，则逐个发送截图
-                if not self.merge_forward_enabled.get("include_screenshot", False):
+                # 如果未启用合并转发包含截图功能，且需要发送截图，则逐个发送截图
+                if (
+                    not self.merge_forward_enabled.get("include_screenshot", False)
+                    and self.send_content_type != "analysis_only"
+                ):
                     for result_data in analysis_results:
                         screenshot = result_data.get("screenshot")
                         if screenshot:
@@ -1917,15 +1932,16 @@ class WebAnalyzerPlugin(Star):
                     analysis_result = result_data["result"]
                     screenshot = result_data.get("screenshot")
 
-                    # 发送分析结果文本
-                    if len(analysis_results) == 1:
-                        result_text = f"网页分析结果：\n{analysis_result}"
-                    else:
-                        result_text = f"第{i}/{len(analysis_results)}个网页分析结果：\n{analysis_result}"
-                    yield event.plain_result(result_text)
+                    # 根据发送内容类型决定是否发送分析结果文本
+                    if self.send_content_type != "screenshot_only":
+                        if len(analysis_results) == 1:
+                            result_text = f"网页分析结果：\n{analysis_result}"
+                        else:
+                            result_text = f"第{i}/{len(analysis_results)}个网页分析结果：\n{analysis_result}"
+                        yield event.plain_result(result_text)
 
-                    # 如果有截图，发送截图
-                    if screenshot:
+                    # 根据发送内容类型决定是否发送截图
+                    if screenshot and self.send_content_type != "analysis_only":
                         try:
                             # 根据截图格式设置文件后缀
                             suffix = (

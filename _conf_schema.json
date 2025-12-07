@@ -123,6 +123,14 @@
         "type": "string",
         "hint": "网页截图的格式，支持jpeg和png",
         "default": "jpeg"
+      },
+      "send_content_type": {
+        "description": "发送内容类型",
+        "type": "string",
+        "hint": "允许自定义发送的内容类型：both（分析结果+截图）、analysis_only（仅分析结果）、screenshot_only（仅截图）",
+        "default": "both",
+        "_special": "select",
+        "options": ["both", "analysis_only", "screenshot_only"]
       }
     }
   },
