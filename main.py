@@ -1774,9 +1774,10 @@ class WebAnalyzerPlugin(Star):
             is_group = bool(group_id)
             is_private = not is_group
 
-            # 如果是群聊且群聊合并转发已启用，或者是私聊且私聊合并转发已启用
-            if (is_group and self.merge_forward_enabled["group"]) or (
-                is_private and self.merge_forward_enabled["private"]
+            # 如果是群聊且群聊合并转发已启用，或者是私聊且私聊合并转发已启用，且不是只发送截图
+            if (self.send_content_type != "screenshot_only") and (
+                (is_group and self.merge_forward_enabled["group"])
+                or (is_private and self.merge_forward_enabled["private"])
             ):
                 # 使用合并转发 - 将所有分析结果合并成一个合并转发消息
                 nodes = []
@@ -1926,50 +1927,83 @@ class WebAnalyzerPlugin(Star):
                     f"群聊 {group_id} 使用合并转发发送{len(analysis_results)}个分析结果"
                 )
             else:
-                # 普通发送 - 逐个发送分析结果
+                # 普通发送
                 for i, result_data in enumerate(analysis_results, 1):
-                    url = result_data["url"]
-                    analysis_result = result_data["result"]
                     screenshot = result_data.get("screenshot")
+                    analysis_result = result_data.get("result")
 
-                    # 根据发送内容类型决定是否发送分析结果文本
-                    if self.send_content_type != "screenshot_only":
-                        if len(analysis_results) == 1:
-                            result_text = f"网页分析结果：\n{analysis_result}"
-                        else:
-                            result_text = f"第{i}/{len(analysis_results)}个网页分析结果：\n{analysis_result}"
-                        yield event.plain_result(result_text)
+                    # 如果只发送截图
+                    if self.send_content_type == "screenshot_only":
+                        if screenshot:
+                            try:
+                                # 根据截图格式设置文件后缀
+                                suffix = (
+                                    f".{self.screenshot_format}"
+                                    if self.screenshot_format
+                                    else ".jpg"
+                                )
+                                # 创建临时文件保存截图
+                                with tempfile.NamedTemporaryFile(
+                                    suffix=suffix, delete=False
+                                ) as temp_file:
+                                    temp_file.write(screenshot)
+                                    temp_file_path = temp_file.name
 
-                    # 根据发送内容类型决定是否发送截图
-                    if screenshot and self.send_content_type != "analysis_only":
-                        try:
-                            # 根据截图格式设置文件后缀
-                            suffix = (
-                                f".{self.screenshot_format}"
-                                if self.screenshot_format
-                                else ".jpg"
-                            )
-                            # 创建临时文件保存截图
-                            with tempfile.NamedTemporaryFile(
-                                suffix=suffix, delete=False
-                            ) as temp_file:
-                                temp_file.write(screenshot)
-                                temp_file_path = temp_file.name
+                                # 使用Image.fromFileSystem()方法发送图片
+                                image_component = Image.fromFileSystem(temp_file_path)
+                                yield event.chain_result([image_component])
+                                logger.info("只发送截图")
 
-                            # 使用Image.fromFileSystem()方法发送图片
-                            image_component = Image.fromFileSystem(temp_file_path)
-                            yield event.chain_result([image_component])
-                            logger.info("普通发送分析结果，并发送截图")
-
-                            # 删除临时文件
-                            os.unlink(temp_file_path)
-                        except Exception as e:
-                            logger.error(f"发送截图失败: {e}")
-                            # 确保临时文件被删除
-                            if "temp_file_path" in locals() and os.path.exists(
-                                temp_file_path
-                            ):
+                                # 删除临时文件
                                 os.unlink(temp_file_path)
+                            except Exception as e:
+                                logger.error(f"发送截图失败: {e}")
+                                # 确保临时文件被删除
+                                if "temp_file_path" in locals() and os.path.exists(
+                                    temp_file_path
+                                ):
+                                    os.unlink(temp_file_path)
+                    # 发送分析结果或两者都发送
+                    else:
+                        url = result_data["url"]
+                        # 根据发送内容类型决定是否发送分析结果文本
+                        if self.send_content_type != "screenshot_only":
+                            if len(analysis_results) == 1:
+                                result_text = f"网页分析结果：\n{analysis_result}"
+                            else:
+                                result_text = f"第{i}/{len(analysis_results)}个网页分析结果：\n{analysis_result}"
+                            yield event.plain_result(result_text)
+
+                        # 根据发送内容类型决定是否发送截图
+                        if screenshot and self.send_content_type != "analysis_only":
+                            try:
+                                # 根据截图格式设置文件后缀
+                                suffix = (
+                                    f".{self.screenshot_format}"
+                                    if self.screenshot_format
+                                    else ".jpg"
+                                )
+                                # 创建临时文件保存截图
+                                with tempfile.NamedTemporaryFile(
+                                    suffix=suffix, delete=False
+                                ) as temp_file:
+                                    temp_file.write(screenshot)
+                                    temp_file_path = temp_file.name
+
+                                # 使用Image.fromFileSystem()方法发送图片
+                                image_component = Image.fromFileSystem(temp_file_path)
+                                yield event.chain_result([image_component])
+                                logger.info("普通发送分析结果，并发送截图")
+
+                                # 删除临时文件
+                                os.unlink(temp_file_path)
+                            except Exception as e:
+                                logger.error(f"发送截图失败: {e}")
+                                # 确保临时文件被删除
+                                if "temp_file_path" in locals() and os.path.exists(
+                                    temp_file_path
+                                ):
+                                    os.unlink(temp_file_path)
                 message_type = "群聊" if group_id else "私聊"
                 logger.info(
                     f"{message_type}消息普通发送{len(analysis_results)}个分析结果"
