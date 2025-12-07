@@ -69,44 +69,44 @@ class WebAnalyzerPlugin(Star):
         """插件初始化方法
 
         负责加载、验证和初始化所有配置项，构建插件的运行环境：
-        
+
         🛠️ 基本配置：
         - 请求超时时间和重试机制
         - 用户代理和代理设置
         - 自动分析开关
-        
+
         🚫 域名控制：
         - 允许访问的域名列表
         - 禁止访问的域名列表
-        
+
         📊 分析设置：
         - 是否使用emoji增强显示
         - 是否显示内容统计信息
         - 最大摘要长度限制
-        
+
         📸 截图配置：
         - 截图质量和分辨率
         - 是否截取整页
         - 截图格式（JPEG/PNG）
-        
+
         🧠 LLM配置：
         - 大语言模型提供商
         - 自定义提示词
-        
+
         👥 群聊管理：
         - 群聊黑名单设置
-        
+
         🌐 翻译功能：
         - 是否启用自动翻译
         - 目标语言设置
-        
+
         💾 缓存管理：
         - 缓存过期时间
         - 最大缓存数量
-        
+
         📋 内容提取：
         - 提取内容类型设置
-        
+
         所有配置项都会进行合理性验证，自动修正无效值并设置安全默认值，
         确保插件在各种配置下都能稳定运行。
         """
@@ -206,7 +206,10 @@ class WebAnalyzerPlugin(Star):
         merge_forward_config = config.get("merge_forward_enabled", {})
         self.merge_forward_enabled = {
             "group": bool(merge_forward_config.get("group", False)),
-            "private": bool(merge_forward_config.get("private", False))
+            "private": bool(merge_forward_config.get("private", False)),
+            "include_screenshot": bool(
+                merge_forward_config.get("include_screenshot", False)
+            ),
         }
 
         # 自定义提示词配置：允许用户自定义LLM分析的提示词
@@ -369,7 +372,7 @@ class WebAnalyzerPlugin(Star):
 
         根据配置的允许和禁止域名列表，判断URL是否可以访问，
         支持灵活的访问控制策略：
-        
+
         访问规则（优先级从高到低）：
         1. 如果域名在禁止列表中，直接拒绝访问
         2. 如果允许列表不为空，只有在列表中的域名才允许访问
@@ -415,7 +418,7 @@ class WebAnalyzerPlugin(Star):
         - `/网页分析 https://example.com` - 分析单个链接
         - `/分析 https://example.com https://test.com` - 分析多个链接
         - `/总结 https://example.com` - 使用别名命令
-        
+
         🔧 功能特性：
         - 支持同时分析多个网页链接
         - 自动验证URL格式正确性
@@ -572,7 +575,7 @@ class WebAnalyzerPlugin(Star):
         """处理单个网页URL，生成完整的分析结果
 
         这是处理单个网页链接的核心方法，包含完整的分析流程：
-        
+
         🔄 处理流程：
         1. 🔍 检查缓存，避免重复分析
         2. 🌐 抓取网页HTML内容
@@ -785,7 +788,7 @@ class WebAnalyzerPlugin(Star):
 
         这是实现AI智能分析的核心方法，利用大语言模型对网页内容进行深度理解，
         支持灵活的配置和优化：
-        
+
         🔧 功能特性：
         1. ✅ 检查LLM是否可用和启用
         2. 🤖 获取合适的LLM提供商
@@ -906,7 +909,7 @@ class WebAnalyzerPlugin(Star):
 
         当LLM不可用或未启用时，提供可靠的基础分析功能，
         包含多种智能分析特性，确保插件在各种环境下都能正常工作：
-        
+
         📊 分析内容：
         1. 🔢 内容统计（字符数、段落数、词数）
         2. 🧠 智能内容类型检测（新闻、教程、博客等）
@@ -1057,6 +1060,7 @@ class WebAnalyzerPlugin(Star):
 - 自动分析链接: {"✅ 已启用" if self.auto_analyze else "❌ 已禁用"}
 - 合并转发功能(群聊): {"✅ 已启用" if self.merge_forward_enabled["group"] else "❌ 已禁用"}
 - 合并转发功能(私聊): {"✅ 已启用" if self.merge_forward_enabled["private"] else "❌ 已禁用"}
+- 合并转发包含截图: {"✅ 已启用" if self.merge_forward_enabled["include_screenshot"] else "❌ 已禁用"}
 
 **域名控制**
 - 允许域名: {len(self.allowed_domains)} 个
@@ -1759,9 +1763,11 @@ class WebAnalyzerPlugin(Star):
             # 根据消息类型决定是否使用合并转发
             is_group = bool(group_id)
             is_private = not is_group
-            
+
             # 如果是群聊且群聊合并转发已启用，或者是私聊且私聊合并转发已启用
-            if (is_group and self.merge_forward_enabled["group"]) or (is_private and self.merge_forward_enabled["private"]):
+            if (is_group and self.merge_forward_enabled["group"]) or (
+                is_private and self.merge_forward_enabled["private"]
+            ):
                 # 使用合并转发 - 将所有分析结果合并成一个合并转发消息
                 nodes = []
 
@@ -1788,23 +1794,13 @@ class WebAnalyzerPlugin(Star):
                     nodes.append(url_title_node)
 
                     # 添加当前URL的内容节点
-                    content_node = Node(
-                        uin=event.get_sender_id(),
-                        name="详细分析",
-                        content=[Plain(analysis_result)],
-                    )
-                    nodes.append(content_node)
+                    content = [Plain(analysis_result)]
 
-                # 使用Nodes包装所有节点，合并成一个合并转发消息
-                merge_forward_message = Nodes(nodes)
-
-                # 发送合并转发消息
-                yield event.chain_result([merge_forward_message])
-
-                # 如果有截图，逐个发送截图
-                for result_data in analysis_results:
-                    screenshot = result_data.get("screenshot")
-                    if screenshot:
+                    # 如果启用了合并转发包含截图功能，并且有截图，则将截图添加到内容节点中
+                    if (
+                        self.merge_forward_enabled.get("include_screenshot", False)
+                        and screenshot
+                    ):
                         try:
                             # 根据截图格式设置文件后缀
                             suffix = (
@@ -1819,22 +1815,82 @@ class WebAnalyzerPlugin(Star):
                                 temp_file.write(screenshot)
                                 temp_file_path = temp_file.name
 
-                            # 使用Image.fromFileSystem()方法发送图片
+                            # 将截图添加到内容中
                             image_component = Image.fromFileSystem(temp_file_path)
-                            yield event.chain_result([image_component])
-                            logger.info(
-                                f"群聊 {group_id} 使用合并转发发送分析结果，并发送截图"
-                            )
+                            content.append(image_component)
 
-                            # 删除临时文件
-                            os.unlink(temp_file_path)
+                            # 保存临时文件路径，以便后续清理
+                            if "temp_files" not in locals():
+                                temp_files = []
+                            temp_files.append(temp_file_path)
                         except Exception as e:
-                            logger.error(f"发送截图失败: {e}")
+                            logger.error(f"将截图添加到合并转发消息失败: {e}")
                             # 确保临时文件被删除
                             if "temp_file_path" in locals() and os.path.exists(
                                 temp_file_path
                             ):
                                 os.unlink(temp_file_path)
+
+                    content_node = Node(
+                        uin=event.get_sender_id(),
+                        name="详细分析",
+                        content=content,
+                    )
+                    nodes.append(content_node)
+
+                # 使用Nodes包装所有节点，合并成一个合并转发消息
+                merge_forward_message = Nodes(nodes)
+
+                # 发送合并转发消息
+                yield event.chain_result([merge_forward_message])
+
+                # 如果未启用合并转发包含截图功能，且有截图，则逐个发送截图
+                if not self.merge_forward_enabled.get("include_screenshot", False):
+                    for result_data in analysis_results:
+                        screenshot = result_data.get("screenshot")
+                        if screenshot:
+                            try:
+                                # 根据截图格式设置文件后缀
+                                suffix = (
+                                    f".{self.screenshot_format}"
+                                    if self.screenshot_format
+                                    else ".jpg"
+                                )
+                                # 创建临时文件保存截图
+                                with tempfile.NamedTemporaryFile(
+                                    suffix=suffix, delete=False
+                                ) as temp_file:
+                                    temp_file.write(screenshot)
+                                    temp_file_path = temp_file.name
+
+                                # 使用Image.fromFileSystem()方法发送图片
+                                image_component = Image.fromFileSystem(temp_file_path)
+                                yield event.chain_result([image_component])
+                                logger.info(
+                                    f"群聊 {group_id} 使用合并转发发送分析结果，并发送截图"
+                                )
+
+                                # 删除临时文件
+                                os.unlink(temp_file_path)
+                            except Exception as e:
+                                logger.error(f"发送截图失败: {e}")
+                                # 确保临时文件被删除
+                                if "temp_file_path" in locals() and os.path.exists(
+                                    temp_file_path
+                                ):
+                                    os.unlink(temp_file_path)
+                            if "temp_file_path" in locals() and os.path.exists(
+                                temp_file_path
+                            ):
+                                os.unlink(temp_file_path)
+                # 清理所有临时文件
+                if "temp_files" in locals():
+                    for temp_file_path in temp_files:
+                        try:
+                            if os.path.exists(temp_file_path):
+                                os.unlink(temp_file_path)
+                        except Exception as e:
+                            logger.error(f"清理临时文件失败: {e}")
                 logger.info(
                     f"群聊 {group_id} 使用合并转发发送{len(analysis_results)}个分析结果"
                 )

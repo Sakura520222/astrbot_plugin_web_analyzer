@@ -154,6 +154,12 @@
         "type": "bool",
         "hint": "是否在私聊中启用合并转发功能",
         "default": false
+      },
+      "include_screenshot": {
+        "description": "合并转发包含截图",
+        "type": "bool",
+        "hint": "是否将截图合并到转发消息中，而不是单独发送",
+        "default": false
       }
     }
   },

@@ -23,14 +23,14 @@ from astrbot.api import logger
 
 class WebAnalyzer:
     """网页分析器核心类
-    
+
     这个类提供了完整的网页分析功能，包括：
     - 网页内容的异步抓取
     - URL的提取和验证
     - HTML内容的解析和结构化
     - 特定类型内容的提取
     - 网页截图的捕获
-    
+
     支持异步上下文管理器，确保资源的正确释放。
     """
 
@@ -44,7 +44,7 @@ class WebAnalyzer:
         retry_delay: int = 2,
     ):
         """初始化网页分析器
-        
+
         Args:
             max_content_length: 提取的最大内容长度，防止内容过大
             timeout: HTTP请求超时时间，单位为秒
@@ -67,12 +67,12 @@ class WebAnalyzer:
 
     async def __aenter__(self):
         """异步上下文管理器入口
-        
+
         初始化异步HTTP客户端，配置：
         - 请求超时时间
         - 代理设置（如果提供）
         - 其他HTTP客户端参数
-        
+
         Returns:
             返回WebAnalyzer实例自身，用于上下文管理
         """
@@ -88,12 +88,12 @@ class WebAnalyzer:
 
     async def __aexit__(self, exc_type, exc_val, exc_tb):
         """异步上下文管理器出口
-        
+
         清理资源，确保：
         - 异步HTTP客户端正确关闭
         - 浏览器实例正确关闭（如果使用了）
         - 资源泄漏的防止
-        
+
         Args:
             exc_type: 异常类型（如果有）
             exc_val: 异常值（如果有）
@@ -106,15 +106,15 @@ class WebAnalyzer:
 
     def extract_urls(self, text: str) -> List[str]:
         """从文本中提取所有HTTP/HTTPS URL链接
-        
+
         使用正则表达式匹配文本中的URL，支持：
         - HTTP和HTTPS协议
         - 各种常见的URL格式
         - 排除中文等非ASCII字符作为URL的一部分
-        
+
         Args:
             text: 要从中提取URL的文本内容
-            
+
         Returns:
             包含所有提取到的URL的列表
         """
@@ -125,15 +125,15 @@ class WebAnalyzer:
 
     def is_valid_url(self, url: str) -> bool:
         """验证URL格式是否有效
-        
+
         检查URL是否符合基本格式要求：
         - 必须包含有效的协议（http/https）
         - 必须包含有效的域名或IP地址
         - 必须能被正确解析
-        
+
         Args:
             url: 要验证的URL字符串
-            
+
         Returns:
             True表示URL格式有效，False表示无效
         """
@@ -145,16 +145,16 @@ class WebAnalyzer:
 
     async def fetch_webpage(self, url: str) -> Optional[str]:
         """异步抓取网页HTML内容
-        
+
         使用异步HTTP客户端抓取网页，支持：
         - 自定义User-Agent
         - 自动跟随重定向
         - 配置的代理设置
         - 智能重试机制（失败后自动重试）
-        
+
         Args:
             url: 要抓取的网页URL
-            
+
         Returns:
             网页的HTML文本内容，如果抓取失败则返回None
         """
@@ -190,19 +190,19 @@ class WebAnalyzer:
 
     def extract_content(self, html: str, url: str) -> dict:
         """从HTML中提取结构化的网页内容
-        
+
         解析HTML文档，提取关键内容：
         - 网页标题
         - 主要正文内容
         - 支持多种内容选择策略
-        
+
         使用BeautifulSoup进行HTML解析，优先选择语义化标签
         （如article、main等）提取内容，确保提取的内容质量。
-        
+
         Args:
             html: 网页的HTML文本内容
             url: 网页的原始URL，用于结果返回
-            
+
         Returns:
             包含标题、内容和URL的字典，如果解析失败则返回None
         """
@@ -215,12 +215,12 @@ class WebAnalyzer:
 
             # 尝试提取文章内容（优先选择article、main等语义化标签）
             content_selectors = [
-                "article",    # 语义化文章标签
-                "main",       # 语义化主内容标签
+                "article",  # 语义化文章标签
+                "main",  # 语义化主内容标签
                 ".article-content",  # 常见文章内容类名
-                ".post-content",      # 常见博客内容类名
-                ".content",           # 通用内容类名
-                "body",               # 兜底：使用整个body
+                ".post-content",  # 常见博客内容类名
+                ".content",  # 通用内容类名
+                "body",  # 兜底：使用整个body
             ]
 
             content_text = ""
@@ -263,13 +263,13 @@ class WebAnalyzer:
         format: str = "jpeg",
     ) -> Optional[bytes]:
         """使用Playwright捕获网页截图
-        
+
         自动处理浏览器的安装和配置，支持：
         - 自定义分辨率和质量
         - 全屏截图或可视区域截图
         - 自定义等待时间，确保页面加载完成
         - 支持JPEG和PNG格式
-        
+
         Args:
             url: 要截图的网页URL
             quality: 截图质量，范围1-100
@@ -278,7 +278,7 @@ class WebAnalyzer:
             full_page: 是否截取整个页面，False仅截取可视区域
             wait_time: 页面加载后等待的时间（毫秒），确保动态内容加载
             format: 截图格式，支持"jpeg"和"png"
-            
+
         Returns:
             截图的二进制数据，如果失败则返回None
         """
@@ -309,14 +309,14 @@ class WebAnalyzer:
                     headless=True,
                     # 添加额外的启动参数，提高兼容性和稳定性
                     args=[
-                        "--no-sandbox",             # 禁用沙箱，提高兼容性
+                        "--no-sandbox",  # 禁用沙箱，提高兼容性
                         "--disable-setuid-sandbox",  # 禁用setuid沙箱
-                        "--disable-dev-shm-usage",   # 禁用/dev/shm使用
-                        "--disable-gpu",             # 禁用GPU加速
+                        "--disable-dev-shm-usage",  # 禁用/dev/shm使用
+                        "--disable-gpu",  # 禁用GPU加速
                         "--remote-debugging-port=9222",  # 启用远程调试端口
                     ],
                 )
-                
+
                 # 创建新的页面，设置视口和User-Agent
                 page = await browser.new_page(
                     viewport={"width": width, "height": height},
@@ -332,8 +332,8 @@ class WebAnalyzer:
                 # 捕获截图
                 screenshot_bytes = await page.screenshot(
                     full_page=full_page,  # 是否截取整个页面
-                    quality=quality,       # 截图质量
-                    type=format,           # 截图格式
+                    quality=quality,  # 截图质量
+                    type=format,  # 截图格式
                 )
 
                 await browser.close()
@@ -351,7 +351,7 @@ class WebAnalyzer:
         self, html: str, url: str, extract_types: List[str]
     ) -> dict:
         """从HTML中提取特定类型的内容
-        
+
         根据指定的提取类型，从HTML文档中提取结构化数据：
         - 标题（title）
         - 正文内容（content）
@@ -361,12 +361,12 @@ class WebAnalyzer:
         - 列表（lists）
         - 代码块（code）
         - 元信息（meta）
-        
+
         Args:
             html: 网页的HTML文本内容
             url: 网页的原始URL，用于处理相对路径
             extract_types: 要提取的内容类型列表
-            
+
         Returns:
             包含提取内容的字典，键为提取类型，值为对应内容
         """
@@ -384,12 +384,12 @@ class WebAnalyzer:
             # 提取正文内容
             if "content" in extract_types:
                 content_selectors = [
-                    "article",    # 语义化文章标签
-                    "main",       # 语义化主内容标签
+                    "article",  # 语义化文章标签
+                    "main",  # 语义化主内容标签
                     ".article-content",  # 常见文章内容类名
-                    ".post-content",      # 常见博客内容类名
-                    ".content",           # 通用内容类名
-                    "body",               # 兜底方案
+                    ".post-content",  # 常见博客内容类名
+                    ".content",  # 通用内容类名
+                    "body",  # 兜底方案
                 ]
 
                 content_text = ""
@@ -493,7 +493,11 @@ class WebAnalyzer:
                     code_text = code.get_text().strip()
                     if code_text and len(code_text) > 10:  # 跳过短代码块
                         # 限制单个代码块长度
-                        truncated_code = code_text[:1000] + "..." if len(code_text) > 1000 else code_text
+                        truncated_code = (
+                            code_text[:1000] + "..."
+                            if len(code_text) > 1000
+                            else code_text
+                        )
                         code_blocks.append(truncated_code)
                 extracted_content["code_blocks"] = code_blocks[:5]  # 限制最多5个代码块
 
