@@ -43,7 +43,7 @@ from .cache import CacheManager
     "astrbot_plugin_web_analyzer",
     "Sakura520222",
     "自动识别网页链接并进行内容分析和总结",
-    "1.2.3",
+    "1.2.4",
     "https://github.com/Sakura520222/astrbot_plugin_web_analyzer",
 )
 class WebAnalyzerPlugin(Star):
