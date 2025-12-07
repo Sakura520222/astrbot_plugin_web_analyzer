@@ -286,23 +286,35 @@ class WebAnalyzer:
             from playwright.async_api import async_playwright
             import sys
             import subprocess
+            import os
 
-            # 首先尝试安装浏览器（无论是否已安装，playwright install都会检查并更新）
-            logger.info("正在检查并安装浏览器...")
-            result = subprocess.run(
-                [sys.executable, "-m", "playwright", "install", "chromium"],
-                capture_output=True,
-                text=True,
-            )
+            # 只在第一次执行时检查浏览器安装
+            if not hasattr(self, '_playwright_browser_checked'):
+                logger.info("正在检查浏览器...")
+                # 检查浏览器是否已安装
+                browser_path = os.path.join(os.path.expanduser('~'), '.cache', 'ms-playwright', 'chromium')
+                if os.path.exists(browser_path):
+                    logger.info("浏览器已安装，跳过安装步骤")
+                else:
+                    # 安装浏览器
+                    logger.info("正在安装浏览器...")
+                    result = subprocess.run(
+                        [sys.executable, "-m", "playwright", "install", "chromium"],
+                        capture_output=True,
+                        text=True,
+                    )
 
-            if result.returncode != 0:
-                logger.error(f"浏览器安装失败: {result.stderr}")
-                return None
+                    if result.returncode != 0:
+                        logger.error(f"浏览器安装失败: {result.stderr}")
+                        return None
+                    logger.info("浏览器安装成功")
+            
+            # 标记已检查浏览器
+            self._playwright_browser_checked = True
 
-            logger.info("浏览器安装成功，正在尝试截图...")
+            logger.info("正在尝试截图...")
 
             # 尝试启动playwright并截图
-            browser = None
             async with async_playwright() as p:
                 # 启动浏览器（无头模式，不显示GUI）
                 browser = await p.chromium.launch(
@@ -344,9 +356,6 @@ class WebAnalyzer:
                 return screenshot_bytes
         except Exception as e:
             logger.error(f"捕获网页截图失败: {url}, 错误: {e}")
-            # 确保浏览器实例正确关闭
-            if browser:
-                await browser.close()
             return None
 
     def extract_specific_content(

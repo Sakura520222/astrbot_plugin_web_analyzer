@@ -1389,11 +1389,11 @@ class WebAnalyzerPlugin(Star):
 
         if url_or_all.lower() == "all":
             # 导出所有缓存的分析结果
-            if not self.cache:
+            if not self.cache_manager.memory_cache:
                 yield event.plain_result("当前没有缓存的分析结果")
                 return
 
-            for url, cache_data in self.cache.items():
+            for url, cache_data in self.cache_manager.memory_cache.items():
                 export_results.append({"url": url, "result": cache_data["result"]})
         else:
             # 导出指定URL的分析结果
@@ -1748,11 +1748,8 @@ class WebAnalyzerPlugin(Star):
             return {}
 
         try:
-            # 使用WebAnalyzer实例提取特定内容
-            analyzer = WebAnalyzer(
-                self.max_content_length, self.timeout, self.user_agent
-            )
-            return analyzer.extract_specific_content(html, url, self.extract_types)
+            # 直接使用已有analyzer实例，避免重复创建
+            return self.analyzer.extract_specific_content(html, url, self.extract_types)
         except Exception as e:
             logger.error(f"提取特定内容失败: {e}")
             return {}
