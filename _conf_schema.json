@@ -139,10 +139,23 @@
     "default": ""
   },
   "merge_forward_enabled": {
-    "description": "启用合并转发功能",
-    "type": "bool",
-    "hint": "是否启用合并转发功能（仅群聊有效）",
-    "default": false
+    "description": "合并转发功能设置",
+    "type": "object",
+    "hint": "分别控制群聊和私聊是否启用合并转发功能",
+    "items": {
+      "group": {
+        "description": "群聊启用合并转发",
+        "type": "bool",
+        "hint": "是否在群聊中启用合并转发功能",
+        "default": false
+      },
+      "private": {
+        "description": "私聊启用合并转发",
+        "type": "bool",
+        "hint": "是否在私聊中启用合并转发功能",
+        "default": false
+      }
+    }
   },
   "custom_prompt": {
     "description": "自定义分析提示词",

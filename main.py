@@ -203,7 +203,11 @@ class WebAnalyzerPlugin(Star):
         self.group_blacklist = self._parse_group_list(group_blacklist_text)
 
         # 合并转发配置：控制是否使用合并转发功能发送分析结果
-        self.merge_forward_enabled = bool(config.get("merge_forward_enabled", False))
+        merge_forward_config = config.get("merge_forward_enabled", {})
+        self.merge_forward_enabled = {
+            "group": bool(merge_forward_config.get("group", False)),
+            "private": bool(merge_forward_config.get("private", False))
+        }
 
         # 自定义提示词配置：允许用户自定义LLM分析的提示词
         self.custom_prompt = config.get("custom_prompt", "")
@@ -1051,7 +1055,8 @@ class WebAnalyzerPlugin(Star):
 - 请求超时时间: {self.timeout} 秒
 - LLM智能分析: {"✅ 已启用" if self.llm_enabled else "❌ 已禁用"}
 - 自动分析链接: {"✅ 已启用" if self.auto_analyze else "❌ 已禁用"}
-- 合并转发功能: {"✅ 已启用" if self.merge_forward_enabled else "❌ 已禁用"}
+- 合并转发功能(群聊): {"✅ 已启用" if self.merge_forward_enabled["group"] else "❌ 已禁用"}
+- 合并转发功能(私聊): {"✅ 已启用" if self.merge_forward_enabled["private"] else "❌ 已禁用"}
 
 **域名控制**
 - 允许域名: {len(self.allowed_domains)} 个
@@ -1751,8 +1756,12 @@ class WebAnalyzerPlugin(Star):
             ):
                 group_id = event.message_obj.group_id
 
-            # 如果是群聊消息且合并转发功能已启用，使用合并转发
-            if group_id and self.merge_forward_enabled:
+            # 根据消息类型决定是否使用合并转发
+            is_group = bool(group_id)
+            is_private = not is_group
+            
+            # 如果是群聊且群聊合并转发已启用，或者是私聊且私聊合并转发已启用
+            if (is_group and self.merge_forward_enabled["group"]) or (is_private and self.merge_forward_enabled["private"]):
                 # 使用合并转发 - 将所有分析结果合并成一个合并转发消息
                 nodes = []
 
