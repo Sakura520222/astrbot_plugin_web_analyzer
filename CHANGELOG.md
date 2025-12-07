@@ -1,8 +1,15 @@
 # 更新日志
 
+## [v1.2.5] - 2025-12-10
+
+- 🔄 性能优化：`main.py` 中 `_extract_specific_content` 方法避免重复创建 `WebAnalyzer` 实例
+- 🔄 性能优化：`analyzer.py` 中 `capture_screenshot` 方法添加浏览器安装检查缓存，避免每次截图都执行安装命令
+- 🐛 Bug修复：`main.py` 中 `export_analysis_result` 方法修复不存在的 `self.cache` 属性引用
+- 🐛 Bug修复：`cache.py` 中移除两个未使用的 `has_screenshot` 变量
+- 🎯 代码质量提升：`cache.py` 中 `__init__` 方法确保 `cache_dir` 参数正确初始化
+
 ## [v1.2.4] - 2025-12-07
 
-### 功能特性
 - 🔄 合并转发功能优化：支持群聊和私聊单独设置
 - ⚙️ 配置结构调整：将 `merge_forward_enabled` 改为对象类型，新增 `group` 和 `private` 子配置
 - 📝 配置文档更新：完善合并转发功能的文档说明

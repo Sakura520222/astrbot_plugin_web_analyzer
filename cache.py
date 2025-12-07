@@ -46,9 +46,8 @@ class CacheManager:
             expire_time: 缓存过期时间，单位为分钟
         """
         # 设置缓存目录
-        if cache_dir:
-            self.cache_dir = cache_dir
-        else:
+        self.cache_dir = cache_dir
+        if not self.cache_dir:
             # 默认缓存目录
             self.cache_dir = os.path.join(os.path.dirname(__file__), "data", "cache")
 
@@ -146,7 +145,6 @@ class CacheManager:
             # 创建一个副本，避免修改原始数据
             cache_data_copy = cache_data.copy()
             result = cache_data_copy.get("result", {})
-            has_screenshot = False
 
             # 处理截图数据，JSON不支持bytes类型
             if (
@@ -158,7 +156,6 @@ class CacheManager:
                 screenshot_path = self._get_cache_file_path(url, "screenshot")
                 with open(screenshot_path, "wb") as f:
                     f.write(result["screenshot"])
-                has_screenshot = True
 
                 # 从JSON数据中移除截图bytes，添加截图存在标记
                 result_copy = result.copy()
