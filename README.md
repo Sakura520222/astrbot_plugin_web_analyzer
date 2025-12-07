@@ -203,7 +203,8 @@
 
 ### 合并转发
 
-- **merge_forward_enabled**: 启用合并转发功能（仅群聊有效，默认：false）
+- **merge_forward_enabled.group**: 群聊启用合并转发功能（默认：false）
+- **merge_forward_enabled.private**: 私聊启用合并转发功能（默认：false）
 
 ### 翻译设置
 
