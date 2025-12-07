@@ -1796,7 +1796,8 @@ class WebAnalyzerPlugin(Star):
                     # 添加当前URL的内容节点
                     content = [Plain(analysis_result)]
 
-                    # 如果启用了合并转发包含截图功能，并且有截图，则将截图添加到内容节点中
+                    # 处理截图，准备创建单独的截图节点
+                    image_component = None
                     if (
                         self.merge_forward_enabled.get("include_screenshot", False)
                         and screenshot
@@ -1815,16 +1816,15 @@ class WebAnalyzerPlugin(Star):
                                 temp_file.write(screenshot)
                                 temp_file_path = temp_file.name
 
-                            # 将截图添加到内容中
+                            # 创建图片组件，但不添加到分析结果内容中
                             image_component = Image.fromFileSystem(temp_file_path)
-                            content.append(image_component)
 
                             # 保存临时文件路径，以便后续清理
                             if "temp_files" not in locals():
                                 temp_files = []
                             temp_files.append(temp_file_path)
                         except Exception as e:
-                            logger.error(f"将截图添加到合并转发消息失败: {e}")
+                            logger.error(f"处理截图失败: {e}")
                             # 确保临时文件被删除
                             if "temp_file_path" in locals() and os.path.exists(
                                 temp_file_path
@@ -1837,6 +1837,22 @@ class WebAnalyzerPlugin(Star):
                         content=content,
                     )
                     nodes.append(content_node)
+
+                    # 如果启用了合并转发包含截图功能，并且有截图，则创建单独的截图节点
+                    if (
+                        self.merge_forward_enabled.get("include_screenshot", False)
+                        and screenshot
+                    ):
+                        try:
+                            # 创建单独的截图节点
+                            screenshot_node = Node(
+                                uin=event.get_sender_id(),
+                                name="网页截图",
+                                content=[image_component],
+                            )
+                            nodes.append(screenshot_node)
+                        except Exception as e:
+                            logger.error(f"创建截图节点失败: {e}")
 
                 # 使用Nodes包装所有节点，合并成一个合并转发消息
                 merge_forward_message = Nodes(nodes)
