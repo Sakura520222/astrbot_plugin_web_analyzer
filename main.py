@@ -43,7 +43,7 @@ from .cache import CacheManager
     "astrbot_plugin_web_analyzer",
     "Sakura520222",
     "自动识别网页链接并进行内容分析和总结",
-    "1.2.4",
+    "1.2.5",
     "https://github.com/Sakura520222/astrbot_plugin_web_analyzer",
 )
 class WebAnalyzerPlugin(Star):
@@ -112,9 +112,31 @@ class WebAnalyzerPlugin(Star):
         """
         super().__init__(context)
         self.config = config
+        
+        # 初始化配置
+        self._load_network_settings()
+        self._load_domain_settings()
+        self._load_analysis_settings()
+        self._load_screenshot_settings()
+        self._load_llm_settings()
+        self._load_group_settings()
+        self._load_translation_settings()
+        self._load_cache_settings()
+        self._load_content_extraction_settings()
+        
+        # 初始化组件
+        self._init_cache_manager()
+        self._init_web_analyzer()
+        
+        # URL处理标志集合：用于避免重复处理同一URL
+        self.processing_urls = set()
 
-        # 网络设置加载与验证
-        network_settings = config.get("network_settings", {})
+        # 记录配置初始化完成
+        logger.info("插件配置初始化完成")
+    
+    def _load_network_settings(self):
+        """加载和验证网络设置"""
+        network_settings = self.config.get("network_settings", {})
         # 最大内容长度：限制抓取的网页内容大小，避免内存占用过高
         self.max_content_length = max(1000, network_settings.get("max_content_length", 10000))
         # 请求超时时间：设置合理的超时范围，避免请求过长时间阻塞
@@ -142,9 +164,10 @@ class WebAnalyzerPlugin(Star):
             except Exception as e:
                 logger.warning(f"解析代理失败: {self.proxy}，将忽略代理设置，错误: {e}")
                 self.proxy = ""
-
-        # 域名设置加载与验证
-        domain_settings = config.get("domain_settings", {})
+    
+    def _load_domain_settings(self):
+        """加载和验证域名设置"""
+        domain_settings = self.config.get("domain_settings", {})
         # 解析允许和禁止的域名列表
         self.allowed_domains = self._parse_domain_list(
             domain_settings.get("allowed_domains", "")
@@ -152,9 +175,10 @@ class WebAnalyzerPlugin(Star):
         self.blocked_domains = self._parse_domain_list(
             domain_settings.get("blocked_domains", "")
         )
-
-        # 分析设置验证
-        analysis_settings = config.get("analysis_settings", {})
+    
+    def _load_analysis_settings(self):
+        """加载和验证分析设置"""
+        analysis_settings = self.config.get("analysis_settings", {})
         # 是否自动分析检测到的链接
         self.auto_analyze = bool(analysis_settings.get("auto_analyze", True))
         # 是否在结果中使用emoji
@@ -174,9 +198,10 @@ class WebAnalyzerPlugin(Star):
                 f"无效的发送内容类型: {self.send_content_type}，将使用默认值 both"
             )
             self.send_content_type = "both"
-
-        # 截图设置验证
-        screenshot_settings = config.get("screenshot_settings", {})
+    
+    def _load_screenshot_settings(self):
+        """加载和验证截图设置"""
+        screenshot_settings = self.config.get("screenshot_settings", {})
         # 是否启用网页截图
         self.enable_screenshot = bool(screenshot_settings.get("enable_screenshot", True))
         # 截图质量：控制截图的清晰度和文件大小
@@ -206,24 +231,26 @@ class WebAnalyzerPlugin(Star):
             self.screenshot_format = "jpeg"
         else:
             self.screenshot_format = screenshot_format
-
-        # LLM设置加载与验证
-        llm_settings = config.get("llm_settings", {})
+    
+    def _load_llm_settings(self):
+        """加载和验证LLM设置"""
+        llm_settings = self.config.get("llm_settings", {})
         # 是否启用LLM智能分析
         self.llm_enabled = bool(llm_settings.get("llm_enabled", True))
         # LLM提供商配置：指定使用的大语言模型提供商
         self.llm_provider = llm_settings.get("llm_provider", "")
         # 自定义提示词配置：允许用户自定义LLM分析的提示词
         self.custom_prompt = llm_settings.get("custom_prompt", "")
-
-        # 群聊设置加载与验证
-        group_settings = config.get("group_settings", {})
+    
+    def _load_group_settings(self):
+        """加载和验证群聊设置"""
+        group_settings = self.config.get("group_settings", {})
         # 群聊黑名单配置：用于控制哪些群聊不允许使用插件
         group_blacklist_text = group_settings.get("group_blacklist", "")
         self.group_blacklist = self._parse_group_list(group_blacklist_text)
-
+        
         # 合并转发配置：控制是否使用合并转发功能发送分析结果
-        merge_forward_config = config.get("merge_forward_settings", {})
+        merge_forward_config = self.config.get("merge_forward_settings", {})
         self.merge_forward_enabled = {
             "group": bool(merge_forward_config.get("group", False)),
             "private": bool(merge_forward_config.get("private", False)),
@@ -231,9 +258,10 @@ class WebAnalyzerPlugin(Star):
                 merge_forward_config.get("include_screenshot", False)
             ),
         }
-
-        # 翻译设置验证：控制是否自动翻译网页内容
-        translation_settings = config.get("translation_settings", {})
+    
+    def _load_translation_settings(self):
+        """加载和验证翻译设置"""
+        translation_settings = self.config.get("translation_settings", {})
         self.enable_translation = bool(
             translation_settings.get("enable_translation", False)
         )
@@ -253,9 +281,10 @@ class WebAnalyzerPlugin(Star):
         self.custom_translation_prompt = translation_settings.get(
             "custom_translation_prompt", ""
         )
-
-        # 缓存设置验证：控制是否启用结果缓存
-        cache_settings = config.get("cache_settings", {})
+    
+    def _load_cache_settings(self):
+        """加载和验证缓存设置"""
+        cache_settings = self.config.get("cache_settings", {})
         self.enable_cache = bool(cache_settings.get("enable_cache", True))
         # 缓存过期时间：控制缓存结果的有效期
         self.cache_expire_time = max(
@@ -265,14 +294,10 @@ class WebAnalyzerPlugin(Star):
         self.max_cache_size = max(
             10, min(1000, cache_settings.get("max_cache_size", 100))
         )
-
-        # 初始化缓存管理器：用于管理分析结果的缓存
-        self.cache_manager = CacheManager(
-            max_size=self.max_cache_size, expire_time=self.cache_expire_time
-        )
-
-        # 内容提取设置验证：控制是否启用特定内容提取
-        content_extraction_settings = config.get("content_extraction_settings", {})
+    
+    def _load_content_extraction_settings(self):
+        """加载和验证内容提取设置"""
+        content_extraction_settings = self.config.get("content_extraction_settings", {})
         self.enable_specific_extraction = bool(
             content_extraction_settings.get("enable_specific_extraction", False)
         )
@@ -311,8 +336,15 @@ class WebAnalyzerPlugin(Star):
         # 自动添加meta类型，用于提取网页元信息
         if "meta" not in self.extract_types:
             self.extract_types.append("meta")
-
-        # 初始化网页分析器：用于抓取和分析网页内容
+    
+    def _init_cache_manager(self):
+        """初始化缓存管理器"""
+        self.cache_manager = CacheManager(
+            max_size=self.max_cache_size, expire_time=self.cache_expire_time
+        )
+    
+    def _init_web_analyzer(self):
+        """初始化网页分析器"""
         self.analyzer = WebAnalyzer(
             max_content_length=self.max_content_length,
             timeout=self.timeout,
@@ -321,12 +353,6 @@ class WebAnalyzerPlugin(Star):
             retry_count=self.retry_count,
             retry_delay=self.retry_delay,
         )
-
-        # URL处理标志集合：用于避免重复处理同一URL
-        self.processing_urls = set()
-
-        # 记录配置初始化完成
-        logger.info("插件配置初始化完成")
 
     def _parse_domain_list(self, domain_text: str) -> List[str]:
         """将多行域名文本转换为Python列表
@@ -456,8 +482,10 @@ class WebAnalyzerPlugin(Star):
             )
             return
 
-        # 验证URL格式是否正确
-        valid_urls = [url for url in urls if self.analyzer.is_valid_url(url)]
+        # 验证URL格式是否正确，并规范化URL
+        valid_urls = [self.analyzer.normalize_url(url) for url in urls if self.analyzer.is_valid_url(url)]
+        # 去重，避免重复分析相同URL
+        valid_urls = list(set(valid_urls))
         if not valid_urls:
             yield event.plain_result("无效的URL链接，请检查格式是否正确")
             return
@@ -564,8 +592,10 @@ class WebAnalyzerPlugin(Star):
         if not urls:
             return  # 没有URL，不处理
 
-        # 验证URL格式是否正确
-        valid_urls = [url for url in urls if self.analyzer.is_valid_url(url)]
+        # 验证URL格式是否正确，并规范化URL
+        valid_urls = [self.analyzer.normalize_url(url) for url in urls if self.analyzer.is_valid_url(url)]
+        # 去重，避免重复分析相同URL
+        valid_urls = list(set(valid_urls))
         if not valid_urls:
             return  # 没有有效URL，不处理
 
@@ -955,93 +985,228 @@ class WebAnalyzerPlugin(Star):
         url = content_data["url"]
 
         # 计算内容统计信息
+        content_stats = self._calculate_content_statistics(content)
+        
+        # 智能检测内容类型
+        content_type = self._detect_content_type(content)
+        
+        # 提取关键句子作为内容摘要
+        paragraphs = [p.strip() for p in content.split("\n") if p.strip()]
+        key_sentences = self._extract_key_sentences(paragraphs)
+        
+        # 评估内容质量
+        quality_indicator = self._evaluate_content_quality(content_stats["char_count"])
+        
+        # 构建分析结果
+        return self._build_analysis_result(
+            title, url, content_type, quality_indicator, content_stats, paragraphs, key_sentences
+        )
+    
+    def _calculate_content_statistics(self, content: str) -> dict:
+        """计算内容统计信息
+        
+        Args:
+            content: 网页正文内容
+            
+        Returns:
+            包含字符数、词数的统计字典
+        """
         char_count = len(content)
         word_count = len(content.split())
-
-        # 智能检测内容类型
+        return {
+            "char_count": char_count,
+            "word_count": word_count
+        }
+    
+    def _detect_content_type(self, content: str) -> str:
+        """智能检测内容类型
+        
+        Args:
+            content: 网页正文内容
+            
+        Returns:
+            检测到的内容类型字符串
+        """
         content_lower = content.lower()
-        content_type = "文章"
-        if any(
-            keyword in content_lower for keyword in ["新闻", "报道", "消息", "时事"]
-        ):
-            content_type = "新闻资讯"
-        elif any(
-            keyword in content_lower
-            for keyword in ["教程", "指南", "教学", "步骤", "方法"]
-        ):
-            content_type = "教程指南"
-        elif any(
-            keyword in content_lower
-            for keyword in ["博客", "随笔", "日记", "个人", "观点"]
-        ):
-            content_type = "个人博客"
-        elif any(
-            keyword in content_lower
-            for keyword in ["产品", "服务", "购买", "价格", "优惠"]
-        ):
-            content_type = "产品介绍"
-        elif any(
-            keyword in content_lower
-            for keyword in ["技术", "开发", "编程", "代码", "API"]
-        ):
-            content_type = "技术文档"
-
-        # 提取关键段落作为内容摘要
-        paragraphs = [p.strip() for p in content.split("\n") if p.strip()]
-        key_sentences = paragraphs[:3]
-
-        # 评估内容质量
-        quality_indicator = "内容丰富" if char_count > 1000 else "内容简洁"
+        
+        content_type_rules = [
+            ("新闻资讯", ["新闻", "报道", "消息", "时事"]),
+            ("教程指南", ["教程", "指南", "教学", "步骤", "方法"]),
+            ("个人博客", ["博客", "随笔", "日记", "个人", "观点"]),
+            ("产品介绍", ["产品", "服务", "购买", "价格", "优惠"]),
+            ("技术文档", ["技术", "开发", "编程", "代码", "API"])
+        ]
+        
+        for type_name, keywords in content_type_rules:
+            if any(keyword in content_lower for keyword in keywords):
+                return type_name
+        
+        return "文章"
+    
+    def _extract_key_sentences(self, paragraphs: list) -> list:
+        """提取关键句子作为内容摘要
+        
+        Args:
+            paragraphs: 段落列表
+            
+        Returns:
+            关键句子列表
+        """
+        # 提取前3个段落作为关键句子
+        return paragraphs[:3]
+    
+    def _evaluate_content_quality(self, char_count: int) -> str:
+        """评估内容质量
+        
+        Args:
+            char_count: 内容字符数
+            
+        Returns:
+            质量评估字符串
+        """
         if char_count > 5000:
-            quality_indicator = "内容详实"
-
-        # 根据配置决定是否使用emoji
+            return "内容详实"
+        elif char_count > 1000:
+            return "内容丰富"
+        else:
+            return "内容简洁"
+    
+    def _build_analysis_header(self) -> str:
+        """构建分析结果的标题部分
+        
+        Returns:
+            格式化的标题字符串
+        """
         robot_emoji = "🤖" if self.enable_emoji else ""
         page_emoji = "📄" if self.enable_emoji else ""
+        return f"{robot_emoji} **智能网页分析** {page_emoji}\n\n"
+    
+    def _build_basic_info(self, title: str, url: str, content_type: str, 
+                         quality_indicator: str) -> str:
+        """构建分析结果的基本信息部分
+        
+        Args:
+            title: 网页标题
+            url: 网页URL
+            content_type: 内容类型
+            quality_indicator: 质量评估
+            
+        Returns:
+            格式化的基本信息字符串
+        """
         info_emoji = "📝" if self.enable_emoji else ""
+        
+        basic_info = []
+        if self.enable_emoji:
+            basic_info.append(f"**{info_emoji} 基本信息**\n")
+        else:
+            basic_info.append("**基本信息**\n")
+        
+        basic_info.append(f"- **标题**: {title}\n")
+        basic_info.append(f"- **链接**: {url}\n")
+        basic_info.append(f"- **内容类型**: {content_type}\n")
+        basic_info.append(f"- **质量评估**: {quality_indicator}\n\n")
+        
+        return "".join(basic_info)
+    
+    def _build_statistics_info(self, content_stats: dict, paragraphs: list) -> str:
+        """构建分析结果的统计信息部分
+        
+        Args:
+            content_stats: 内容统计信息
+            paragraphs: 段落列表
+            
+        Returns:
+            格式化的统计信息字符串
+        """
+        if not self.enable_statistics:
+            return ""
+        
         stats_emoji = "📊" if self.enable_emoji else ""
+        
+        stats_info = []
+        if self.enable_emoji:
+            stats_info.append(f"**{stats_emoji} 内容统计**\n")
+        else:
+            stats_info.append("**内容统计**\n")
+        
+        stats_info.append(f"- 字符数: {content_stats['char_count']:,}\n")
+        stats_info.append(f"- 段落数: {len(paragraphs)}\n")
+        stats_info.append(f"- 词数: {content_stats['word_count']:,}\n\n")
+        
+        return "".join(stats_info)
+    
+    def _build_content_summary(self, key_sentences: list) -> str:
+        """构建分析结果的内容摘要部分
+        
+        Args:
+            key_sentences: 关键句子列表
+            
+        Returns:
+            格式化的内容摘要字符串
+        """
         search_emoji = "🔍" if self.enable_emoji else ""
+        
+        summary_info = []
+        if self.enable_emoji:
+            summary_info.append(f"**{search_emoji} 内容摘要**\n")
+        else:
+            summary_info.append("**内容摘要**\n")
+        
+        # 格式化关键句子
+        formatted_sentences = []
+        for sentence in key_sentences:
+            truncated = sentence[:100] + ('...' if len(sentence) > 100 else '')
+            formatted_sentences.append(f"• {truncated}")
+        
+        summary_info.append(f"{chr(10).join(formatted_sentences)}\n\n")
+        return "".join(summary_info)
+    
+    def _build_analysis_note(self) -> str:
+        """构建分析结果的分析说明部分
+        
+        Returns:
+            格式化的分析说明字符串
+        """
         light_emoji = "💡" if self.enable_emoji else ""
-
+        
+        note_info = []
+        if self.enable_emoji:
+            note_info.append(f"**{light_emoji} 分析说明**\n")
+        else:
+            note_info.append("**分析说明**\n")
+        
+        note_info.append("此分析基于网页内容提取，如需更深入的AI智能分析，请确保AstrBot已正确配置LLM功能。\n\n")
+        note_info.append("*提示：完整内容预览请查看原始网页*")
+        
+        return "".join(note_info)
+    
+    def _build_analysis_result(self, title: str, url: str, content_type: str, 
+                              quality_indicator: str, content_stats: dict, 
+                              paragraphs: list, key_sentences: list) -> str:
+        """构建最终的分析结果
+        
+        Args:
+            title: 网页标题
+            url: 网页URL
+            content_type: 内容类型
+            quality_indicator: 质量评估
+            content_stats: 内容统计信息
+            paragraphs: 段落列表
+            key_sentences: 关键句子列表
+            
+        Returns:
+            格式化的分析结果字符串
+        """
         # 构建分析结果
-        result = f"{robot_emoji} **智能网页分析** {page_emoji}\n\n"
-
-        # 添加基本信息
-        if self.enable_emoji:
-            result += f"**{info_emoji} 基本信息**\n"
-        else:
-            result += "**基本信息**\n"
-        result += f"- **标题**: {title}\n"
-        result += f"- **链接**: {url}\n"
-        result += f"- **内容类型**: {content_type}\n"
-        result += f"- **质量评估**: {quality_indicator}\n\n"
-
-        # 根据配置决定是否显示统计信息
-        if self.enable_statistics:
-            if self.enable_emoji:
-                result += f"**{stats_emoji} 内容统计**\n"
-            else:
-                result += "**内容统计**\n"
-            result += f"- 字符数: {char_count:,}\n"
-            result += f"- 段落数: {len(paragraphs)}\n"
-            result += f"- 词数: {word_count:,}\n\n"
-
-        # 添加内容摘要
-        if self.enable_emoji:
-            result += f"**{search_emoji} 内容摘要**\n"
-        else:
-            result += "**内容摘要**\n"
-        result += f"{chr(10).join(['• ' + sentence[:100] + ('...' if len(sentence) > 100 else '') for sentence in key_sentences])}\n\n"
-
-        # 添加分析说明
-        if self.enable_emoji:
-            result += f"**{light_emoji} 分析说明**\n"
-        else:
-            result += "**分析说明**\n"
-        result += "此分析基于网页内容提取，如需更深入的AI智能分析，请确保AstrBot已正确配置LLM功能。\n\n"
-        result += "*提示：完整内容预览请查看原始网页*"
-
-        return result
+        result_parts = []
+        result_parts.append(self._build_analysis_header())
+        result_parts.append(self._build_basic_info(title, url, content_type, quality_indicator))
+        result_parts.append(self._build_statistics_info(content_stats, paragraphs))
+        result_parts.append(self._build_content_summary(key_sentences))
+        result_parts.append(self._build_analysis_note())
+        
+        return "".join(result_parts)
 
     @filter.command("web_config", alias={"网页分析配置", "网页分析设置"})
     async def show_config(self, event: AstrMessageEvent):
@@ -1651,8 +1816,10 @@ class WebAnalyzerPlugin(Star):
         """
         if not self.enable_cache:
             return None
-
-        return self.cache_manager.get(url)
+        
+        # 规范化URL，统一格式
+        normalized_url = self.analyzer.normalize_url(url)
+        return self.cache_manager.get(normalized_url)
 
     def _update_cache(self, url: str, result: dict):
         """更新指定URL的缓存
@@ -1663,8 +1830,10 @@ class WebAnalyzerPlugin(Star):
         """
         if not self.enable_cache:
             return
-
-        self.cache_manager.set(url, result)
+        
+        # 规范化URL，统一格式
+        normalized_url = self.analyzer.normalize_url(url)
+        self.cache_manager.set(normalized_url, result)
 
     def _clean_cache(self):
         """清理过期缓存

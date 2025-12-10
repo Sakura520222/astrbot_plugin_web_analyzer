@@ -89,45 +89,83 @@ class CacheManager:
         并自动修复损坏的缓存文件。
         """
         try:
-            # 获取所有缓存文件
-            cache_files = [f for f in os.listdir(self.cache_dir) if f.endswith(".json")]
-
-            # 按修改时间排序，保留最新的缓存
-            cache_files.sort(
-                key=lambda f: os.path.getmtime(os.path.join(self.cache_dir, f)),
-                reverse=True,
-            )
-
+            # 获取按修改时间排序的缓存文件列表
+            cache_files = self._get_sorted_cache_files()
+            
             # 只加载不超过最大数量的缓存
-            for cache_file in cache_files[: self.max_size]:
-                file_path = os.path.join(self.cache_dir, cache_file)
-                try:
-                    with open(file_path, "r", encoding="utf-8") as f:
-                        cache_data = json.load(f)
-                        url = cache_data.get("url")
-                        if url:
-                            # 检查是否有截图文件
-                            result = cache_data.get("result", {})
-                            if isinstance(result, dict) and result.get(
-                                "has_screenshot", False
-                            ):
-                                # 读取截图文件
-                                screenshot_path = self._get_cache_file_path(
-                                    url, "screenshot"
-                                )
-                                if os.path.exists(screenshot_path):
-                                    with open(screenshot_path, "rb") as sf:
-                                        result["screenshot"] = sf.read()
-                                    # 移除标记，因为现在已经有了实际的截图数据
-                                    result.pop("has_screenshot", None)
-
-                            self.memory_cache[url] = cache_data
-                except Exception as e:
-                    logger.error(f"加载缓存文件失败: {file_path}, 错误: {e}")
-                    # 删除损坏的缓存文件
-                    os.remove(file_path)
+            for cache_file in cache_files[:self.max_size]:
+                self._load_single_cache_file(cache_file)
         except Exception as e:
             logger.error(f"从磁盘加载缓存失败: {e}")
+    
+    def _get_sorted_cache_files(self) -> list:
+        """获取按修改时间排序的缓存文件列表
+        
+        Returns:
+            按修改时间降序排序的缓存文件列表
+        """
+        # 获取所有缓存文件
+        cache_files = [f for f in os.listdir(self.cache_dir) if f.endswith(".json")]
+        
+        # 按修改时间排序，保留最新的缓存
+        cache_files.sort(
+            key=lambda f: os.path.getmtime(os.path.join(self.cache_dir, f)),
+            reverse=True,
+        )
+        
+        return cache_files
+    
+    def _load_single_cache_file(self, cache_file: str):
+        """加载单个缓存文件到内存
+        
+        Args:
+            cache_file: 缓存文件名
+        """
+        file_path = os.path.join(self.cache_dir, cache_file)
+        try:
+            with open(file_path, "r", encoding="utf-8") as f:
+                cache_data = json.load(f)
+                url = cache_data.get("url")
+                if url:
+                    result = cache_data.get("result", {})
+                    # 检查并加载截图文件
+                    if isinstance(result, dict) and result.get("has_screenshot", False):
+                        result = self._load_screenshot_for_cache(url, result)
+                    
+                    self.memory_cache[url] = cache_data
+        except Exception as e:
+            logger.error(f"加载缓存文件失败: {file_path}, 错误: {e}")
+            # 删除损坏的缓存文件
+            self._cleanup_corrupted_cache(file_path)
+    
+    def _load_screenshot_for_cache(self, url: str, result: dict) -> dict:
+        """加载缓存对应的截图文件
+        
+        Args:
+            url: 网页URL
+            result: 缓存结果字典
+            
+        Returns:
+            更新后的结果字典，包含实际截图数据
+        """
+        screenshot_path = self._get_cache_file_path(url, "screenshot")
+        if os.path.exists(screenshot_path):
+            with open(screenshot_path, "rb") as sf:
+                result["screenshot"] = sf.read()
+            # 移除标记，因为现在已经有了实际的截图数据
+            result.pop("has_screenshot", None)
+        return result
+    
+    def _cleanup_corrupted_cache(self, file_path: str):
+        """清理损坏的缓存文件
+        
+        Args:
+            file_path: 损坏的缓存文件路径
+        """
+        try:
+            os.remove(file_path)
+        except Exception as e:
+            logger.error(f"删除损坏的缓存文件失败: {file_path}, 错误: {e}")
 
     def _save_cache_to_disk(self, url: str, cache_data: Dict[str, Any]):
         """将缓存数据保存到磁盘

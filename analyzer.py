@@ -142,6 +142,32 @@ class WebAnalyzer:
             return all([result.scheme, result.netloc])
         except Exception:
             return False
+    
+    def normalize_url(self, url: str) -> str:
+        """规范化URL，统一格式
+
+        对URL进行规范化处理：
+        - 🔄  转换为小写
+        - 📏  统一处理尾部斜杠
+        - 🧹  去除多余的查询参数和片段（可选）
+
+        Args:
+            url: 要规范化的URL字符串
+
+        Returns:
+            规范化后的URL字符串
+        """
+        try:
+            parsed = urlparse(url)
+            # 转换为小写
+            normalized = parsed._replace(
+                scheme=parsed.scheme.lower(),
+                netloc=parsed.netloc.lower(),
+                path=parsed.path.rstrip('/')  # 移除尾部斜杠
+            )
+            return normalized.geturl()
+        except Exception:
+            return url
 
     async def fetch_webpage(self, url: str) -> Optional[str]:
         """异步抓取网页HTML内容
@@ -158,7 +184,16 @@ class WebAnalyzer:
         Returns:
             网页的HTML文本内容，如果抓取失败则返回None
         """
-        headers = {"User-Agent": self.user_agent}
+        headers = {
+            "User-Agent": self.user_agent,
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+            "Accept-Language": "zh-CN,zh;q=0.8,zh-TW;q=0.7,zh-HK;q=0.5,en-US;q=0.3,en;q=0.2",
+            "Accept-Encoding": "gzip, deflate, br",
+            "Connection": "keep-alive",
+            "Upgrade-Insecure-Requests": "1",
+            "DNT": "1",
+            "Sec-GPC": "1"
+        }
 
         # 实现重试机制，最多尝试 retry_count + 1 次
         for attempt in range(self.retry_count + 1):
@@ -210,47 +245,96 @@ class WebAnalyzer:
             soup = BeautifulSoup(html, "lxml")
 
             # 提取网页标题
-            title = soup.find("title")
-            title_text = title.get_text().strip() if title else "无标题"
-
-            # 尝试提取文章内容（优先选择article、main等语义化标签）
-            content_selectors = [
-                "article",  # 语义化文章标签
-                "main",  # 语义化主内容标签
-                ".article-content",  # 常见文章内容类名
-                ".post-content",  # 常见博客内容类名
-                ".content",  # 通用内容类名
-                "body",  # 兜底：使用整个body
-            ]
-
-            content_text = ""
-            for selector in content_selectors:
-                element = soup.select_one(selector)
-                if element:
-                    # 移除脚本和样式标签，避免干扰内容提取
-                    for script in element(["script", "style"]):
-                        script.decompose()
-
-                    text = element.get_text(separator="\n", strip=True)
-                    if len(text) > len(content_text):
-                        content_text = text
-
-            # 如果没找到合适的内容，使用body作为最后的兜底方案
-            if not content_text:
-                body = soup.find("body")
-                if body:
-                    for script in body(["script", "style"]):
-                        script.decompose()
-                    content_text = body.get_text(separator="\n", strip=True)
-
+            title_text = self._extract_title(soup)
+            
+            # 提取文章内容
+            content_text = self._extract_main_content(soup)
+            
             # 限制内容长度，防止内容过大
-            if len(content_text) > self.max_content_length:
-                content_text = content_text[: self.max_content_length] + "..."
+            content_text = self._limit_content_length(content_text)
 
             return {"title": title_text, "content": content_text, "url": url}
         except Exception as e:
             logger.error(f"解析网页内容失败: {e}")
             return None
+    
+    def _extract_title(self, soup: BeautifulSoup) -> str:
+        """从BeautifulSoup对象中提取网页标题
+        
+        Args:
+            soup: BeautifulSoup对象
+            
+        Returns:
+            网页标题文本
+        """
+        title = soup.find("title")
+        return title.get_text().strip() if title else "无标题"
+    
+    def _extract_main_content(self, soup: BeautifulSoup) -> str:
+        """从BeautifulSoup对象中提取主要内容
+        
+        Args:
+            soup: BeautifulSoup对象
+            
+        Returns:
+            提取的主要内容文本
+        """
+        # 尝试提取文章内容（优先选择article、main等语义化标签）
+        content_selectors = [
+            "article",  # 语义化文章标签
+            "main",  # 语义化主内容标签
+            ".article-content",  # 常见文章内容类名
+            ".post-content",  # 常见博客内容类名
+            ".content",  # 通用内容类名
+            "body",  # 兜底：使用整个body
+        ]
+
+        content_text = ""
+        for selector in content_selectors:
+            element = soup.select_one(selector)
+            if element:
+                # 清理内容，移除脚本和样式标签
+                cleaned_element = self._clean_content_element(element)
+                text = cleaned_element.get_text(separator="\n", strip=True)
+                if len(text) > len(content_text):
+                    content_text = text
+
+        # 如果没找到合适的内容，使用body作为最后的兜底方案
+        if not content_text:
+            body = soup.find("body")
+            if body:
+                cleaned_body = self._clean_content_element(body)
+                content_text = cleaned_body.get_text(separator="\n", strip=True)
+        
+        return content_text
+    
+    def _clean_content_element(self, element: BeautifulSoup) -> BeautifulSoup:
+        """清理内容元素，移除脚本和样式标签
+        
+        Args:
+            element: BeautifulSoup元素
+            
+        Returns:
+            清理后的BeautifulSoup元素
+        """
+        # 直接处理元素，不需要创建副本
+        # 移除脚本和样式标签，避免干扰内容提取
+        for script in element.find_all(["script", "style"]):
+            script.decompose()
+        return element
+    
+    def _limit_content_length(self, content: str) -> str:
+        """限制内容长度，防止内容过大
+        
+        Args:
+            content: 原始内容文本
+            
+        Returns:
+            限制长度后的内容文本
+        """
+        if len(content) > self.max_content_length:
+            return content[: self.max_content_length] + "..."
+        return content
 
     async def capture_screenshot(
         self,
@@ -408,7 +492,7 @@ class WebAnalyzer:
                     element = soup.select_one(selector)
                     if element:
                         # 移除脚本和样式标签，避免干扰内容提取
-                        for script in element(["script", "style"]):
+                        for script in element.find_all(["script", "style"]):
                             script.decompose()
                         text = element.get_text(separator="\n", strip=True)
                         if len(text) > len(content_text):
