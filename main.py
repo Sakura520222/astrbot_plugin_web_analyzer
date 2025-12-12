@@ -43,7 +43,7 @@ from .cache import CacheManager
     "astrbot_plugin_web_analyzer",
     "Sakura520222",
     "自动识别网页链接并进行内容分析和总结",
-    "1.2.5",
+    "1.2.6",
     "https://github.com/Sakura520222/astrbot_plugin_web_analyzer",
 )
 class WebAnalyzerPlugin(Star):
@@ -305,37 +305,12 @@ class WebAnalyzerPlugin(Star):
         extract_types_text = content_extraction_settings.get(
             "extract_types", "title\ncontent"
         )
-        self.extract_types = [
-            t.strip() for t in extract_types_text.split("\n") if t.strip()
-        ]
-
-        # 验证提取类型是否有效
-        valid_extract_types = [
-            "title",
-            "content",
-            "images",
-            "links",
-            "tables",
-            "lists",
-            "code",
-            "meta",
-        ]
-        invalid_types = [t for t in self.extract_types if t not in valid_extract_types]
-        if invalid_types:
-            logger.warning(
-                f"无效的提取类型: {', '.join(invalid_types)}，将忽略这些类型"
-            )
-            self.extract_types = [
-                t for t in self.extract_types if t in valid_extract_types
-            ]
-
-        # 确保至少有一个提取类型
-        if not self.extract_types:
-            self.extract_types = ["title", "content"]
-
-        # 自动添加meta类型，用于提取网页元信息
-        if "meta" not in self.extract_types:
-            self.extract_types.append("meta")
+        
+        # 使用辅助方法处理提取类型
+        self.extract_types = self._parse_extract_types(extract_types_text)
+        self.extract_types = self._validate_extract_types(self.extract_types)
+        self.extract_types = self._ensure_minimal_extract_types(self.extract_types)
+        self.extract_types = self._add_required_extract_types(self.extract_types)
     
     def _init_cache_manager(self):
         """初始化缓存管理器"""
@@ -1207,6 +1182,79 @@ class WebAnalyzerPlugin(Star):
         result_parts.append(self._build_analysis_note())
         
         return "".join(result_parts)
+    
+    def _parse_extract_types(self, extract_types_text: str) -> list:
+        """解析提取类型文本为列表
+        
+        将多行文本转换为提取类型列表，自动去除空行和前后空白字符
+        
+        Args:
+            extract_types_text: 包含提取类型的多行文本字符串
+            
+        Returns:
+            解析后的提取类型列表
+        """
+        if not extract_types_text:
+            return []
+        return [t.strip() for t in extract_types_text.split("\n") if t.strip()]
+    
+    def _validate_extract_types(self, extract_types: list) -> list:
+        """验证提取类型的有效性
+        
+        检查提取类型是否在有效列表中，过滤掉无效类型
+        
+        Args:
+            extract_types: 当前的提取类型列表
+            
+        Returns:
+            过滤后的有效提取类型列表
+        """
+        valid_extract_types = [
+            "title",
+            "content",
+            "images",
+            "links",
+            "tables",
+            "lists",
+            "code",
+            "meta",
+        ]
+        invalid_types = [t for t in extract_types if t not in valid_extract_types]
+        if invalid_types:
+            logger.warning(
+                f"无效的提取类型: {', '.join(invalid_types)}，将忽略这些类型"
+            )
+        return [t for t in extract_types if t in valid_extract_types]
+    
+    def _ensure_minimal_extract_types(self, extract_types: list) -> list:
+        """确保至少有一个提取类型
+        
+        当提取类型列表为空时，设置默认提取类型
+        
+        Args:
+            extract_types: 当前的提取类型列表
+            
+        Returns:
+            至少包含一个提取类型的列表
+        """
+        if not extract_types:
+            return ["title", "content"]
+        return extract_types
+    
+    def _add_required_extract_types(self, extract_types: list) -> list:
+        """添加必要的提取类型
+        
+        确保meta类型被添加到提取类型列表中，用于提取网页元信息
+        
+        Args:
+            extract_types: 当前的提取类型列表
+            
+        Returns:
+            更新后的提取类型列表
+        """
+        if "meta" not in extract_types:
+            extract_types.append("meta")
+        return extract_types
 
     @filter.command("web_config", alias={"网页分析配置", "网页分析设置"})
     async def show_config(self, event: AstrMessageEvent):
@@ -1437,6 +1485,7 @@ class WebAnalyzerPlugin(Star):
                 "无效的操作，请使用: add <群号>, remove <群号>, clear"
             )
 
+    @filter.permission_type(filter.PermissionType.ADMIN)
     @filter.command("web_cache", alias={"网页缓存", "清理缓存"})
     async def manage_cache(self, event: AstrMessageEvent):
         """管理插件的网页分析结果缓存
