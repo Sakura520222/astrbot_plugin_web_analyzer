@@ -286,5 +286,24 @@
         "default": ""
       }
     }
+  },
+  "recall_settings": {
+    "description": "消息撤回设置",
+    "type": "object",
+    "hint": "控制正在分析提醒消息的自动撤回",
+    "items": {
+      "enable_recall": {
+        "description": "启用自动撤回",
+        "type": "bool",
+        "hint": "是否自动撤回正在分析的提醒消息",
+        "default": true
+      },
+      "recall_time": {
+        "description": "撤回延迟时间",
+        "type": "int",
+        "hint": "提醒消息发送后多少秒自动撤回",
+        "default": 5
+      }
+    }
   }
 }

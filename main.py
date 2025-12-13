@@ -43,7 +43,7 @@ from .cache import CacheManager
     "astrbot_plugin_web_analyzer",
     "Sakura520222",
     "自动识别网页链接并进行内容分析和总结",
-    "1.2.6",
+    "1.2.7",
     "https://github.com/Sakura520222/astrbot_plugin_web_analyzer",
 )
 class WebAnalyzerPlugin(Star):
@@ -130,6 +130,12 @@ class WebAnalyzerPlugin(Star):
         
         # URL处理标志集合：用于避免重复处理同一URL
         self.processing_urls = set()
+        
+        # 加载撤回设置
+        self._load_recall_settings()
+        
+        # 撤回任务列表：用于管理所有撤回任务
+        self.recall_tasks = []
 
         # 记录配置初始化完成
         logger.info("插件配置初始化完成")
@@ -312,6 +318,14 @@ class WebAnalyzerPlugin(Star):
         self.extract_types = self._ensure_minimal_extract_types(self.extract_types)
         self.extract_types = self._add_required_extract_types(self.extract_types)
     
+    def _load_recall_settings(self):
+        """加载和验证撤回设置"""
+        recall_settings = self.config.get("recall_settings", {})
+        # 是否启用自动撤回功能
+        self.enable_recall = bool(recall_settings.get("enable_recall", True))
+        # 撤回延迟时间：设置合理的范围，避免过短或过长
+        self.recall_time = max(0, min(120, recall_settings.get("recall_time", 10)))
+    
     def _init_cache_manager(self):
         """初始化缓存管理器"""
         self.cache_manager = CacheManager(
@@ -473,9 +487,12 @@ class WebAnalyzerPlugin(Star):
 
         # 发送处理提示消息，告知用户正在分析
         if len(allowed_urls) == 1:
-            yield event.plain_result(f"正在分析网页: {allowed_urls[0]}")
+            message = f"正在分析网页: {allowed_urls[0]}"
         else:
-            yield event.plain_result(f"正在分析{len(allowed_urls)}个网页链接...")
+            message = f"正在分析{len(allowed_urls)}个网页链接..."
+        
+        # 直接调用发送方法，不使用yield
+        await self._send_processing_message(event, message)
 
         # 批量处理所有允许访问的URL
         async for result in self._batch_process_urls(event, allowed_urls):
@@ -581,11 +598,12 @@ class WebAnalyzerPlugin(Star):
 
         # 发送处理提示消息，告知用户正在分析
         if len(allowed_urls) == 1:
-            yield event.plain_result(f"检测到网页链接，正在分析: {allowed_urls[0]}")
+            message = f"检测到网页链接，正在分析: {allowed_urls[0]}"
         else:
-            yield event.plain_result(
-                f"检测到{len(allowed_urls)}个网页链接，正在分析..."
-            )
+            message = f"检测到{len(allowed_urls)}个网页链接，正在分析..."
+        
+        # 直接调用发送方法，不使用yield
+        await self._send_processing_message(event, message)
 
         # 批量处理所有允许访问的URL
         async for result in self._batch_process_urls(event, allowed_urls):
@@ -1255,6 +1273,132 @@ class WebAnalyzerPlugin(Star):
         if "meta" not in extract_types:
             extract_types.append("meta")
         return extract_types
+    
+    async def _auto_recall_message(self, bot, message_id: int, recall_time: int) -> None:
+        """
+        自动撤回消息
+        
+        参数:
+            bot: 机器人实例，用于发送撤回请求
+            message_id: 要撤回的消息ID
+            recall_time: 延迟撤回的时间（秒）
+        """
+        try:
+            import asyncio
+            
+            # 等待指定时间
+            if recall_time > 0:
+                await asyncio.sleep(recall_time)
+            
+            # 调用bot的delete_msg方法撤回消息
+            await bot.delete_msg(message_id=message_id)
+            logger.debug(f"已撤回消息: {message_id}")
+        except Exception as e:
+            logger.error(f"撤回消息失败: {e}")
+    
+    async def _send_processing_message(self, event: AstrMessageEvent, message: str) -> None:
+        """
+        发送正在分析的消息并设置自动撤回
+        
+        参数:
+            event: 消息事件对象，用于获取bot实例和消息上下文
+            message: 要发送的消息内容
+        """
+        import asyncio
+        
+        # 获取bot实例
+        bot = event.bot
+        
+        # 直接调用bot的发送消息方法，获取消息ID
+        try:
+            # 根据事件类型选择发送方法
+            send_result = None
+            group_id = None
+            user_id = None
+            
+            # 方法1：使用AiocqhttpMessageEvent的方法获取
+            if hasattr(event, 'get_group_id'):
+                group_id = event.get_group_id()
+            if hasattr(event, 'get_sender_id'):
+                user_id = event.get_sender_id()
+            
+            # 方法2：判断是否为私聊
+            is_private = False
+            if hasattr(event, 'is_private_chat'):
+                is_private = event.is_private_chat()
+            
+            # 发送消息
+            if group_id:
+                # 群聊消息
+                send_result = await bot.send_group_msg(
+                    group_id=group_id,
+                    message=message
+                )
+                logger.debug(f"发送群聊处理消息: {message} 到群 {group_id}")
+            elif user_id or is_private:
+                # 私聊消息
+                if not user_id and hasattr(event, 'get_sender_id'):
+                    user_id = event.get_sender_id()
+                
+                if user_id:
+                    send_result = await bot.send_private_msg(
+                        user_id=user_id,
+                        message=message
+                    )
+                    logger.debug(f"发送私聊处理消息: {message} 到用户 {user_id}")
+                else:
+                    # 无法获取user_id，使用原始方式发送
+                    logger.warning(f"无法获取user_id，使用原始方式发送消息: {message}")
+                    response = event.plain_result(message)
+                    if hasattr(event, 'send'):
+                        await event.send(response)
+                    return
+            else:
+                # 无法确定消息类型，使用原始方式发送并记录详细信息
+                logger.error(f"无法确定消息类型，event类型: {type(event)}, event方法: get_group_id={hasattr(event, 'get_group_id')}, get_sender_id={hasattr(event, 'get_sender_id')}, is_private_chat={hasattr(event, 'is_private_chat')}")
+                # 尝试使用event.plain_result发送，虽然无法获取message_id
+                response = event.plain_result(message)
+                # 使用event的send方法发送
+                if hasattr(event, 'send'):
+                    await event.send(response)
+                return
+            
+            # 检查send_result是否包含message_id
+            message_id = None
+            if isinstance(send_result, dict):
+                message_id = send_result.get('message_id')
+            elif hasattr(send_result, 'message_id'):
+                message_id = send_result.message_id
+            
+            logger.debug(f"发送处理消息成功，message_id: {message_id}")
+            
+            # 如果获取到message_id且启用了自动撤回，创建撤回任务
+            if message_id and self.enable_recall:
+                logger.info(f"创建撤回任务，message_id: {message_id}，延迟: {self.recall_time}秒")
+                
+                async def _recall_task():
+                    try:
+                        await asyncio.sleep(self.recall_time)
+                        await bot.delete_msg(message_id=message_id)
+                        logger.info(f"已撤回消息: {message_id}")
+                    except Exception as e:
+                        logger.error(f"撤回消息失败: {e}")
+                
+                task = asyncio.create_task(_recall_task())
+                
+                # 将任务添加到列表中管理
+                self.recall_tasks.append(task)
+                
+                # 添加完成回调，从列表中移除已完成的任务
+                def _remove_task(t):
+                    try:
+                        self.recall_tasks.remove(t)
+                    except ValueError:
+                        pass
+                
+                task.add_done_callback(_remove_task)
+        except Exception as e:
+            logger.error(f"发送处理消息或设置撤回失败: {e}")
 
     @filter.command("web_config", alias={"网页分析配置", "网页分析设置"})
     async def show_config(self, event: AstrMessageEvent):
