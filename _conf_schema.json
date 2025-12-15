@@ -39,6 +39,24 @@
         "type": "string",
         "hint": "HTTP代理地址，格式为http://username:password@host:port，留空表示不使用代理",
         "default": ""
+      },
+      "max_concurrency": {
+        "description": "最大并发数",
+        "type": "int",
+        "hint": "同时处理的最大URL数量",
+        "default": 5
+      },
+      "dynamic_concurrency": {
+        "description": "动态并发控制",
+        "type": "bool",
+        "hint": "是否根据URL数量动态调整并发数",
+        "default": true
+      },
+      "enable_priority_scheduling": {
+        "description": "启用优先级调度",
+        "type": "bool",
+        "hint": "是否根据URL优先级进行调度处理",
+        "default": false
       }
     }
   },
@@ -97,6 +115,26 @@
         "default": "both",
         "_special": "select",
         "options": ["both", "analysis_only", "screenshot_only"]
+      },
+      "result_template": {
+        "description": "结果展示模板",
+        "type": "string",
+        "hint": "选择分析结果的展示模板，支持：default, detailed, compact, markdown, simple",
+        "default": "default",
+        "_special": "select",
+        "options": ["default", "detailed", "compact", "markdown", "simple"]
+      },
+      "enable_collapsible": {
+        "description": "启用结果折叠功能",
+        "type": "bool",
+        "hint": "是否启用长结果的折叠功能",
+        "default": false
+      },
+      "collapse_threshold": {
+        "description": "结果折叠阈值",
+        "type": "int",
+        "hint": "超过多少字符的结果会被折叠",
+        "default": 1500
       }
     }
   },
@@ -146,6 +184,18 @@
         "type": "string",
         "hint": "网页截图的格式，支持jpeg和png",
         "default": "jpeg"
+      },
+      "enable_crop": {
+        "description": "启用截图裁剪",
+        "type": "bool",
+        "hint": "是否启用截图裁剪功能",
+        "default": false
+      },
+      "crop_area": {
+        "description": "裁剪区域",
+        "type": "string",
+        "hint": "裁剪区域，格式为 [left, top, right, bottom]，例如：[0, 0, 1280, 720]",
+        "default": "[0, 0, 1280, 720]"
       }
     }
   },
@@ -227,6 +277,18 @@
         "type": "int",
         "hint": "最大缓存的分析结果数量",
         "default": 100
+      },
+      "cache_preload_enabled": {
+        "description": "启用缓存预加载",
+        "type": "bool",
+        "hint": "是否启用缓存预加载功能",
+        "default": false
+      },
+      "cache_preload_count": {
+        "description": "预加载缓存数量",
+        "type": "int",
+        "hint": "预加载的缓存数量",
+        "default": 20
       }
     }
   },
@@ -303,6 +365,56 @@
         "type": "int",
         "hint": "提醒消息发送后多少秒自动撤回",
         "default": 5
+      }
+    }
+  },
+  "command_settings": {
+    "description": "命令设置",
+    "type": "object",
+    "hint": "命令系统相关配置选项",
+    "items": {
+      "enable_completion": {
+        "description": "启用命令补全",
+        "type": "bool",
+        "hint": "是否启用命令补全功能",
+        "default": true
+      },
+      "enable_help": {
+        "description": "启用命令帮助",
+        "type": "bool",
+        "hint": "是否启用命令帮助功能",
+        "default": true
+      },
+      "enable_param_hints": {
+        "description": "启用参数提示",
+        "type": "bool",
+        "hint": "是否启用命令参数提示功能",
+        "default": true
+      },
+      "custom_aliases": {
+        "description": "自定义命令别名",
+        "type": "text",
+        "hint": "自定义命令别名，每行一个，格式为：原命令=别名1,别名2，例如：网页分析=web_analyze,analyze_web",
+        "default": ""
+      }
+    }
+  },
+  "resource_settings": {
+    "description": "资源管理设置",
+    "type": "object",
+    "hint": "资源管理相关配置选项",
+    "items": {
+      "enable_memory_monitor": {
+        "description": "启用内存监控",
+        "type": "bool",
+        "hint": "是否启用内存监控功能",
+        "default": true
+      },
+      "memory_threshold": {
+        "description": "内存使用阈值",
+        "type": "float",
+        "hint": "内存使用超过此阈值时自动释放资源（0-100，百分比）",
+        "default": 80.0
       }
     }
   }
