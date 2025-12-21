@@ -4,10 +4,9 @@
 包含各种通用工具函数和辅助方法，用于支持插件的核心功能。
 """
 
-import re
 from datetime import datetime
 from urllib.parse import urlparse
-from typing import List, Dict, Any, Optional
+from typing import List
 
 
 class WebAnalyzerUtils:

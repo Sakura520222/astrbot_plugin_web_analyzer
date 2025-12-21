@@ -14,7 +14,7 @@ import os
 import json
 import time
 import hashlib
-from typing import Dict, Optional, Any, List, Set
+from typing import Dict, Optional, Any, Set
 
 # 条件导入 logger，用于测试
 logger = None

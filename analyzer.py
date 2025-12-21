@@ -15,12 +15,12 @@ import re
 import gc
 import psutil
 import time
-from typing import List, Optional, Dict, Tuple, Union
+from typing import List, Tuple
 from urllib.parse import urlparse, urljoin
 
 import httpx
 from bs4 import BeautifulSoup
-from PIL import Image, ImageDraw, ImageFont
+from PIL import Image
 import io
 
 from astrbot.api import logger
@@ -638,43 +638,90 @@ class WebAnalyzer:
                         ],
                     )
                 
-                # 创建新的页面，设置视口和User-Agent
-                page = await browser.new_page(
-                    viewport={"width": width, "height": height},
-                    user_agent=self.user_agent,
-                )
+                try:
+                    # 创建新的页面，设置视口和User-Agent
+                    page = await browser.new_page(
+                        viewport={"width": width, "height": height},
+                        user_agent=self.user_agent,
+                    )
 
-                # 导航到目标URL，使用更宽松的等待条件
-                await page.goto(url, wait_until="domcontentloaded", timeout=60000)
+                    # 导航到目标URL，使用更宽松的等待条件
+                    await page.goto(url, wait_until="domcontentloaded", timeout=60000)
 
-                # 等待指定时间，确保页面完全加载（尤其是动态内容）
-                await page.wait_for_timeout(wait_time)
+                    # 等待指定时间，确保页面完全加载（尤其是动态内容）
+                    await page.wait_for_timeout(wait_time)
 
-                # 捕获截图
-                screenshot_bytes = await page.screenshot(
-                    full_page=full_page,  # 是否截取整个页面
-                    quality=quality,  # 截图质量
-                    type=format,  # 截图格式
-                )
-                logger.info("截图成功")
-                
-                # 关闭页面，但保留浏览器实例用于后续复用
-                await page.close()
-                
-                # 如果是新创建的浏览器实例，不关闭，而是将其保存到self.browser以便后续复用
-                if not playwright_instance:
-                    # 从池中获取的浏览器实例，使用后放回池中
-                    async with WebAnalyzer._browser_lock:
-                        # 更新最后使用时间
-                        WebAnalyzer._browser_last_used[id(browser)] = time.time()
-                        # 将浏览器实例放回池中
-                        WebAnalyzer._browser_pool.append(browser)
-                        logger.debug(f"浏览器实例已放回池中，当前池大小: {len(WebAnalyzer._browser_pool)}")
-                else:
-                    # 新创建的浏览器实例，保存到self.browser
-                    self.browser = browser
-                
-                return screenshot_bytes
+                    # 捕获截图
+                    screenshot_bytes = await page.screenshot(
+                        full_page=full_page,  # 是否截取整个页面
+                        quality=quality,  # 截图质量
+                        type=format,  # 截图格式
+                    )
+                    logger.info("截图成功")
+                    
+                    # 关闭页面，但保留浏览器实例用于后续复用
+                    await page.close()
+                    
+                    # 如果是新创建的浏览器实例，不关闭，而是将其保存到self.browser以便后续复用
+                    if not playwright_instance:
+                        # 从池中获取的浏览器实例，使用后放回池中
+                        async with WebAnalyzer._browser_lock:
+                            # 更新最后使用时间
+                            WebAnalyzer._browser_last_used[id(browser)] = time.time()
+                            # 将浏览器实例放回池中
+                            WebAnalyzer._browser_pool.append(browser)
+                            logger.debug(f"浏览器实例已放回池中，当前池大小: {len(WebAnalyzer._browser_pool)}")
+                    else:
+                        # 新创建的浏览器实例，保存到self.browser
+                        self.browser = browser
+                    
+                    return screenshot_bytes
+                except Exception as new_page_error:
+                    # 当从池中获取的浏览器实例无效时，捕获异常并处理
+                    if not playwright_instance:
+                        # 从池中获取的浏览器实例，说明实例已失效，从池中移除并创建新实例
+                        logger.error(f"从池中获取的浏览器实例无效，重新创建浏览器实例: {new_page_error}")
+                        # 关闭无效的浏览器实例
+                        try:
+                            await browser.close()
+                        except Exception:
+                            pass
+                        
+                        # 创建新的浏览器实例
+                        if not playwright_instance:
+                            playwright_instance = await async_playwright().start()
+                        browser = await playwright_instance.chromium.launch(
+                            headless=True,
+                            timeout=20000,
+                            args=[
+                                "--no-sandbox",
+                                "--disable-setuid-sandbox",
+                                "--disable-dev-shm-usage",
+                                "--disable-gpu",
+                            ],
+                        )
+                        
+                        # 使用新创建的浏览器实例重新尝试截图
+                        page = await browser.new_page(
+                            viewport={"width": width, "height": height},
+                            user_agent=self.user_agent,
+                        )
+                        await page.goto(url, wait_until="domcontentloaded", timeout=60000)
+                        await page.wait_for_timeout(wait_time)
+                        screenshot_bytes = await page.screenshot(
+                            full_page=full_page,
+                            quality=quality,
+                            type=format,
+                        )
+                        await page.close()
+                        logger.info("使用新浏览器实例截图成功")
+                        
+                        # 保存新创建的浏览器实例
+                        self.browser = browser
+                        return screenshot_bytes
+                    else:
+                        # 新创建的浏览器实例，直接抛出异常
+                        raise
             finally:
                 # 如果有直接创建的playwright实例，确保关闭
                 if playwright_instance:
