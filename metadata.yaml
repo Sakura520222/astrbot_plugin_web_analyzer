@@ -3,5 +3,5 @@ name: astrbot_plugin_web_analyzer
 display_name: 网页分析插件
 author: Sakura520222
 description: 自动识别网页链接，智能抓取解析内容，集成大语言模型进行深度分析和总结，支持网页截图、缓存机制和多种管理命令
-version: 1.2.9
+version: 1.3.0
 repo: https://github.com/Sakura520222/astrbot_plugin_web_analyzer

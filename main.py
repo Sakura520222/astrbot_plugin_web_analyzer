@@ -111,7 +111,7 @@ ERROR_MESSAGES: Dict[str, Dict[str, Any]] = {
     "astrbot_plugin_web_analyzer",
     "Sakura520222",
     "自动识别网页链接，智能抓取解析内容，集成大语言模型进行深度分析和总结，支持网页截图、缓存机制和多种管理命令",
-    "1.2.9",
+    "1.3.0",
     "https://github.com/Sakura520222/astrbot_plugin_web_analyzer",
 )
 class WebAnalyzerPlugin(Star):
@@ -438,8 +438,12 @@ class WebAnalyzerPlugin(Star):
         recall_settings = self.config.get("recall_settings", {})
         # 是否启用自动撤回功能
         self.enable_recall = bool(recall_settings.get("enable_recall", True))
+        # 撤回类型：time_based(定时撤回)或smart(智能撤回)
+        self.recall_type = recall_settings.get("recall_type", "smart")
         # 撤回延迟时间：设置合理的范围，避免过短或过长
         self.recall_time = max(0, min(120, recall_settings.get("recall_time", 10)))
+        # 是否启用智能撤回
+        self.smart_recall_enabled = bool(recall_settings.get("smart_recall_enabled", True))
     
     def _load_command_settings(self):
         """加载和验证命令设置"""
@@ -625,11 +629,11 @@ class WebAnalyzerPlugin(Star):
         else:
             message = f"正在分析{len(allowed_urls)}个网页链接..."
         
-        # 直接调用发送方法，不使用yield
-        await self._send_processing_message(event, message)
+        # 直接调用发送方法，不使用yield，获取message_id和bot实例
+        processing_message_id, bot = await self._send_processing_message(event, message)
 
         # 批量处理所有允许访问的URL
-        async for result in self._batch_process_urls(event, allowed_urls):
+        async for result in self._batch_process_urls(event, allowed_urls, processing_message_id, bot):
             yield result
 
     @filter.event_message_type(filter.EventMessageType.ALL)
@@ -736,11 +740,11 @@ class WebAnalyzerPlugin(Star):
         else:
             message = f"检测到{len(allowed_urls)}个网页链接，正在分析..."
         
-        # 直接调用发送方法，不使用yield
-        await self._send_processing_message(event, message)
+        # 直接调用发送方法，不使用yield，获取message_id和bot实例
+        processing_message_id, bot = await self._send_processing_message(event, message)
 
         # 批量处理所有允许访问的URL
-        async for result in self._batch_process_urls(event, allowed_urls):
+        async for result in self._batch_process_urls(event, allowed_urls, processing_message_id, bot):
             yield result
 
     async def _process_single_url(
@@ -1229,21 +1233,25 @@ class WebAnalyzerPlugin(Star):
         
         return []
     
-    async def _batch_process_urls(self, event: AstrMessageEvent, urls: List[str]):
-        """批量处理多个URL，实现高效的并发分析
-
+    async def _batch_process_urls(self, event: AstrMessageEvent, urls: List[str], processing_message_id: Optional[int] = None, bot = None):
+        """
+        批量处理多个URL，实现高效的并发分析
+        
         这个方法负责管理多个URL的并发处理，提高插件的处理效率，
         支持异步并发处理，避免阻塞等待单个URL分析完成。
-
+        
         🔄 处理流程：
         1. 🚫 过滤掉正在处理的URL，避免重复分析
         2. 🎯 使用异步方式并发处理多个URL
         3. 📤 调用_send_analysis_result发送所有分析结果
         4. 🧹 确保URL处理完成后从处理队列中移除
-
+        5. 🤖 智能撤回：分析完成后立即撤回处理中消息（如果启用了智能撤回）
+        
         Args:
             event: 消息事件对象，用于生成响应
             urls: 要处理的URL列表
+            processing_message_id: 正在分析消息的ID，用于智能撤回
+            bot: 机器人实例，用于执行撤回操作
         """
         # 收集所有分析结果
         analysis_results = []
@@ -1317,6 +1325,19 @@ class WebAnalyzerPlugin(Star):
             for url in filtered_urls:
                 if url in self.processing_urls:
                     self.processing_urls.remove(url)
+            
+            # 智能撤回：分析完成后立即撤回处理中消息
+            if (self.enable_recall and 
+                self.recall_type == "smart" and 
+                self.smart_recall_enabled and 
+                processing_message_id and 
+                bot):
+                try:
+                    logger.info(f"智能撤回：分析完成，立即撤回处理中消息，message_id: {processing_message_id}")
+                    await bot.delete_msg(message_id=processing_message_id)
+                    logger.info(f"智能撤回成功，已撤回消息: {processing_message_id}")
+                except Exception as e:
+                    logger.error(f"智能撤回消息失败: {e}")
 
     def _get_analysis_template(self, content_type: str, emoji_prefix: str, max_length: int) -> str:
         """根据内容类型获取相应的分析模板
@@ -2019,18 +2040,22 @@ class WebAnalyzerPlugin(Star):
         except Exception as e:
             logger.error(f"撤回消息失败: {e}")
     
-    async def _send_processing_message(self, event: AstrMessageEvent, message: str) -> None:
+    async def _send_processing_message(self, event: AstrMessageEvent, message: str) -> tuple:
         """
         发送正在分析的消息并设置自动撤回
         
         参数:
             event: 消息事件对象，用于获取bot实例和消息上下文
             message: 要发送的消息内容
+        
+        返回:
+            tuple: (message_id, bot_instance) - 消息ID和机器人实例
         """
         import asyncio
         
         # 获取bot实例
         bot = event.bot
+        message_id = None
         
         # 直接调用bot的发送消息方法，获取消息ID
         try:
@@ -2075,7 +2100,7 @@ class WebAnalyzerPlugin(Star):
                     response = event.plain_result(message)
                     if hasattr(event, 'send'):
                         await event.send(response)
-                    return
+                    return None, bot
             else:
                 # 无法确定消息类型，使用原始方式发送并记录详细信息
                 logger.error(f"无法确定消息类型，event类型: {type(event)}, event方法: get_group_id={hasattr(event, 'get_group_id')}, get_sender_id={hasattr(event, 'get_sender_id')}, is_private_chat={hasattr(event, 'is_private_chat')}")
@@ -2084,10 +2109,9 @@ class WebAnalyzerPlugin(Star):
                 # 使用event的send方法发送
                 if hasattr(event, 'send'):
                     await event.send(response)
-                return
+                return None, bot
             
             # 检查send_result是否包含message_id
-            message_id = None
             if isinstance(send_result, dict):
                 message_id = send_result.get('message_id')
             elif hasattr(send_result, 'message_id'):
@@ -2095,33 +2119,41 @@ class WebAnalyzerPlugin(Star):
             
             logger.debug(f"发送处理消息成功，message_id: {message_id}")
             
-            # 如果获取到message_id且启用了自动撤回，创建撤回任务
+            # 如果获取到message_id且启用了自动撤回
             if message_id and self.enable_recall:
-                logger.info(f"创建撤回任务，message_id: {message_id}，延迟: {self.recall_time}秒")
+                # 定时撤回模式
+                if self.recall_type == "time_based":
+                    logger.info(f"创建定时撤回任务，message_id: {message_id}，延迟: {self.recall_time}秒")
+                    
+                    async def _recall_task():
+                        try:
+                            await asyncio.sleep(self.recall_time)
+                            await bot.delete_msg(message_id=message_id)
+                            logger.info(f"已定时撤回消息: {message_id}")
+                        except Exception as e:
+                            logger.error(f"定时撤回消息失败: {e}")
+                    
+                    task = asyncio.create_task(_recall_task())
+                    
+                    # 将任务添加到列表中管理
+                    self.recall_tasks.append(task)
+                    
+                    # 添加完成回调，从列表中移除已完成的任务
+                    def _remove_task(t):
+                        try:
+                            self.recall_tasks.remove(t)
+                        except ValueError:
+                            pass
+                    
+                    task.add_done_callback(_remove_task)
+                # 智能撤回模式 - 只发送消息，不创建定时任务，等待分析完成后立即撤回
+                elif self.recall_type == "smart" and self.smart_recall_enabled:
+                    logger.info(f"已发送智能撤回消息，message_id: {message_id}，等待分析完成后立即撤回")
                 
-                async def _recall_task():
-                    try:
-                        await asyncio.sleep(self.recall_time)
-                        await bot.delete_msg(message_id=message_id)
-                        logger.info(f"已撤回消息: {message_id}")
-                    except Exception as e:
-                        logger.error(f"撤回消息失败: {e}")
-                
-                task = asyncio.create_task(_recall_task())
-                
-                # 将任务添加到列表中管理
-                self.recall_tasks.append(task)
-                
-                # 添加完成回调，从列表中移除已完成的任务
-                def _remove_task(t):
-                    try:
-                        self.recall_tasks.remove(t)
-                    except ValueError:
-                        pass
-                
-                task.add_done_callback(_remove_task)
         except Exception as e:
             logger.error(f"发送处理消息或设置撤回失败: {e}")
+        
+        return message_id, bot
 
     @filter.command("web_config", alias={"网页分析配置", "网页分析设置"})
     async def show_config(self, event: AstrMessageEvent):

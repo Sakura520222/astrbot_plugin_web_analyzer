@@ -360,11 +360,25 @@
         "hint": "是否自动撤回正在分析的提醒消息",
         "default": true
       },
+      "recall_type": {
+        "description": "撤回类型",
+        "type": "string",
+        "hint": "撤回类型：time_based(定时撤回)或smart(智能撤回)",
+        "default": "smart",
+        "_special": "select",
+        "options": ["time_based", "smart"]
+      },
       "recall_time": {
         "description": "撤回延迟时间",
         "type": "int",
-        "hint": "提醒消息发送后多少秒自动撤回",
+        "hint": "定时撤回：消息发送后多少秒自动撤回；智能撤回：最长等待时间",
         "default": 5
+      },
+      "smart_recall_enabled": {
+        "description": "启用智能撤回",
+        "type": "bool",
+        "hint": "是否启用智能撤回，当分析完成后立即撤回提醒消息",
+        "default": true
       }
     }
   },
