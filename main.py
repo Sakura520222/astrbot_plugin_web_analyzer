@@ -111,7 +111,7 @@ ERROR_MESSAGES: Dict[str, Dict[str, Any]] = {
     "astrbot_plugin_web_analyzer",
     "Sakura520222",
     "自动识别网页链接，智能抓取解析内容，集成大语言模型进行深度分析和总结，支持网页截图、缓存机制和多种管理命令",
-    "1.3.0",
+    "1.3.1",
     "https://github.com/Sakura520222/astrbot_plugin_web_analyzer",
 )
 class WebAnalyzerPlugin(Star):
@@ -291,6 +291,14 @@ class WebAnalyzerPlugin(Star):
         # 结果折叠设置
         self.enable_collapsible = bool(analysis_settings.get("enable_collapsible", False))
         self.collapse_threshold = max(500, min(5000, analysis_settings.get("collapse_threshold", 1500)))
+        
+        # 无协议头URL识别设置
+        self.enable_no_protocol_url = bool(analysis_settings.get("enable_no_protocol_url", False))
+        self.default_protocol = analysis_settings.get("default_protocol", "https")
+        # 验证默认协议是否有效
+        if self.default_protocol not in ["http", "https"]:
+            logger.warning(f"无效的默认协议: {self.default_protocol}，将使用默认值 https")
+            self.default_protocol = "https"
     
     def _load_screenshot_settings(self):
         """加载和验证截图设置"""
@@ -602,7 +610,7 @@ class WebAnalyzerPlugin(Star):
         message_text = event.message_str
 
         # 从消息中提取所有URL
-        urls = self.analyzer.extract_urls(message_text)
+        urls = self.analyzer.extract_urls(message_text, self.enable_no_protocol_url, self.default_protocol)
         if not urls:
             yield event.plain_result(
                 "请提供要分析的网页链接，例如：/网页分析 https://example.com"
@@ -718,7 +726,7 @@ class WebAnalyzerPlugin(Star):
             return
 
         # 从消息中提取所有URL
-        urls = self.analyzer.extract_urls(message_text)
+        urls = self.analyzer.extract_urls(message_text, self.enable_no_protocol_url, self.default_protocol)
         if not urls:
             return  # 没有URL，不处理
 
@@ -2901,6 +2909,29 @@ class WebAnalyzerPlugin(Star):
             event: 消息事件对象
             analysis_results: 包含所有分析结果的列表
         """
+        # 检查是否有有效的分析结果
+        if not analysis_results:
+            logger.info("没有分析结果，不发送消息")
+            return
+        
+        # 检查是否所有结果都是错误结果（没有截图且结果包含错误关键词）
+        all_errors = True
+        for result in analysis_results:
+            # 如果有截图，说明至少有一个成功的结果
+            if result.get("screenshot"):
+                all_errors = False
+                break
+            # 检查结果是否包含错误关键词
+            result_text = result.get("result", "")
+            if not any(keyword in result_text for keyword in ["失败", "错误", "无法", "❌"]):
+                all_errors = False
+                break
+        
+        # 如果所有结果都是错误，不发送消息
+        if all_errors:
+            logger.info("所有URL分析失败，不发送消息")
+            return
+        
         try:
             from astrbot.api.message_components import Node, Plain, Nodes, Image
             import tempfile

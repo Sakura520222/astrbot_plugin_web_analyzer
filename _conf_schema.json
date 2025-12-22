@@ -135,6 +135,20 @@
         "type": "int",
         "hint": "超过多少字符的结果会被折叠",
         "default": 1500
+      },
+      "enable_no_protocol_url": {
+        "description": "识别无协议头URL",
+        "type": "bool",
+        "hint": "是否识别不包含协议头(http://或https://)的URL，例如：www.example.com",
+        "default": false
+      },
+      "default_protocol": {
+        "description": "默认协议",
+        "type": "string",
+        "hint": "无协议头URL使用的默认协议，支持：http、https",
+        "default": "https",
+        "_special": "select",
+        "options": ["http", "https"]
       }
     }
   },

@@ -239,23 +239,44 @@ class WebAnalyzer:
         # 检查内存使用情况
         self._check_memory_usage()
 
-    def extract_urls(self, text: str) -> List[str]:
+    def extract_urls(self, text: str, enable_no_protocol: bool = False, default_protocol: str = "https") -> List[str]:
         """从文本中提取所有HTTP/HTTPS URL链接
 
         使用正则表达式匹配文本中的URL，支持：
         - HTTP和HTTPS协议
         - 各种常见的URL格式
         - 排除中文等非ASCII字符作为URL的一部分
+        - 可选识别无协议头的URL（如 www.example.com）
 
         Args:
             text: 要从中提取URL的文本内容
+            enable_no_protocol: 是否识别无协议头的URL
+            default_protocol: 无协议头URL使用的默认协议（http或https）
 
         Returns:
             包含所有提取到的URL的列表
         """
-        # 匹配常见的URL格式，排除中文等非ASCII字符
+        urls = []
+        
+        # 匹配带协议头的URL
         url_pattern = r"https?://[^\s\u4e00-\u9fff]+"
-        urls = re.findall(url_pattern, text)
+        urls.extend(re.findall(url_pattern, text))
+        
+        # 如果启用无协议头URL识别
+        if enable_no_protocol:
+            # 匹配无协议头的URL（以www.开头或不带www.的域名）
+            # 匹配格式：www.example.com 或 example.com
+            # 要求：至少有两个域名部分（如 example.com），每部分至少2个字符
+            no_protocol_pattern = r"(?:www\.)?[a-zA-Z0-9][a-zA-Z0-9-]{1,61}[a-zA-Z0-9](?:\.[a-zA-Z0-9][a-zA-Z0-9-]{0,61}[a-zA-Z0-9])+(?:/[^\s\u4e00-\u9fff]*)?"
+            no_protocol_urls = re.findall(no_protocol_pattern, text)
+            
+            # 为无协议头的URL添加默认协议
+            for url in no_protocol_urls:
+                # 清理URL末尾的标点符号
+                cleaned_url = url.rstrip('.,;:!?)\'"')
+                full_url = f"{default_protocol}://{cleaned_url}"
+                urls.append(full_url)
+        
         return urls
 
     def is_valid_url(self, url: str) -> bool:
