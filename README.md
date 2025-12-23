@@ -7,7 +7,7 @@
 [![GitHub Stars](https://img.shields.io/github/stars/Sakura520222/astrbot_plugin_web_analyzer?style=social)](https://github.com/Sakura520222/astrbot_plugin_web_analyzer/stargazers)
 [![GitHub Forks](https://img.shields.io/github/forks/Sakura520222/astrbot_plugin_web_analyzer?style=social)](https://github.com/Sakura520222/astrbot_plugin_web_analyzer/network/members)
 
-这是一个AstrBot插件，能够自动识别用户发送的网页链接，抓取网页内容并调用LLM进行分析和总结，同时支持网页截图功能。
+这是一个AstrBot插件，能够自动识别用户发送的网页链接，智能抓取解析内容，集成大语言模型进行深度分析和总结，支持网页截图、缓存机制和多种管理命令。
 
 ## 更新日志
 ## [v1.3.2] - 2025-12-23
