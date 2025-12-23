@@ -264,11 +264,16 @@ class WebAnalyzer:
         
         # 如果启用无协议头URL识别
         if enable_no_protocol:
+            # 先移除已提取的带协议头的URL，避免重复匹配
+            text_for_no_protocol = text
+            for url in urls:
+                text_for_no_protocol = text_for_no_protocol.replace(url, "")
+            
             # 匹配无协议头的URL（以www.开头或不带www.的域名）
             # 匹配格式：www.example.com 或 example.com
             # 要求：至少有两个域名部分（如 example.com），每部分至少2个字符
             no_protocol_pattern = r"(?:www\.)?[a-zA-Z0-9][a-zA-Z0-9-]{1,61}[a-zA-Z0-9](?:\.[a-zA-Z0-9][a-zA-Z0-9-]{0,61}[a-zA-Z0-9])+(?:/[^\s\u4e00-\u9fff]*)?"
-            no_protocol_urls = re.findall(no_protocol_pattern, text)
+            no_protocol_urls = re.findall(no_protocol_pattern, text_for_no_protocol)
             
             # 为无协议头的URL添加默认协议
             for url in no_protocol_urls:
