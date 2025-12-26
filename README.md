@@ -68,6 +68,11 @@
 - 💬 **命令补全**: 支持命令补全和参数提示功能
 - 🔤 **命令别名自定义**: 支持自定义命令别名
 - 📚 **详细命令帮助**: 提供完整的命令帮助系统
+- 🤖 **LLM Tool模式**: 新增LLM Tool模式，允许LLM智能决定是否调用analyze_webpage工具
+- 🔗 **URL自动补全**: 自动补全URL协议头，处理没有协议头的URL（如www.google.com）
+- 🔧 **URL预处理**: 支持URL预处理，去除可能的反引号、空格等
+- 🔄 **URL规范化**: 支持URL规范化，确保URL格式一致
+- 📝 **详细日志记录**: 新增详细的日志记录，便于调试和监控
 
 ## Star
 
@@ -134,7 +139,7 @@
 
 ### 分析模式
 
-插件支持三种分析模式，可通过配置或管理员命令切换：
+插件支持四种分析模式，可通过配置或管理员命令切换：
 
 **查看当前模式：**
 
@@ -148,6 +153,7 @@
 /web_mode auto      # 自动分析模式
 /web_mode manual    # 手动分析模式
 /web_mode hybrid    # 混合模式
+/web_mode LLMTOOL   # LLM Tool模式
 ```
 
 **模式说明：**
@@ -155,6 +161,7 @@
 - **auto（自动分析）**：检测到链接自动分析，无需命令（默认模式）
 - **manual（手动分析）**：必须使用`/网页分析`命令才会分析，不会自动处理链接
 - **hybrid（混合模式）**：默认自动分析，但管理员可通过命令临时切换
+- **LLMTOOL（LLM智能决定）**：不自动分析链接，让LLM自己决定是否调用analyze_webpage工具，适合需要LLM自主决策的场景
 
 **别名：**
 
@@ -295,7 +302,7 @@
 
 ### 基本设置
 
-- **analysis_mode**: 分析模式，支持auto(自动)、manual(手动)、hybrid(混合)（默认：auto）
+- **analysis_mode**: 分析模式，支持auto(自动)、manual(手动)、hybrid(混合)、LLMTOOL(LLM智能决定)（默认：auto）
 - **enable_no_protocol_url**: 识别无协议头URL（默认：false）
 - **default_protocol**: 默认协议（默认：https）
 - **max_content_length**: 最大网页内容长度（默认：10000）
