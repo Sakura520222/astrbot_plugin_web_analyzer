@@ -111,7 +111,7 @@ ERROR_MESSAGES: Dict[str, Dict[str, Any]] = {
     "astrbot_plugin_web_analyzer",
     "Sakura520222",
     "自动识别网页链接，智能抓取解析内容，集成大语言模型进行深度分析和总结，支持网页截图、缓存机制和多种管理命令",
-    "1.3.3",
+    "1.3.4",
     "https://github.com/Sakura520222/astrbot_plugin_web_analyzer",
 )
 class WebAnalyzerPlugin(Star):
@@ -261,7 +261,7 @@ class WebAnalyzerPlugin(Star):
         # 分析模式：auto(自动)、manual(手动)、hybrid(混合)
         self.analysis_mode = analysis_settings.get("analysis_mode", "auto")
         # 验证分析模式是否有效
-        valid_modes = ["auto", "manual", "hybrid"]
+        valid_modes = ["auto", "manual", "hybrid", "LLMTOOL"]
         if self.analysis_mode not in valid_modes:
             logger.warning(
                 f"无效的分析模式: {self.analysis_mode}，将使用默认值 auto"
@@ -508,6 +508,7 @@ class WebAnalyzerPlugin(Star):
         # 内存使用阈值，确保在合理范围内
         self.memory_threshold = max(0.0, min(100.0, resource_settings.get("memory_threshold", 80.0)))
     
+
     def _init_cache_manager(self):
         """初始化缓存管理器"""
         self.cache_manager = CacheManager(
@@ -655,6 +656,57 @@ class WebAnalyzerPlugin(Star):
         # 批量处理所有允许访问的URL
         async for result in self._batch_process_urls(event, allowed_urls, processing_message_id, bot):
             yield result
+    
+    @filter.llm_tool(name="analyze_webpage")
+    async def analyze_webpage_tool(self, event: AstrMessageEvent, url: str) -> Any:
+        """智能网页分析工具
+
+        用于分析网页内容，提取关键信息并生成智能总结。
+
+        Args:
+            url(string): 要分析的网页URL地址
+        """
+        # 检查是否启用了LLMTOOL模式，未启用则不执行
+        if self.analysis_mode != "LLMTOOL":
+            logger.info(f"当前未启用LLMTOOL模式，拒绝analyze_webpage_tool调用: {url}")
+            yield event.plain_result("当前未启用网页分析工具模式")
+            return
+        
+        logger.info(f"收到analyze_webpage_tool调用，原始URL: {url}")
+        
+        # 预处理URL：去除可能的反引号、空格等
+        processed_url = url.strip().strip('`')
+        logger.info(f"预处理后的URL: {processed_url}")
+        
+        # 补全URL协议头（如果需要）
+        if not processed_url.startswith(('http://', 'https://')):
+            processed_url = f"{self.default_protocol}://{processed_url}"
+            logger.info(f"补全协议头后的URL: {processed_url}")
+        
+        # 规范化URL
+        normalized_url = self.analyzer.normalize_url(processed_url)
+        logger.info(f"规范化后的URL: {normalized_url}")
+        
+        if not self.analyzer.is_valid_url(normalized_url):
+            error_msg = f"无效的URL链接，请检查格式是否正确: {normalized_url}"
+            logger.warning(error_msg)
+            yield event.plain_result(error_msg)
+            return
+        
+        # 检查域名是否允许访问
+        if not self._is_domain_allowed(normalized_url):
+            error_msg = f"该域名不在允许访问的列表中: {normalized_url}"
+            logger.warning(error_msg)
+            yield event.plain_result(error_msg)
+            return
+        
+        # 发送处理提示消息，告知用户正在分析
+        message = f"正在分析网页: {normalized_url}"
+        processing_message_id, bot = await self._send_processing_message(event, message)
+        
+        # 处理单个URL
+        async for result in self._batch_process_urls(event, [normalized_url], processing_message_id, bot):
+            yield result
 
     @filter.event_message_type(filter.EventMessageType.ALL)
     async def auto_detect_urls(self, event: AstrMessageEvent):
@@ -670,6 +722,7 @@ class WebAnalyzerPlugin(Star):
         4. 跳过在黑名单中的群聊消息
         5. 仅处理格式正确的URL
         6. 遵守域名黑白名单限制
+        7. 当启用LLM Tool模式时，使用事件监听器获取消息中的链接，并根据消息中的信息智能调用llm决定是否触发解析
 
         ✨ 优势：
         - 提升用户体验，无需记忆命令
@@ -758,6 +811,108 @@ class WebAnalyzerPlugin(Star):
         if not allowed_urls:
             return  # 没有允许访问的URL，不处理
 
+        # 根据analysis_mode配置决定是否使用旧版直接分析方式
+        if self.analysis_mode == "LLMTOOL":
+            # 启用了LLM函数工具模式，不使用旧版直接分析
+            # 让LLM自己决定是否调用analyze_webpage工具
+            logger.info(f"启用了LLM函数工具模式，不自动分析链接，让LLM自己决定: {allowed_urls}")
+            return
+        else:
+            # 未启用LLM函数工具模式，使用旧版直接分析方式
+            # 发送处理提示消息，告知用户正在分析
+            if len(allowed_urls) == 1:
+                message = f"检测到网页链接，正在分析: {allowed_urls[0]}"
+            else:
+                message = f"检测到{len(allowed_urls)}个网页链接，正在分析..."
+            
+            # 直接调用发送方法，不使用yield，获取message_id和bot实例
+            processing_message_id, bot = await self._send_processing_message(event, message)
+
+            # 批量处理所有允许访问的URL
+            async for result in self._batch_process_urls(event, allowed_urls, processing_message_id, bot):
+                yield result
+    
+    async def _use_llm_tool_mode(self, event: AstrMessageEvent, message_text: str, allowed_urls: list):
+        """使用LLM Tool模式处理消息
+        
+        Args:
+            event: 消息事件对象
+            message_text: 消息文本内容
+            allowed_urls: 允许访问的URL列表
+        """
+        try:
+            # 检查是否支持tool_loop_agent
+            if not hasattr(self.context, "tool_loop_agent"):
+                logger.warning("不支持tool_loop_agent，回退到旧版解析方式")
+                # 回退到旧版解析方式
+                async for result in self._fallback_to_old_mode(event, allowed_urls):
+                    yield result
+                return
+            
+            # 优先使用配置的LLM提供商，如果没有配置则使用当前会话的模型
+            provider_id = self.llm_provider
+            if not provider_id:
+                umo = event.unified_msg_origin
+                provider_id = await self.context.get_current_chat_provider_id(umo=umo)
+            
+            if not provider_id:
+                logger.warning("无法获取LLM提供商，回退到旧版解析方式")
+                # 回退到旧版解析方式
+                async for result in self._fallback_to_old_mode(event, allowed_urls):
+                    yield result
+                return
+            
+            # 构建提示词
+            prompt = f"请根据用户消息判断是否需要分析其中的网页链接，如果需要分析，请调用analyze_webpage工具进行分析。\n\n用户消息：{message_text}"
+            
+            # 调用tool_loop_agent让LLM决定是否使用工具
+            logger.info(f"调用tool_loop_agent处理消息，URLs: {allowed_urls}")
+            
+            try:
+                # 尝试导入ToolSet
+                from astrbot.core.agent.tool import ToolSet
+                # 调用tool_loop_agent
+                llm_resp = await self.context.tool_loop_agent(
+                    event=event,
+                    chat_provider_id=provider_id,
+                    prompt=prompt,
+                    tools=ToolSet([]),  # 空ToolSet，依赖装饰器注册的工具
+                    max_steps=30,  # Agent最大执行步骤
+                    tool_call_timeout=60,  # 工具调用超时时间
+                )
+                logger.info(f"tool_loop_agent执行完成，结果: {llm_resp.completion_text if hasattr(llm_resp, 'completion_text') else '无文本结果'}")
+            except Exception as e_inner:
+                logger.error(f"调用tool_loop_agent失败: {e_inner}")
+                # 尝试不使用ToolSet参数调用（兼容不同版本）
+                try:
+                    llm_resp = await self.context.tool_loop_agent(
+                        event=event,
+                        chat_provider_id=provider_id,
+                        prompt=prompt,
+                        max_steps=30,
+                        tool_call_timeout=60,
+                    )
+                    logger.info(f"tool_loop_agent执行完成（无ToolSet），结果: {llm_resp.completion_text if hasattr(llm_resp, 'completion_text') else '无文本结果'}")
+                except Exception as e_inner2:
+                    logger.error(f"调用tool_loop_agent（无ToolSet）失败: {e_inner2}")
+                    # 回退到旧版解析方式
+                    logger.warning("tool_loop_agent调用失败，回退到旧版解析方式")
+                    async for result in self._fallback_to_old_mode(event, allowed_urls):
+                        yield result
+                    return
+        except Exception as e:
+            logger.error(f"LLM Tool模式处理失败: {e}")
+            # 出错时回退到旧版解析方式
+            async for result in self._fallback_to_old_mode(event, allowed_urls):
+                yield result
+    
+    async def _fallback_to_old_mode(self, event: AstrMessageEvent, allowed_urls: list):
+        """回退到旧版解析方式
+        
+        Args:
+            event: 消息事件对象
+            allowed_urls: 允许访问的URL列表
+        """
         # 发送处理提示消息，告知用户正在分析
         if len(allowed_urls) == 1:
             message = f"检测到网页链接，正在分析: {allowed_urls[0]}"
@@ -770,6 +925,8 @@ class WebAnalyzerPlugin(Star):
         # 批量处理所有允许访问的URL
         async for result in self._batch_process_urls(event, allowed_urls, processing_message_id, bot):
             yield result
+    
+
 
     async def _process_single_url(
         self, event: AstrMessageEvent, url: str, analyzer: WebAnalyzer

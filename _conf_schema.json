@@ -87,10 +87,10 @@
       "analysis_mode": {
         "description": "分析模式",
         "type": "string",
-        "hint": "选择分析模式：auto(自动分析检测到的链接)、manual(仅手动命令分析)、hybrid(混合模式，仅管理员可切换)",
+        "hint": "选择分析模式：auto(自动分析检测到的链接)、manual(仅手动命令分析)、hybrid(混合模式，仅管理员可切换)、LLMTOOL(使用LLM智能决定是否触发解析)",
         "default": "auto",
         "_special": "select",
-        "options": ["auto", "manual", "hybrid"]
+        "options": ["auto", "manual", "hybrid", "LLMTOOL"]
       },
       "auto_analyze": {
         "description": "自动分析检测到的链接",
@@ -435,6 +435,7 @@
       }
     }
   },
+
   "resource_settings": {
     "description": "资源管理设置",
     "type": "object",
