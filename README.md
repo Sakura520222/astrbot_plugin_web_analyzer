@@ -10,23 +10,24 @@
 这是一个AstrBot插件，能够自动识别用户发送的网页链接，智能抓取解析内容，集成大语言模型进行深度分析和总结，支持网页截图、缓存机制和多种管理命令。
 
 ## 更新日志
-## [v1.3.3] - 2025-12-26
+## [v1.3.4] - 2025-12-27
 
 ### ✨ 功能增强
-- 新增分析模式功能，支持自动分析、手动分析和混合模式三种模式
-- 新增 analysis_mode 配置项，可在配置中选择分析模式
-- 新增 /web_mode 管理员命令，支持动态切换分析模式
-- 支持命令别名：/分析模式、/网页分析模式
-- 在 manual 模式下，必须使用 /网页分析 命令才会分析链接
-- 在 auto 模式下，自动检测并分析消息中的链接
-- 在 hybrid 模式下，默认自动分析，管理员可通过命令临时切换
-- 优化 auto_detect_urls 方法，支持根据分析模式控制自动分析行为
-- 更新 /web_config 命令，显示当前分析模式
+- 新增LLM Tool模式，将其合并到analysis_mode配置中
+- 当analysis_mode设置为LLMTOOL时，不自动分析链接，让LLM自己决定是否调用analyze_webpage工具
+- 当analysis_mode为其他值时，使用对应模式的解析方式
+- 注册analyze_webpage工具，供LLM自行调用
+- 支持自动补全URL协议头，处理没有协议头的URL（如www.google.com）
+- 支持URL预处理，去除可能的反引号、空格等
+- 支持URL规范化，确保URL格式一致
+- 新增详细的日志记录，便于调试和监控
+- 当未启用LLMTOOL模式时，拒绝analyze_webpage工具调用
 
 ### ⚙️ 配置调整
-- 新增 analysis_mode 配置项，支持 auto、manual、hybrid 三种模式
-- auto_analyze 配置项标记为已废弃，建议使用 analysis_mode 配置
-- 保持向后兼容，支持旧的 auto_analyze 配置项
+- 将LLM Tool模式合并到analysis_mode配置中，新增LLMTOOL选项
+- 移除llm_tool_settings配置项和enable_llm_tool配置开关
+- 分析模式现在包含四个选项：auto(自动)、manual(手动)、hybrid(混合)、LLMTOOL(LLM智能决定)
+- 当analysis_mode为LLMTOOL时，不自动分析链接，让LLM自己决定
 
 > [⚠警告]
 > **v1.2.4版本重要更新**：配置文件结构已发生改变，请在AstrBot管理面板中重新设置所有配置项。

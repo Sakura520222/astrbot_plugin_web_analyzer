@@ -1,5 +1,24 @@
 # 更新日志
 
+## [v1.3.4] - 2025-12-27
+
+### ✨ 功能增强
+- 新增LLM Tool模式，将其合并到analysis_mode配置中
+- 当analysis_mode设置为LLMTOOL时，不自动分析链接，让LLM自己决定是否调用analyze_webpage工具
+- 当analysis_mode为其他值时，使用对应模式的解析方式
+- 注册analyze_webpage工具，供LLM自行调用
+- 支持自动补全URL协议头，处理没有协议头的URL（如www.google.com）
+- 支持URL预处理，去除可能的反引号、空格等
+- 支持URL规范化，确保URL格式一致
+- 新增详细的日志记录，便于调试和监控
+- 当未启用LLMTOOL模式时，拒绝analyze_webpage工具调用
+
+### ⚙️ 配置调整
+- 将LLM Tool模式合并到analysis_mode配置中，新增LLMTOOL选项
+- 移除llm_tool_settings配置项和enable_llm_tool配置开关
+- 分析模式现在包含四个选项：auto(自动)、manual(手动)、hybrid(混合)、LLMTOOL(LLM智能决定)
+- 当analysis_mode为LLMTOOL时，不自动分析链接，让LLM自己决定
+
 ## [v1.3.3] - 2025-12-26
 
 ### ✨ 功能增强
