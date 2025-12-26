@@ -84,10 +84,18 @@
     "type": "object",
     "hint": "网页分析相关配置选项",
     "items": {
+      "analysis_mode": {
+        "description": "分析模式",
+        "type": "string",
+        "hint": "选择分析模式：auto(自动分析检测到的链接)、manual(仅手动命令分析)、hybrid(混合模式，仅管理员可切换)",
+        "default": "auto",
+        "_special": "select",
+        "options": ["auto", "manual", "hybrid"]
+      },
       "auto_analyze": {
         "description": "自动分析检测到的链接",
         "type": "bool",
-        "hint": "是否自动分析消息中检测到的网页链接",
+        "hint": "是否自动分析消息中检测到的网页链接（已废弃，请使用analysis_mode配置）",
         "default": true
       },
       "enable_emoji": {

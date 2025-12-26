@@ -111,7 +111,7 @@ ERROR_MESSAGES: Dict[str, Dict[str, Any]] = {
     "astrbot_plugin_web_analyzer",
     "Sakura520222",
     "自动识别网页链接，智能抓取解析内容，集成大语言模型进行深度分析和总结，支持网页截图、缓存机制和多种管理命令",
-    "1.3.2",
+    "1.3.3",
     "https://github.com/Sakura520222/astrbot_plugin_web_analyzer",
 )
 class WebAnalyzerPlugin(Star):
@@ -258,8 +258,20 @@ class WebAnalyzerPlugin(Star):
     def _load_analysis_settings(self):
         """加载和验证分析设置"""
         analysis_settings = self.config.get("analysis_settings", {})
-        # 是否自动分析检测到的链接
+        # 分析模式：auto(自动)、manual(手动)、hybrid(混合)
+        self.analysis_mode = analysis_settings.get("analysis_mode", "auto")
+        # 验证分析模式是否有效
+        valid_modes = ["auto", "manual", "hybrid"]
+        if self.analysis_mode not in valid_modes:
+            logger.warning(
+                f"无效的分析模式: {self.analysis_mode}，将使用默认值 auto"
+            )
+            self.analysis_mode = "auto"
+        # 兼容旧的auto_analyze配置
         self.auto_analyze = bool(analysis_settings.get("auto_analyze", True))
+        # 如果设置了analysis_mode，优先使用新配置
+        if "analysis_mode" in analysis_settings:
+            self.auto_analyze = (self.analysis_mode == "auto")
         # 是否在结果中使用emoji
         self.enable_emoji = bool(analysis_settings.get("enable_emoji", True))
         # 是否显示内容统计信息
@@ -652,7 +664,7 @@ class WebAnalyzerPlugin(Star):
         只要发送包含网页链接的消息，插件就会自动进行分析。
 
         🚦 自动分析规则：
-        1. 仅当配置中auto_analyze为True时启用
+        1. 仅当analysis_mode为auto或hybrid时启用
         2. 智能跳过命令消息，避免重复处理
         3. 跳过包含网页分析相关指令的消息
         4. 跳过在黑名单中的群聊消息
@@ -668,7 +680,11 @@ class WebAnalyzerPlugin(Star):
         Args:
             event: 消息事件对象，包含消息内容和上下文信息
         """
-        # 检查是否启用自动分析功能
+        # 检查分析模式，manual模式下不进行自动分析
+        if self.analysis_mode == "manual":
+            return
+
+        # 检查是否启用自动分析功能（兼容旧配置）
         if not self.auto_analyze:
             return
 
@@ -2194,6 +2210,7 @@ class WebAnalyzerPlugin(Star):
 - 最大内容长度: {self.max_content_length} 字符
 - 请求超时时间: {self.timeout} 秒
 - LLM智能分析: {"✅ 已启用" if self.llm_enabled else "❌ 已禁用"}
+- 分析模式: {self.analysis_mode}
 - 自动分析链接: {"✅ 已启用" if self.auto_analyze else "❌ 已禁用"}
 - 合并转发功能(群聊): {"✅ 已启用" if self.merge_forward_enabled["group"] else "❌ 已禁用"}
 - 合并转发功能(私聊): {"✅ 已启用" if self.merge_forward_enabled["private"] else "❌ 已禁用"}
@@ -2466,6 +2483,89 @@ class WebAnalyzerPlugin(Star):
         # 无效操作
         else:
             yield event.plain_result("无效的操作，请使用: clear")
+
+    @filter.permission_type(filter.PermissionType.ADMIN)
+    @filter.command("web_mode", alias={"分析模式", "网页分析模式"})
+    async def manage_analysis_mode(self, event: AstrMessageEvent):
+        """管理插件的网页分析模式
+
+        这个命令允许管理员切换插件的网页分析模式，包括自动分析、手动分析和混合模式，
+        方便管理员根据实际需求控制插件的行为。
+
+        📋 命令用法：
+        1. 🔍 查看当前模式：`/web_mode`
+        2. 🔄 切换模式：`/web_mode <模式>`
+
+        📁 支持的模式：
+        - `auto`：自动分析检测到的链接（默认）
+        - `manual`：仅通过手动命令分析
+        - `hybrid`：混合模式，自动分析但管理员可临时切换
+
+        🔤 支持别名：
+        - `/分析模式`
+        - `/网页分析模式`
+
+        💡 模式说明：
+        - ⚡ auto模式：检测到链接自动分析，无需命令
+        - 🎯 manual模式：必须使用`/网页分析`命令才会分析
+        - 🔄 hybrid模式：默认自动分析，但管理员可通过命令临时切换
+
+        ⚠️ 注意：
+        - 此命令仅限管理员使用
+        - 切换模式会立即生效
+        - 配置文件中的analysis_mode设置会覆盖此命令的设置
+
+        Args:
+            event: 消息事件对象，用于获取命令参数和生成响应
+        """
+        # 解析命令参数
+        message_parts = event.message_str.strip().split()
+
+        # 如果没有参数，显示当前模式
+        if len(message_parts) <= 1:
+            mode_names = {
+                "auto": "自动分析",
+                "manual": "手动分析",
+                "hybrid": "混合模式"
+            }
+            mode_info = "**当前分析模式**\n\n"
+            mode_info += f"- 模式: {mode_names.get(self.analysis_mode, self.analysis_mode)} ({self.analysis_mode})\n"
+            mode_info += f"- 自动分析: {'✅ 已启用' if self.auto_analyze else '❌ 已禁用'}\n\n"
+            mode_info += "使用 `/web_mode <模式>` 切换模式\n"
+            mode_info += "支持的模式: auto, manual, hybrid"
+
+            yield event.plain_result(mode_info)
+            return
+
+        # 解析模式参数
+        mode = message_parts[1].lower() if len(message_parts) > 1 else ""
+        valid_modes = ["auto", "manual", "hybrid"]
+
+        # 验证模式是否有效
+        if mode not in valid_modes:
+            yield event.plain_result(
+                f"无效的模式，请使用: {', '.join(valid_modes)}"
+            )
+            return
+
+        # 更新分析模式
+        self.analysis_mode = mode
+        self.auto_analyze = (mode == "auto")
+
+        # 保存配置
+        analysis_settings = self.config.get("analysis_settings", {})
+        analysis_settings["analysis_mode"] = mode
+        self.config["analysis_settings"] = analysis_settings
+        self.config.save_config()
+
+        mode_names = {
+            "auto": "自动分析",
+            "manual": "手动分析",
+            "hybrid": "混合模式"
+        }
+        yield event.plain_result(
+            f"✅ 已切换到 {mode_names.get(mode, mode)} 模式"
+        )
 
     @filter.command("web_export", alias={"导出分析结果", "网页导出"})
     async def export_analysis_result(self, event: AstrMessageEvent):

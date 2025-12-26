@@ -10,10 +10,23 @@
 这是一个AstrBot插件，能够自动识别用户发送的网页链接，智能抓取解析内容，集成大语言模型进行深度分析和总结，支持网页截图、缓存机制和多种管理命令。
 
 ## 更新日志
-## [v1.3.2] - 2025-12-23
+## [v1.3.3] - 2025-12-26
 
-### 🐛 Bug修复
-- 修复无协议头URL识别时重复匹配的问题，当消息中包含带协议头的URL时，避免将URL中的域名部分再次识别为无协议头URL
+### ✨ 功能增强
+- 新增分析模式功能，支持自动分析、手动分析和混合模式三种模式
+- 新增 analysis_mode 配置项，可在配置中选择分析模式
+- 新增 /web_mode 管理员命令，支持动态切换分析模式
+- 支持命令别名：/分析模式、/网页分析模式
+- 在 manual 模式下，必须使用 /网页分析 命令才会分析链接
+- 在 auto 模式下，自动检测并分析消息中的链接
+- 在 hybrid 模式下，默认自动分析，管理员可通过命令临时切换
+- 优化 auto_detect_urls 方法，支持根据分析模式控制自动分析行为
+- 更新 /web_config 命令，显示当前分析模式
+
+### ⚙️ 配置调整
+- 新增 analysis_mode 配置项，支持 auto、manual、hybrid 三种模式
+- auto_analyze 配置项标记为已废弃，建议使用 analysis_mode 配置
+- 保持向后兼容，支持旧的 auto_analyze 配置项
 
 > [⚠警告]
 > **v1.2.4版本重要更新**：配置文件结构已发生改变，请在AstrBot管理面板中重新设置所有配置项。
@@ -116,6 +129,37 @@
 
 ```
 /网页分析 https://example.com/article1 https://example.com/article2
+```
+
+### 分析模式
+
+插件支持三种分析模式，可通过配置或管理员命令切换：
+
+**查看当前模式：**
+
+```
+/web_mode
+```
+
+**切换模式（仅限管理员）：**
+
+```
+/web_mode auto      # 自动分析模式
+/web_mode manual    # 手动分析模式
+/web_mode hybrid    # 混合模式
+```
+
+**模式说明：**
+
+- **auto（自动分析）**：检测到链接自动分析，无需命令（默认模式）
+- **manual（手动分析）**：必须使用`/网页分析`命令才会分析，不会自动处理链接
+- **hybrid（混合模式）**：默认自动分析，但管理员可通过命令临时切换
+
+**别名：**
+
+```
+/分析模式
+/网页分析模式
 ```
 
 ### 命令别名
@@ -250,6 +294,7 @@
 
 ### 基本设置
 
+- **analysis_mode**: 分析模式，支持auto(自动)、manual(手动)、hybrid(混合)（默认：auto）
 - **enable_no_protocol_url**: 识别无协议头URL（默认：false）
 - **default_protocol**: 默认协议（默认：https）
 - **max_content_length**: 最大网页内容长度（默认：10000）
@@ -257,7 +302,7 @@
 - **retry_count**: 请求重试次数（默认：3）
 - **retry_delay**: 请求重试间隔(秒)（默认：2）
 - **llm_enabled**: 启用LLM智能分析（默认：true）
-- **auto_analyze**: 自动分析检测到的链接（默认：true）
+- **auto_analyze**: 自动分析检测到的链接（已废弃，请使用analysis_mode配置）（默认：true）
 - **user_agent**: 自定义User-Agent
 - **proxy**: HTTP代理配置，格式为http://username:password@host:port ，留空表示不使用代理
 
