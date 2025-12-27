@@ -157,6 +157,12 @@
         "default": "https",
         "_special": "select",
         "options": ["http", "https"]
+      },
+      "enable_llm_decision": {
+        "description": "启用LLM自主决策",
+        "type": "bool",
+        "hint": "是否允许LLM自主决定是发送分析结果还是截图",
+        "default": false
       }
     }
   },

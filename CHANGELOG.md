@@ -1,6 +1,17 @@
 # 更新日志
 
-## [v1.3.4] - 2025-12-27
+## [v1.3.5] - 2025-12-27
+
+### ✨ 功能增强
+- 新增LLM自主决策功能，允许LLM决定返回分析结果还是截图
+- 实现`analyze_webpage_with_decision`函数工具，支持指定返回内容类型
+- 支持三种返回类型：`analysis_only`（仅分析结果）、`screenshot_only`（仅截图）、`both`（两者都返回）
+
+### ⚙️ 配置调整
+- 新增`enable_llm_decision`配置项，用于控制是否启用LLM自主决策功能
+- 将`enable_llm_decision`配置项添加到`analysis_settings`中，使其与分析相关配置更集中
+
+## [v1.3.4] - 2025-12-26
 
 ### ✨ 功能增强
 - 新增LLM Tool模式，将其合并到analysis_mode配置中
@@ -19,7 +30,7 @@
 - 分析模式现在包含四个选项：auto(自动)、manual(手动)、hybrid(混合)、LLMTOOL(LLM智能决定)
 - 当analysis_mode为LLMTOOL时，不自动分析链接，让LLM自己决定
 
-## [v1.3.3] - 2025-12-26
+## [v1.3.3] - 2025-12-25
 
 ### ✨ 功能增强
 - 新增分析模式功能，支持自动分析、手动分析和混合模式三种模式

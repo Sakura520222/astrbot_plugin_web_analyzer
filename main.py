@@ -111,7 +111,7 @@ ERROR_MESSAGES: Dict[str, Dict[str, Any]] = {
     "astrbot_plugin_web_analyzer",
     "Sakura520222",
     "自动识别网页链接，智能抓取解析内容，集成大语言模型进行深度分析和总结，支持网页截图、缓存机制和多种管理命令",
-    "1.3.4",
+    "1.3.5",
     "https://github.com/Sakura520222/astrbot_plugin_web_analyzer",
 )
 class WebAnalyzerPlugin(Star):
@@ -311,6 +311,8 @@ class WebAnalyzerPlugin(Star):
         if self.default_protocol not in ["http", "https"]:
             logger.warning(f"无效的默认协议: {self.default_protocol}，将使用默认值 https")
             self.default_protocol = "https"
+        # 是否允许LLM自主决策：允许LLM决定是发送分析结果还是截图
+        self.enable_llm_decision = bool(analysis_settings.get("enable_llm_decision", False))
     
     def _load_screenshot_settings(self):
         """加载和验证截图设置"""
@@ -707,6 +709,106 @@ class WebAnalyzerPlugin(Star):
         # 处理单个URL
         async for result in self._batch_process_urls(event, [normalized_url], processing_message_id, bot):
             yield result
+    
+    @filter.llm_tool(name="analyze_webpage_with_decision")
+    async def analyze_webpage_with_decision_tool(self, event: AstrMessageEvent, url: str, return_type: str = "both") -> Any:
+        """智能网页分析工具（带自主决策）
+
+        用于分析网页内容，提取关键信息并生成智能总结，允许LLM自主决定返回内容类型。
+
+        Args:
+            url(string): 要分析的网页URL地址
+            return_type(string): 返回内容类型，可选值：analysis_only（仅分析结果）、screenshot_only（仅截图）、both（两者都返回）
+        """
+        # 检查是否启用了LLMTOOL模式，未启用则不执行
+        if self.analysis_mode != "LLMTOOL":
+            logger.info(f"当前未启用LLMTOOL模式，拒绝analyze_webpage_with_decision_tool调用: {url}")
+            yield event.plain_result("当前未启用网页分析工具模式")
+            return
+        
+        # 检查是否启用了LLM自主决策功能
+        if not self.enable_llm_decision:
+            logger.info(f"当前未启用LLM自主决策功能，拒绝analyze_webpage_with_decision_tool调用: {url}")
+            yield event.plain_result("当前未启用LLM自主决策功能")
+            return
+        
+        logger.info(f"收到analyze_webpage_with_decision_tool调用，原始URL: {url}，返回类型: {return_type}")
+        
+        # 验证返回类型
+        valid_return_types = ["analysis_only", "screenshot_only", "both"]
+        if return_type not in valid_return_types:
+            logger.warning(f"无效的返回类型: {return_type}，使用默认值: both")
+            return_type = "both"
+        
+        # 预处理URL：去除可能的反引号、空格等
+        processed_url = url.strip().strip('`')
+        logger.info(f"预处理后的URL: {processed_url}")
+        
+        # 补全URL协议头（如果需要）
+        if not processed_url.startswith(('http://', 'https://')):
+            processed_url = f"{self.default_protocol}://{processed_url}"
+            logger.info(f"补全协议头后的URL: {processed_url}")
+        
+        # 规范化URL
+        normalized_url = self.analyzer.normalize_url(processed_url)
+        logger.info(f"规范化后的URL: {normalized_url}")
+        
+        if not self.analyzer.is_valid_url(normalized_url):
+            error_msg = f"无效的URL链接，请检查格式是否正确: {normalized_url}"
+            logger.warning(error_msg)
+            yield event.plain_result(error_msg)
+            return
+        
+        # 检查域名是否允许访问
+        if not self._is_domain_allowed(normalized_url):
+            error_msg = f"该域名不在允许访问的列表中: {normalized_url}"
+            logger.warning(error_msg)
+            yield event.plain_result(error_msg)
+            return
+        
+        # 发送处理提示消息，告知用户正在分析
+        message = f"正在分析网页: {normalized_url}"
+        processing_message_id, bot = await self._send_processing_message(event, message)
+        
+        # 创建临时WebAnalyzer实例
+        async with WebAnalyzer(
+            self.max_content_length,
+            self.timeout,
+            self.user_agent,
+            self.proxy,
+            self.retry_count,
+            self.retry_delay,
+        ) as analyzer:
+            # 处理单个URL，获取分析结果
+            result = await self._process_single_url(event, normalized_url, analyzer)
+            
+            # 保存原始send_content_type配置
+            original_send_content_type = self.send_content_type
+            
+            try:
+                # 根据LLM的决策设置send_content_type
+                self.send_content_type = return_type
+                logger.info(f"临时设置send_content_type为: {return_type}")
+                
+                # 发送分析结果
+                async for result_msg in self._send_analysis_result(event, [result]):
+                    yield result_msg
+            finally:
+                # 恢复原始send_content_type配置
+                self.send_content_type = original_send_content_type
+                logger.info(f"恢复send_content_type为: {original_send_content_type}")
+            
+            # 智能撤回：分析完成后立即撤回处理中消息
+            if (self.enable_recall and 
+                self.recall_type == "smart" and 
+                self.smart_recall_enabled and 
+                processing_message_id and 
+                bot):
+                try:
+                    await bot.delete_msg(message_id=processing_message_id)
+                    logger.info(f"已撤回处理中消息: {processing_message_id}")
+                except Exception as e:
+                    logger.error(f"撤回处理中消息失败: {e}")
 
     @filter.event_message_type(filter.EventMessageType.ALL)
     async def auto_detect_urls(self, event: AstrMessageEvent):
@@ -2404,6 +2506,7 @@ class WebAnalyzerPlugin(Star):
 - 水印字体大小: {self.watermark_font_size}
 - 水印透明度: {self.watermark_opacity}%
 - 水印位置: {self.watermark_position}
+- 启用LLM自主决策: {"✅ 已启用" if self.enable_llm_decision else "❌ 已禁用"}
 
 **LLM配置**
 - 指定提供商: {self.llm_provider if self.llm_provider else "使用会话默认"}
