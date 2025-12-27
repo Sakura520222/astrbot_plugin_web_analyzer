@@ -85,6 +85,7 @@
 - 🔧 **URL预处理**: 支持URL预处理，去除可能的反引号、空格等
 - 🔄 **URL规范化**: 支持URL规范化，确保URL格式一致
 - 📝 **详细日志记录**: 新增详细的日志记录，便于调试和监控
+- 🤖 **LLM自主决策**: 新增LLM自主决策功能，允许LLM决定返回分析结果还是截图
 
 ## Star
 
@@ -346,6 +347,7 @@
 - **result_template**: 结果展示模板，支持：default, detailed, compact, markdown, simple（默认：default）
 - **enable_collapsible**: 启用结果折叠功能（默认：false）
 - **collapse_threshold**: 结果折叠阈值（默认：1500）
+- **enable_llm_decision**: 启用LLM自主决策功能（默认：false）
 
 ### 截图高级设置
 
