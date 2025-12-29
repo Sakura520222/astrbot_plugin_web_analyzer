@@ -7,7 +7,7 @@
 [![GitHub Stars](https://img.shields.io/github/stars/Sakura520222/astrbot_plugin_web_analyzer?style=social)](https://github.com/Sakura520222/astrbot_plugin_web_analyzer/stargazers)
 [![GitHub Forks](https://img.shields.io/github/forks/Sakura520222/astrbot_plugin_web_analyzer?style=social)](https://github.com/Sakura520222/astrbot_plugin_web_analyzer/network/members)
 
-这是一个AstrBot插件，能够自动识别用户发送的网页链接，智能抓取解析内容，集成大语言模型进行深度分析和总结，支持网页截图、缓存机制和多种管理命令。
+AstrBot网页分析插件，能够自动识别用户发送的网页链接，智能抓取解析内容，集成大语言模型进行深度分析和总结，支持网页截图、缓存机制和多种管理命令。
 
 ## 更新日志
 
@@ -48,44 +48,44 @@
 
 ## 功能特性
 
-- 🔍 **自动识别URL**: 自动检测消息中的网页链接，支持带协议头和无协议头的URL（如 www.example.com）
-- 📄 **智能内容提取**: 使用BeautifulSoup提取网页主要内容
-- 🤖 **LLM智能分析**: 集成AstrBot的LLM接口进行深度内容分析
-- 📸 **网页截图**: 自动捕获网页截图，直观展示网页外观，支持多种格式和自定义尺寸
-- ⚡ **异步并发处理**: 使用asyncio.gather并发处理多个URL，提高性能
-- 🎨 **高度可配置**: 支持多种配置选项，满足不同需求
-- 🔒 **域名控制**: 支持允许和禁止域名列表
-- 📱 **多平台支持**: 兼容各种消息平台
-- 📊 **内容统计**: 提供详细的内容统计信息
-- 🔗 **多链接处理**: 支持同时处理多条链接，合并成一条合并转发消息发送
-- 🌐 **网页翻译**: 支持将网页内容翻译成指定语言
-- 📦 **结果缓存**: 支持分析结果缓存，提高重复请求的响应速度
-- 🎯 **特定内容提取**: 支持提取图片、链接、代码块、元信息等特定类型内容
-- 🧹 **缓存管理**: 支持查看缓存状态和手动清理缓存
-- 💾 **分析结果导出**: 支持将分析结果导出为Markdown、JSON、TXT等格式，并作为附件发送
-- 🕵️ **代理支持**: 支持HTTP代理配置，可用于绕过访问限制
-- 🔄 **请求重试机制**: 自动重试失败的请求，提高抓取成功率
-- ✅ **配置验证**: 自动验证配置项的有效性，确保插件稳定运行
-- 🎯 **多分析模板**: 新增多种LLM分析模板，支持智能模板选择
-- 🚨 **完善的错误处理**: 实现错误分级和分类，提供详细的错误信息
-- ✂️ **截图裁剪**: 支持自定义截图区域，裁剪指定部分
-- 🔄 **内容哈希缓存**: 基于内容哈希的缓存策略，提高缓存命中率
-- ⏳ **缓存预加载**: 支持缓存预加载，提高首次访问速度
-- 📈 **优先级调度**: 基于URL优先级的任务调度，提高重要URL的处理速度
-- 🔄 **动态并发**: 动态调整并发数，优化资源使用
-- 📊 **内存监控**: 新增内存监控和自动释放机制
-- 🔄 **浏览器池**: 优化浏览器资源管理，减少资源消耗
-- 🎨 **多种结果模板**: 支持多种结果展示模板，满足不同需求
-- 📋 **结果折叠**: 支持结果折叠功能，优化长文本展示
-- 💬 **命令补全**: 支持命令补全和参数提示功能
-- 🔤 **命令别名自定义**: 支持自定义命令别名
-- 📚 **详细命令帮助**: 提供完整的命令帮助系统
-- 🤖 **LLM Tool模式**: 新增LLM Tool模式，允许LLM智能决定是否调用analyze_webpage工具
-- 🔗 **URL自动补全**: 自动补全URL协议头，处理没有协议头的URL（如www.google.com）
-- 🔧 **URL预处理**: 支持URL预处理，去除可能的反引号、空格等
-- 🔄 **URL规范化**: 支持URL规范化，确保URL格式一致
-- 📝 **详细日志记录**: 新增详细的日志记录，便于调试和监控
-- 🤖 **LLM自主决策**: 新增LLM自主决策功能，允许LLM决定返回分析结果还是截图
+- **自动识别URL**：自动检测消息中的网页链接，支持带协议头和无协议头的URL（如 www.example.com）
+- **智能内容提取**：使用BeautifulSoup提取网页主要内容
+- **LLM智能分析**：集成AstrBot的LLM接口进行深度内容分析
+- **网页截图**：自动捕获网页截图，直观展示网页外观，支持多种格式和自定义尺寸
+- **异步并发处理**：使用asyncio.gather并发处理多个URL，提高性能
+- **高度可配置**：支持多种配置选项，满足不同需求
+- **域名控制**：支持允许和禁止域名列表
+- **多平台支持**：兼容各种消息平台
+- **内容统计**：提供详细的内容统计信息
+- **多链接处理**：支持同时处理多条链接，合并成一条合并转发消息发送
+- **网页翻译**：支持将网页内容翻译成指定语言
+- **结果缓存**：支持分析结果缓存，提高重复请求的响应速度
+- **特定内容提取**：支持提取图片、链接、代码块、元信息等特定类型内容
+- **缓存管理**：支持查看缓存状态和手动清理缓存
+- **分析结果导出**：支持将分析结果导出为Markdown、JSON、TXT等格式，并作为附件发送
+- **代理支持**：支持HTTP代理配置，可用于绕过访问限制
+- **请求重试机制**：自动重试失败的请求，提高抓取成功率
+- **配置验证**：自动验证配置项的有效性，确保插件稳定运行
+- **多分析模板**：新增多种LLM分析模板，支持智能模板选择
+- **完善的错误处理**：实现错误分级和分类，提供详细的错误信息
+- **截图裁剪**：支持自定义截图区域，裁剪指定部分
+- **内容哈希缓存**：基于内容哈希的缓存策略，提高缓存命中率
+- **缓存预加载**：支持缓存预加载，提高首次访问速度
+- **优先级调度**：基于URL优先级的任务调度，提高重要URL的处理速度
+- **动态并发**：动态调整并发数，优化资源使用
+- **内存监控**：新增内存监控和自动释放机制
+- **浏览器池**：优化浏览器资源管理，减少资源消耗
+- **多种结果模板**：支持多种结果展示模板，满足不同需求
+- **结果折叠**：支持结果折叠功能，优化长文本展示
+- **命令补全**：支持命令补全和参数提示功能
+- **命令别名自定义**：支持自定义命令别名
+- **详细命令帮助**：提供完整的命令帮助系统
+- **LLM Tool模式**：新增LLM Tool模式，允许LLM智能决定是否调用analyze_webpage工具
+- **URL自动补全**：自动补全URL协议头，处理没有协议头的URL（如www.google.com）
+- **URL预处理**：支持URL预处理，去除可能的反引号、空格等
+- **URL规范化**：支持URL规范化，确保URL格式一致
+- **详细日志记录**：新增详细的日志记录，便于调试和监控
+- **LLM自主决策**：新增LLM自主决策功能，允许LLM决定返回分析结果还是截图
 
 ## Star
 
@@ -95,15 +95,23 @@
 
 1. 将插件目录复制到AstrBot的插件目录：
    ```bash
+   # 目录结构示例
    AstrBot/data/plugins/
+   └── astrbot_plugin_web_analyzer/
+       ├── main.py
+       ├── requirements.txt
+       └── ...
    ```
 
 2. 安装依赖：
    ```bash
-   pip install -r astrbot_plugin_web_analyzer/requirements.txt
+   # 进入插件目录
+   cd AstrBot/data/plugins/astrbot_plugin_web_analyzer
+   # 安装依赖
+   pip install -r requirements.txt
    ```
 
-3. 重启AstrBot或重载插件
+3. 重启AstrBot或在WebUI插件管理中点击**重载插件**
 
 ## 使用方法
 
@@ -150,52 +158,45 @@
 /网页分析 https://example.com/article1 https://example.com/article2
 ```
 
-### 分析模式
-
-插件支持四种分析模式，可通过配置或管理员命令切换：
-
-**查看当前模式：**
-
-```
-/web_mode
-```
-
-**切换模式（仅限管理员）：**
-
-```
-/web_mode auto      # 自动分析模式
-/web_mode manual    # 手动分析模式
-/web_mode hybrid    # 混合模式
-/web_mode LLMTOOL   # LLM Tool模式
-```
-
-**模式说明：**
-
-- **auto（自动分析）**：检测到链接自动分析，无需命令（默认模式）
-- **manual（手动分析）**：必须使用`/网页分析`命令才会分析，不会自动处理链接
-- **hybrid（混合模式）**：默认自动分析，但管理员可通过命令临时切换
-- **LLMTOOL（LLM智能决定）**：不自动分析链接，让LLM自己决定是否调用analyze_webpage工具，适合需要LLM自主决策的场景
-
-**别名：**
-
-```
-/分析模式
-/网页分析模式
-```
-
 ### 命令别名
 
-支持以下命令别名：
+支持多种命令别名，方便用户使用：
 
 ```
 /分析 https://example.com
 /总结 https://example.com
 /web https://example.com
 /analyze https://example.com
-/分析 https://example.com/article1 https://example.com/article2
-/总结 https://example.com/article1 https://example.com/article2
-/web https://example.com/article1 https://example.com/article2
-/analyze https://example.com/article1 https://example.com/article2
+```
+
+### 分析模式
+
+插件支持四种分析模式，可通过配置或管理员命令切换：
+
+| 模式 | 说明 |
+|------|------|
+| auto | 检测到链接自动分析，无需命令（默认模式） |
+| manual | 必须使用`/网页分析`命令才会分析，不会自动处理链接 |
+| hybrid | 默认自动分析，但管理员可通过命令临时切换 |
+| LLMTOOL | 不自动分析链接，让LLM自己决定是否调用analyze_webpage工具 |
+
+**查看当前模式：**
+```
+/web_mode
+```
+
+**切换模式（仅限管理员）：**
+```
+/web_mode auto      # 切换到自动分析模式
+/web_mode manual    # 切换到手动分析模式
+/web_mode hybrid    # 切换到混合模式
+/web_mode LLMTOOL   # 切换到LLM Tool模式
+```
+
+**模式命令别名：**
+```
+/分析模式
+/网页分析模式
 ```
 
 ### 命令帮助
@@ -206,14 +207,13 @@
 /web_help
 ```
 
-别名：
-
+**命令别名：**
 ```
 /网页分析帮助
 /网页分析命令
 ```
 
-### 查看配置
+### 配置管理
 
 查看当前插件配置：
 
@@ -221,8 +221,7 @@
 /web_config
 ```
 
-别名：
-
+**命令别名：**
 ```
 /网页分析配置
 /网页分析设置
@@ -231,19 +230,16 @@
 ### 缓存管理
 
 查看缓存状态：
-
 ```
 /web_cache
 ```
 
 手动清理缓存：
-
 ```
 /web_cache clear
 ```
 
-别名：
-
+**命令别名：**
 ```
 /网页缓存
 /清理缓存
@@ -252,25 +248,24 @@
 ### 分析结果导出
 
 导出指定URL的分析结果：
-
 ```
 /web_export https://example.com md
 ```
 
 导出所有缓存的分析结果：
-
 ```
 /web_export all json
 ```
 
-支持的格式：
+支持的导出格式：
 
-- `md` 或 `markdown`: Markdown格式，适合阅读和分享
-- `json`: JSON格式，适合程序处理和数据交换
-- `txt`: 纯文本格式，兼容性好
+| 格式 | 说明 |
+|------|------|
+| md / markdown | Markdown格式，适合阅读和分享 |
+| json | JSON格式，适合程序处理和数据交换 |
+| txt | 纯文本格式，兼容性好 |
 
-别名：
-
+**命令别名：**
 ```
 /导出分析结果 https://example.com
 /网页导出 all md
@@ -279,31 +274,26 @@
 ### 群聊黑名单管理
 
 查看当前群聊黑名单：
-
 ```
 /group_blacklist
 ```
 
 添加群聊到黑名单：
-
 ```
 /group_blacklist add <群号>
 ```
 
 从黑名单移除群聊：
-
 ```
 /group_blacklist remove <群号>
 ```
 
 清空黑名单：
-
 ```
 /group_blacklist clear
 ```
 
-别名：
-
+**命令别名：**
 ```
 /群黑名单
 /黑名单
@@ -311,132 +301,144 @@
 
 ## 配置选项
 
-插件支持多种配置选项，可以在AstrBot管理面板中进行设置：
+插件支持多种配置选项，可以在AstrBot管理面板中进行设置。以下是主要配置项的说明：
 
-### 基本设置
+### 核心设置
 
-- **analysis_mode**: 分析模式，支持auto(自动)、manual(手动)、hybrid(混合)、LLMTOOL(LLM智能决定)（默认：auto）
-- **enable_no_protocol_url**: 识别无协议头URL（默认：false）
-- **default_protocol**: 默认协议（默认：https）
-- **max_content_length**: 最大网页内容长度（默认：10000）
-- **request_timeout**: 请求超时时间(秒)（默认：30）
-- **retry_count**: 请求重试次数（默认：3）
-- **retry_delay**: 请求重试间隔(秒)（默认：2）
-- **llm_enabled**: 启用LLM智能分析（默认：true）
-- **auto_analyze**: 自动分析检测到的链接（已废弃，请使用analysis_mode配置）（默认：true）
-- **user_agent**: 自定义User-Agent
-- **proxy**: HTTP代理配置，格式为http://username:password@host:port ，留空表示不使用代理
+| 配置项 | 说明 | 默认值 |
+|--------|------|--------|
+| analysis_mode | 分析模式，支持auto(自动)、manual(手动)、hybrid(混合)、LLMTOOL(LLM智能决定) | auto |
+| enable_no_protocol_url | 识别无协议头URL（如www.example.com） | false |
+| default_protocol | 默认协议 | https |
+| max_content_length | 最大网页内容长度 | 10000 |
+| request_timeout | 请求超时时间(秒) | 30 |
+| retry_count | 请求重试次数 | 3 |
+| retry_delay | 请求重试间隔(秒) | 2 |
+| llm_enabled | 启用LLM智能分析 | true |
+| user_agent | 自定义User-Agent | - |
+| proxy | HTTP代理配置，格式为http://username:password@host:port，留空表示不使用代理 | - |
 
-### 域名控制
+### 域名管理
 
-- **allowed_domains**: 允许的域名列表（留空表示允许所有域名）
-- **blocked_domains**: 禁止的域名列表
+| 配置项 | 说明 | 默认值 |
+|--------|------|--------|
+| allowed_domains | 允许的域名列表（留空表示允许所有域名） | - |
+| blocked_domains | 禁止的域名列表 | - |
 
-### 分析设置
+### 分析结果配置
 
-- **enable_emoji**: 启用emoji图标（默认：true）
-- **enable_statistics**: 显示内容统计（默认：true）
-- **max_summary_length**: 最大摘要长度（默认：2000）
-- **enable_screenshot**: 启用网页截图（默认：true）
-- **screenshot_quality**: 截图质量（0-100，默认：80）
-- **screenshot_width**: 截图宽度像素（默认：1280）
-- **screenshot_height**: 截图高度像素（默认：720）
-- **screenshot_format**: 截图格式（支持jpeg和png，默认：jpeg）
-- **screenshot_full_page**: 截取整页（默认：false）
-- **screenshot_wait_time**: 截图前等待页面加载的时间（毫秒，默认：2000）
-- **result_template**: 结果展示模板，支持：default, detailed, compact, markdown, simple（默认：default）
-- **enable_collapsible**: 启用结果折叠功能（默认：false）
-- **collapse_threshold**: 结果折叠阈值（默认：1500）
-- **enable_llm_decision**: 启用LLM自主决策功能（默认：false）
+| 配置项 | 说明 | 默认值 |
+|--------|------|--------|
+| enable_emoji | 启用emoji图标 | true |
+| enable_statistics | 显示内容统计 | true |
+| max_summary_length | 最大摘要长度 | 2000 |
+| result_template | 结果展示模板，支持：default, detailed, compact, markdown, simple | default |
+| enable_collapsible | 启用结果折叠功能 | false |
+| collapse_threshold | 结果折叠阈值 | 1500 |
+| enable_llm_decision | 启用LLM自主决策功能 | false |
 
-### 截图高级设置
+### 网页截图配置
 
-- **enable_crop**: 启用截图裁剪功能（默认：false）
-- **crop_area**: 裁剪区域，格式为 [left, top, right, bottom]（默认：[0, 0, screenshot_width, screenshot_height]）
+| 配置项 | 说明 | 默认值 |
+|--------|------|--------|
+| enable_screenshot | 启用网页截图 | true |
+| screenshot_quality | 截图质量（0-100） | 80 |
+| screenshot_width | 截图宽度像素 | 1280 |
+| screenshot_height | 截图高度像素 | 720 |
+| screenshot_format | 截图格式（支持jpeg和png） | jpeg |
+| screenshot_full_page | 截取整页 | false |
+| screenshot_wait_time | 截图前等待页面加载的时间（毫秒） | 2000 |
+| enable_crop | 启用截图裁剪功能 | false |
+| crop_area | 裁剪区域，格式为 [left, top, right, bottom] | [0, 0, screenshot_width, screenshot_height] |
 
 ### LLM配置
 
-- **llm_provider**: LLM提供商（使用会话默认或指定提供商）
-- **custom_prompt**: 自定义分析提示词
+| 配置项 | 说明 | 默认值 |
+|--------|------|--------|
+| llm_provider | LLM提供商（使用会话默认或指定提供商） | - |
+| custom_prompt | 自定义分析提示词 | - |
 
-### 群聊控制
+### 消息管理
 
-- **group_blacklist**: 群聊黑名单，在这些群聊中禁用自动分析功能
+| 配置项 | 说明 | 默认值 |
+|--------|------|--------|
+| group_blacklist | 群聊黑名单，在这些群聊中禁用自动分析功能 | - |
+| merge_forward_enabled.group | 群聊启用合并转发功能 | false |
+| merge_forward_enabled.private | 私聊启用合并转发功能 | false |
 
-### 合并转发
+### 翻译配置
 
-- **merge_forward_enabled.group**: 群聊启用合并转发功能（默认：false）
-- **merge_forward_enabled.private**: 私聊启用合并转发功能（默认：false）
+| 配置项 | 说明 | 默认值 |
+|--------|------|--------|
+| enable_translation | 启用网页翻译 | false |
+| target_language | 目标语言 | zh |
+| translation_provider | 翻译提供商 | llm |
+| custom_translation_prompt | 自定义翻译提示词 | - |
 
-### 翻译设置
+### 缓存配置
 
-- **enable_translation**: 启用网页翻译（默认：false）
-- **target_language**: 目标语言（默认：zh）
-- **translation_provider**: 翻译提供商（默认：llm）
-- **custom_translation_prompt**: 自定义翻译提示词
+| 配置项 | 说明 | 默认值 |
+|--------|------|--------|
+| enable_cache | 启用结果缓存 | true |
+| cache_expire_time | 缓存过期时间（分钟） | 1440 |
+| max_cache_size | 最大缓存数量 | 100 |
+| cache_preload_enabled | 启用缓存预加载功能 | false |
+| cache_preload_count | 预加载的缓存数量 | 20 |
 
-### 缓存设置
+### 内容提取配置
 
-- **enable_cache**: 启用结果缓存（默认：true）
-- **cache_expire_time**: 缓存过期时间（分钟，默认：1440）
-- **max_cache_size**: 最大缓存数量（默认：100）
-- **cache_preload_enabled**: 启用缓存预加载功能（默认：false）
-- **cache_preload_count**: 预加载的缓存数量（默认：20）
-
-### 内容提取设置
-
-- **enable_specific_extraction**: 启用特定内容提取（默认：false）
-- **extract_types**: 提取内容类型，每行一个，支持：title, content, images, links, tables, lists, code, meta（默认：title\ncontent）
+| 配置项 | 说明 | 默认值 |
+|--------|------|--------|
+| enable_specific_extraction | 启用特定内容提取 | false |
+| extract_types | 提取内容类型，每行一个，支持：title, content, images, links, tables, lists, code, meta | title\ncontent |
 
 ## 技术实现
 
-### 网页内容提取
+### 核心技术栈
 
-- 使用 `httpx` 进行异步HTTP请求
-- 使用 `BeautifulSoup` 和 `lxml` 解析HTML
-- 智能选择主要内容区域（article、main等语义化标签）
-- 移除脚本和样式标签，只保留纯文本内容
+| 功能模块 | 技术实现 |
+|----------|----------|
+| 异步HTTP请求 | `httpx` |
+| HTML解析 | `BeautifulSoup` + `lxml` |
+| 网页截图 | `playwright` 无头浏览器 |
+| 异步并发 | `asyncio.gather` |
+| 缓存机制 | 内存缓存 + 文件缓存 |
+| LLM集成 | AstrBot LLM接口 |
+
+### 关键实现细节
+
+#### 网页内容提取
+- 智能选择主要内容区域（使用article、main等语义化标签）
+- 自动移除脚本和样式标签，只保留纯文本内容
 - 支持代理配置，可用于绕过访问限制
-- 实现了请求重试机制，提高抓取成功率
+- 实现请求重试机制，提高抓取成功率
 
-### 异步并发处理
+#### 异步并发处理
+- 使用`asyncio.gather`并发处理多个URL
+- 优化异步上下文管理器的使用
+- 提高多链接处理效率
 
-- 使用 `asyncio.gather` 并发处理多个URL
-- 优化了异步上下文管理器的使用
-- 提高了多链接处理的效率
-
-### 网页截图
-
-- 使用 `playwright` 进行无头浏览器截图
+#### 网页截图
 - 支持自定义截图质量、宽度、高度和等待时间
-- 支持多种截图格式（JPEG和PNG）
+- 支持JPEG和PNG多种格式
 - 自动安装浏览器，无需手动配置
+- 支持整页截图和自定义区域裁剪
 
-### 缓存系统
-
-- 实现了内存缓存和文件缓存双重机制
+#### 缓存系统
+- 双重缓存机制：内存缓存 + 文件缓存
 - 支持缓存统计、过期清理和大小限制
-- 提供了缓存管理命令
+- 提供缓存管理命令
+- 基于内容哈希的缓存策略，提高缓存命中率
 
-### LLM分析
-
+#### LLM分析
 - 集成AstrBot的LLM接口
 - 提供结构化的分析提示词
-- 支持多种分析维度：
-  - 核心摘要
-  - 关键要点
-  - 内容类型
-  - 价值评估
-  - 适用人群
+- 支持多种分析维度：核心摘要、关键要点、内容类型、价值评估、适用人群
+- 支持LLM自主决策模式
 
-### 配置系统
-
-- 添加了配置验证逻辑，确保配置项的有效性
-- 提供了详细的配置错误提示
-- 支持多种配置选项，满足不同需求
-
-### 错误处理
-
+#### 配置与错误处理
+- 配置验证逻辑，确保配置项有效性
+- 详细的配置错误提示
 - 网络请求失败时的友好提示
 - LLM不可用时的基础分析模式
 - 完善的日志记录
@@ -445,57 +447,77 @@
 
 ## 依赖说明
 
-- `httpx>=0.24.0`: 异步HTTP客户端
-- `beautifulsoup4>=4.12.0`: HTML解析库
-- `lxml>=4.9.0`: 快速XML/HTML解析器
-- `playwright>=1.40.0`: 浏览器自动化库，用于网页截图
+| 依赖包 | 版本要求 | 用途 |
+|--------|----------|------|
+| `httpx` | `>=0.24.0` | 异步HTTP客户端 |
+| `beautifulsoup4` | `>=4.12.0` | HTML解析库 |
+| `lxml` | `>=4.9.0` | 快速XML/HTML解析器 |
+| `playwright` | `>=1.40.0` | 浏览器自动化库，用于网页截图 |
 
 ## 常见问题
 
-### 截图功能不工作
+### 截图功能异常
 
-如果截图功能不工作，可能是因为：
+**问题现象**：截图功能不工作或生成的截图异常
 
-1. 浏览器未正确安装 - 插件会自动尝试安装浏览器
-2. 网络问题 - 请检查网络连接
-3. 权限问题 - 确保插件有足够的权限创建临时文件
-4. 截图格式设置错误 - 请确保使用支持的格式（JPEG或PNG）
+**可能原因及解决方法**：
+1. **浏览器未正确安装**：插件会自动尝试安装浏览器，若安装失败可手动执行 `playwright install`
+2. **网络问题**：请检查网络连接，确保能正常访问目标网站
+3. **权限问题**：确保插件有足够的权限创建临时文件
+4. **截图格式设置错误**：请确保使用支持的格式（JPEG或PNG）
+5. **页面加载问题**：适当增加 `screenshot_wait_time` 配置值
 
 ### 分析结果不准确
 
-如果分析结果不准确，可以尝试：
+**问题现象**：网页分析结果与预期不符
 
+**优化建议**：
 1. 调整 `max_content_length` 配置，增加抓取的内容长度
 2. 调整 `screenshot_wait_time` 配置，增加页面加载等待时间
-3. 使用自定义提示词，优化分析结果
-4. 检查代理配置是否正确 - 如果使用了代理
+3. 使用 `custom_prompt` 配置自定义提示词，优化分析结果
+4. 检查代理配置是否正确（如果使用了代理）
+5. 确保目标网页内容能正常访问
 
 ### 插件响应缓慢
 
-如果插件响应缓慢，可以尝试：
+**问题现象**：插件处理请求时间过长
 
+**优化建议**：
 1. 减少 `max_content_length` 配置，减少抓取的内容长度
 2. 关闭 `screenshot_full_page` 选项，只截取可见部分
-3. 调整 `request_timeout` 配置，减少超时时间
+3. 调整 `request_timeout` 配置，合理设置超时时间
 4. 减少 `retry_count` 配置，减少重试次数
-5. 关闭 `enable_screenshot` 选项，禁用截图功能
+5. 根据实际需求考虑关闭 `enable_screenshot` 选项
 
-### 代理配置不工作
+### 代理配置问题
 
-如果代理配置不工作，可以尝试：
+**问题现象**：配置代理后无法正常使用
 
-1. 检查代理格式是否正确 - 格式应为 http://username:password@host:port
-2. 检查代理服务器是否可用
-3. 确保代理服务器支持HTTPS请求
+**检查要点**：
+1. 代理格式是否正确：格式应为 `http://username:password@host:port`
+2. 代理服务器是否可用：确保代理服务器能正常访问
+3. 代理服务器是否支持HTTPS请求：多数网站使用HTTPS
+4. 代理认证信息是否正确：检查用户名和密码
 
-### 缓存不生效
+### 缓存功能异常
 
-如果缓存不生效，可以尝试：
+**问题现象**：缓存不生效或出现异常
 
-1. 检查 `enable_cache` 配置是否为 true
-2. 检查 `cache_expire_time` 配置是否合理
-3. 尝试手动清理缓存后重新测试
+**解决方法**：
+1. 检查 `enable_cache` 配置是否为 `true`
+2. 检查 `cache_expire_time` 配置是否合理（单位：分钟）
+3. 尝试使用 `/web_cache clear` 命令手动清理缓存后重新测试
 4. 检查缓存目录是否有写入权限
+5. 查看日志文件，排查具体错误信息
+
+### 多链接处理问题
+
+**问题现象**：同时发送多个链接时处理异常
+
+**解决方法**：
+1. 检查 `merge_forward_enabled` 配置，确保合并转发功能正常
+2. 减少单次发送的链接数量
+3. 确保服务器资源充足，能支持并发处理
 
 ## 开发说明
 
