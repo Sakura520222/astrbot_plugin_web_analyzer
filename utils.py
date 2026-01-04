@@ -6,7 +6,6 @@
 
 from datetime import datetime
 from urllib.parse import urlparse
-from typing import List
 
 
 class WebAnalyzerUtils:
@@ -14,7 +13,7 @@ class WebAnalyzerUtils:
     
     包含各种通用工具函数和辅助方法，用于支持插件的核心功能。
     """
-    
+
     @staticmethod
     def get_current_time() -> str:
         """获取当前时间的格式化字符串
@@ -23,9 +22,9 @@ class WebAnalyzerUtils:
             格式化的时间字符串
         """
         return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    
+
     @staticmethod
-    def parse_domain_list(domain_text: str) -> List[str]:
+    def parse_domain_list(domain_text: str) -> list[str]:
         """将多行域名文本转换为Python列表
         
         处理配置中定义的域名列表，支持：
@@ -45,9 +44,9 @@ class WebAnalyzerUtils:
             domain.strip() for domain in domain_text.split("\n") if domain.strip()
         ]
         return domains
-    
+
     @staticmethod
-    def parse_group_list(group_text: str) -> List[str]:
+    def parse_group_list(group_text: str) -> list[str]:
         """将多行群聊ID文本转换为Python列表
         
         处理配置中定义的群聊黑名单，支持：
@@ -65,9 +64,9 @@ class WebAnalyzerUtils:
             return []
         groups = [group.strip() for group in group_text.split("\n") if group.strip()]
         return groups
-    
+
     @staticmethod
-    def parse_extract_types(extract_types_text: str) -> List[str]:
+    def parse_extract_types(extract_types_text: str) -> list[str]:
         """解析提取类型配置
         
         Args:
@@ -81,9 +80,9 @@ class WebAnalyzerUtils:
         return [
             extract_type.strip() for extract_type in extract_types_text.split("\n") if extract_type.strip()
         ]
-    
+
     @staticmethod
-    def validate_extract_types(extract_types: List[str]) -> List[str]:
+    def validate_extract_types(extract_types: list[str]) -> list[str]:
         """验证提取类型是否有效
         
         Args:
@@ -94,9 +93,9 @@ class WebAnalyzerUtils:
         """
         valid_types = ["title", "content", "images", "links", "meta", "code_blocks", "tables"]
         return [extract_type for extract_type in extract_types if extract_type in valid_types]
-    
+
     @staticmethod
-    def ensure_minimal_extract_types(extract_types: List[str]) -> List[str]:
+    def ensure_minimal_extract_types(extract_types: list[str]) -> list[str]:
         """确保至少包含必要的提取类型
         
         Args:
@@ -110,9 +109,9 @@ class WebAnalyzerUtils:
             if minimal_type not in extract_types:
                 extract_types.append(minimal_type)
         return extract_types
-    
+
     @staticmethod
-    def add_required_extract_types(extract_types: List[str]) -> List[str]:
+    def add_required_extract_types(extract_types: list[str]) -> list[str]:
         """添加必需的提取类型
         
         Args:
@@ -122,9 +121,9 @@ class WebAnalyzerUtils:
             添加了必需提取类型的列表
         """
         return extract_types
-    
+
     @staticmethod
-    def is_domain_allowed(url: str, allowed_domains: List[str], blocked_domains: List[str]) -> bool:
+    def is_domain_allowed(url: str, allowed_domains: list[str], blocked_domains: list[str]) -> bool:
         """检查指定URL的域名是否允许访问
         
         根据配置的允许和禁止域名列表，判断URL是否可以访问，
@@ -146,24 +145,24 @@ class WebAnalyzerUtils:
         try:
             parsed = urlparse(url)
             domain = parsed.netloc.lower()
-            
+
             # 首先检查是否在禁止列表中
             if blocked_domains:
                 for blocked_domain in blocked_domains:
                     if blocked_domain.lower() in domain:
                         return False
-            
+
             # 然后检查是否在允许列表中（如果允许列表不为空）
             if allowed_domains:
                 for allowed_domain in allowed_domains:
                     if allowed_domain.lower() in domain:
                         return True
                 return False
-            
+
             return True
         except Exception:
             return False
-    
+
     @staticmethod
     def get_url_priority(url: str) -> int:
         """评估URL的处理优先级
@@ -178,13 +177,13 @@ class WebAnalyzerUtils:
         """
         # 默认优先级
         priority = 5
-        
+
         try:
             # 提取URL的域名和路径信息
             parsed_url = urlparse(url)
             domain = parsed_url.netloc.lower()
             path = parsed_url.path.lower()
-            
+
             # 短链接优先（路径较短）
             if len(path) < 20:
                 priority += 2
@@ -208,10 +207,10 @@ class WebAnalyzerUtils:
                     break
         except Exception:
             pass
-        
+
         # 确保优先级在1-10范围内
         return max(1, min(10, priority))
-    
+
     @staticmethod
     def detect_content_type(content: str) -> str:
         """检测网页内容类型
@@ -223,6 +222,10 @@ class WebAnalyzerUtils:
         - 产品介绍
         - 技术文档
         - 学术论文
+        - 娱乐资讯
+        - 体育新闻
+        - 教育资讯
+        - 商业分析
         
         Args:
             content: 网页内容
@@ -231,36 +234,56 @@ class WebAnalyzerUtils:
             检测到的内容类型
         """
         content_lower = content.lower()
-        
+
         # 新闻资讯特征
         news_keywords = ["新闻", "资讯", "报道", "快讯", "时事", "热点", "头条"]
         if any(keyword in content_lower for keyword in news_keywords):
             return "新闻资讯"
-        
+
         # 教程指南特征
-        tutorial_keywords = ["教程", "指南", "教程", "学习", "如何", "步骤", "方法", "技巧", "实战"]
+        tutorial_keywords = ["教程", "指南", "学习", "如何", "步骤", "方法", "技巧", "实战"]
         if any(keyword in content_lower for keyword in tutorial_keywords):
             return "教程指南"
-        
+
         # 个人博客特征
         blog_keywords = ["博客", "日志", "随笔", "感悟", "分享", "思考", "心得"]
         if any(keyword in content_lower for keyword in blog_keywords):
             return "个人博客"
-        
+
         # 产品介绍特征
         product_keywords = ["产品", "服务", "功能", "特性", "优势", "价格", "购买", "下载"]
         if any(keyword in content_lower for keyword in product_keywords):
             return "产品介绍"
-        
+
         # 技术文档特征
         tech_keywords = ["文档", "API", "SDK", "开发", "技术", "编程", "代码", "框架", "库"]
         if any(keyword in content_lower for keyword in tech_keywords):
             return "技术文档"
-        
+
         # 学术论文特征
         academic_keywords = ["论文", "研究", "实验", "结果", "结论", "摘要", "引言", "方法", "分析"]
         if any(keyword in content_lower for keyword in academic_keywords):
             return "学术论文"
-        
+
+        # 娱乐资讯特征
+        entertainment_keywords = ["娱乐", "明星", "影视", "音乐", "综艺", "游戏", "动漫", "追星"]
+        if any(keyword in content_lower for keyword in entertainment_keywords):
+            return "娱乐资讯"
+
+        # 体育新闻特征
+        sports_keywords = ["体育", "足球", "篮球", "赛事", "比赛", "运动员", "健身", "运动"]
+        if any(keyword in content_lower for keyword in sports_keywords):
+            return "体育新闻"
+
+        # 教育资讯特征
+        education_keywords = ["教育", "培训", "学校", "课程", "招生", "升学", "考试", "留学"]
+        if any(keyword in content_lower for keyword in education_keywords):
+            return "教育资讯"
+
+        # 商业分析特征
+        business_keywords = ["商业", "分析", "市场", "行业", "趋势", "报告", "数据", "调研"]
+        if any(keyword in content_lower for keyword in business_keywords):
+            return "商业分析"
+
         # 默认类型
         return "新闻资讯"

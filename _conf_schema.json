@@ -57,6 +57,12 @@
         "type": "bool",
         "hint": "是否根据URL优先级进行调度处理",
         "default": false
+      },
+      "enable_unified_domain": {
+        "description": "启用域名统一处理",
+        "type": "bool",
+        "hint": "是否将google.com和www.google.com等变体视为同一域名，避免重复分析",
+        "default": true
       }
     }
   },
