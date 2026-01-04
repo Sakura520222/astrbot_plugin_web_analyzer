@@ -1,31 +1,7 @@
 """
 AstrBot 网页分析插件
 
-这是一个功能强大的AstrBot插件，专门用于网页内容的智能分析和总结。
-
-✨ 核心功能
-- 🤖 自动识别消息中的网页链接，无需手动指令
-- 🌐 智能抓取和解析网页内容，支持多种网站结构
-- 🧠 集成大语言模型(LLM)，提供深度分析和总结
-- 📸 支持网页截图，直观展示网页内容
-- 🔄 内置缓存机制，提升重复访问的响应速度
-- 📝 支持多种分析结果导出格式
-- 🔧 提供丰富的管理命令，方便配置和维护
-
-📖 使用方式
-- 自动模式：直接发送包含网页链接的消息
-- 手动模式：使用 `/网页分析` 命令，例如：`/网页分析 https://example.com`
-- 支持多种指令别名：`分析`、`总结`、`web`、`analyze`
-
-🎯 插件优势
-- 异步处理设计，支持并发分析多个URL
-- 灵活的配置选项，满足不同使用场景
-- 完善的错误处理，确保插件稳定运行
-- 支持域名白名单和黑名单，控制访问范围
-- 支持内容翻译，突破语言障碍
-
-本插件采用模块化设计，包含缓存管理、网页分析、命令处理等多个组件，
-可根据需求灵活扩展和定制。
+自动识别网页链接，智能抓取解析内容，集成大语言模型进行深度分析和总结，支持网页截图、缓存机制和多种管理命令。
 """
 
 from typing import Any
@@ -41,37 +17,37 @@ from .utils import WebAnalyzerUtils
 
 # 错误类型枚举
 class ErrorType:
-    """错误类型枚举，用于错误分类和处理"""
-    # 网络相关错误
+    """错误类型枚举"""
+    # 网络相关
     NETWORK_ERROR = "network_error"  # 网络错误
     NETWORK_TIMEOUT = "network_timeout"  # 网络超时
-    NETWORK_CONNECTION = "network_connection"  # 网络连接失败
+    NETWORK_CONNECTION = "network_connection"  # 连接失败
 
-    # 解析相关错误
+    # 解析相关
     PARSING_ERROR = "parsing_error"  # 解析错误
     CONTENT_EMPTY = "content_empty"  # 内容为空
     HTML_PARSING = "html_parsing"  # HTML解析错误
 
-    # LLM相关错误
-    LLM_ERROR = "llm_error"  # LLM相关错误
+    # LLM相关
+    LLM_ERROR = "llm_error"  # LLM错误
     LLM_TIMEOUT = "llm_timeout"  # LLM超时
-    LLM_INVALID_RESPONSE = "llm_invalid_response"  # LLM返回无效响应
+    LLM_INVALID_RESPONSE = "llm_invalid_response"  # LLM无效响应
     LLM_PERMISSION = "llm_permission"  # LLM权限错误
 
-    # 截图相关错误
+    # 截图相关
     SCREENSHOT_ERROR = "screenshot_error"  # 截图错误
     BROWSER_ERROR = "browser_error"  # 浏览器错误
 
-    # 缓存相关错误
+    # 缓存相关
     CACHE_ERROR = "cache_error"  # 缓存错误
     CACHE_WRITE = "cache_write"  # 缓存写入错误
     CACHE_READ = "cache_read"  # 缓存读取错误
 
-    # 配置相关错误
+    # 配置相关
     CONFIG_ERROR = "config_error"  # 配置错误
     CONFIG_INVALID = "config_invalid"  # 配置无效
 
-    # 权限相关错误
+    # 权限相关
     PERMISSION_ERROR = "permission_error"  # 权限错误
     DOMAIN_BLOCKED = "domain_blocked"  # 域名被阻止
 
@@ -82,16 +58,15 @@ class ErrorType:
 
 # 错误严重程度枚举
 class ErrorSeverity:
-    """错误严重程度枚举，用于错误分级"""
-    INFO = "info"  # 信息级错误，仅记录，不影响功能
-    WARNING = "warning"  # 警告级错误，可能影响部分功能
-    ERROR = "error"  # 错误级错误，影响主要功能
-    CRITICAL = "critical"  # 严重错误，导致功能完全不可用
+    """错误严重程度枚举"""
+    INFO = "info"  # 信息级
+    WARNING = "warning"  # 警告级
+    ERROR = "error"  # 错误级
+    CRITICAL = "critical"  # 严重错误
 
 
 # 错误处理配置
 ERROR_MESSAGES: dict[str, dict[str, Any]] = {
-    # 网络相关错误
     "network_error": {
         "message": "网络请求失败",
         "solution": "请检查网络连接或URL是否正确，或尝试调整请求超时设置",
@@ -107,8 +82,6 @@ ERROR_MESSAGES: dict[str, dict[str, Any]] = {
         "solution": "无法连接到服务器，请检查网络连接或目标网站是否可访问",
         "severity": ErrorSeverity.ERROR
     },
-
-    # 解析相关错误
     "parsing_error": {
         "message": "网页内容解析失败",
         "solution": "该网页结构可能较为特殊，建议尝试其他分析方式",
@@ -124,8 +97,6 @@ ERROR_MESSAGES: dict[str, dict[str, Any]] = {
         "solution": "网页HTML格式异常，无法正确解析",
         "severity": ErrorSeverity.ERROR
     },
-
-    # LLM相关错误
     "llm_error": {
         "message": "大语言模型分析失败",
         "solution": "请检查LLM配置是否正确，或尝试调整分析参数",
@@ -146,8 +117,6 @@ ERROR_MESSAGES: dict[str, dict[str, Any]] = {
         "solution": "请检查LLM API密钥或权限配置",
         "severity": ErrorSeverity.ERROR
     },
-
-    # 截图相关错误
     "screenshot_error": {
         "message": "网页截图失败",
         "solution": "请检查浏览器配置或网络连接，或尝试调整截图参数",
@@ -158,8 +127,6 @@ ERROR_MESSAGES: dict[str, dict[str, Any]] = {
         "solution": "浏览器初始化或操作失败，请检查浏览器配置或重启插件",
         "severity": ErrorSeverity.ERROR
     },
-
-    # 缓存相关错误
     "cache_error": {
         "message": "缓存操作失败",
         "solution": "请检查缓存目录权限或存储空间",
@@ -175,8 +142,6 @@ ERROR_MESSAGES: dict[str, dict[str, Any]] = {
         "solution": "无法读取缓存文件，缓存可能已损坏",
         "severity": ErrorSeverity.WARNING
     },
-
-    # 配置相关错误
     "config_error": {
         "message": "配置错误",
         "solution": "请检查插件配置是否正确，或尝试重置配置",
@@ -187,8 +152,6 @@ ERROR_MESSAGES: dict[str, dict[str, Any]] = {
         "solution": "插件配置格式无效，请检查配置项是否正确",
         "severity": ErrorSeverity.ERROR
     },
-
-    # 权限相关错误
     "permission_error": {
         "message": "权限不足",
         "solution": "请检查插件权限配置，或联系管理员获取权限",
@@ -199,8 +162,6 @@ ERROR_MESSAGES: dict[str, dict[str, Any]] = {
         "solution": "该域名已被加入黑名单，无法访问",
         "severity": ErrorSeverity.ERROR
     },
-
-    # 其他错误
     "unknown_error": {
         "message": "未知错误",
         "solution": "请检查日志获取详细信息，或尝试重启插件",
@@ -222,69 +183,10 @@ ERROR_MESSAGES: dict[str, dict[str, Any]] = {
     "https://github.com/Sakura520222/astrbot_plugin_web_analyzer",
 )
 class WebAnalyzerPlugin(Star):
-    """网页分析插件主类
-
-    这是插件的核心协调类，负责管理和调度所有功能模块：
-    - 🔧 配置的加载、验证和管理
-    - 📩 消息事件的监听和处理
-    - 🔗 URL的提取、验证和过滤
-    - 🕸️  网页内容的抓取、解析和分析
-    - 🧠 大语言模型(LLM)的调用和结果生成
-    - 💾 分析结果的缓存管理
-    - ⚙️  各种管理命令的处理和响应
-
-    插件支持两种分析模式：
-    - 自动模式：自动识别消息中的网页链接并分析
-    - 手动模式：通过命令触发网页分析
-
-    提供了丰富的配置选项，可根据需求灵活调整插件行为。
-    """
+    """网页分析插件主类，负责管理和调度所有功能模块"""
 
     def __init__(self, context: Context, config: AstrBotConfig):
-        """插件初始化方法
-
-        负责加载、验证和初始化所有配置项，构建插件的运行环境：
-
-        🛠️ 基本配置：
-        - 请求超时时间和重试机制
-        - 用户代理和代理设置
-        - 自动分析开关
-
-        🚫 域名控制：
-        - 允许访问的域名列表
-        - 禁止访问的域名列表
-
-        📊 分析设置：
-        - 是否使用emoji增强显示
-        - 是否显示内容统计信息
-        - 最大摘要长度限制
-
-        📸 截图配置：
-        - 截图质量和分辨率
-        - 是否截取整页
-        - 截图格式（JPEG/PNG）
-
-        🧠 LLM配置：
-        - 大语言模型提供商
-        - 自定义提示词
-
-        👥 群聊管理：
-        - 群聊黑名单设置
-
-        🌐 翻译功能：
-        - 是否启用自动翻译
-        - 目标语言设置
-
-        💾 缓存管理：
-        - 缓存过期时间
-        - 最大缓存数量
-
-        📋 内容提取：
-        - 提取内容类型设置
-
-        所有配置项都会进行合理性验证，自动修正无效值并设置安全默认值，
-        确保插件在各种配置下都能稳定运行。
-        """
+        """插件初始化方法，负责加载、验证和初始化所有配置项"""
         super().__init__(context)
         self.config = config
 
@@ -318,19 +220,19 @@ class WebAnalyzerPlugin(Star):
     def _load_network_settings(self):
         """加载和验证网络设置"""
         network_settings = self.config.get("network_settings", {})
-        # 最大内容长度：限制抓取的网页内容大小，避免内存占用过高
+        # 最大内容长度
         self.max_content_length = max(1000, network_settings.get("max_content_length", 10000))
-        # 请求超时时间：设置合理的超时范围，避免请求过长时间阻塞
+        # 请求超时时间
         self.timeout = max(5, min(300, network_settings.get("request_timeout", 30)))
-        # 重试次数：请求失败时的重试次数
+        # 重试次数
         self.retry_count = max(0, min(10, network_settings.get("retry_count", 3)))
-        # 重试延迟：每次重试之间的等待时间
+        # 重试延迟
         self.retry_delay = max(0, min(10, network_settings.get("retry_delay", 2)))
-        # 用户代理：用于模拟浏览器请求，避免被网站封禁
+        # 用户代理
         self.user_agent = network_settings.get(
             "user_agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
         )
-        # 代理设置：用于网络代理，加速或绕过网络限制
+        # 代理设置
         self.proxy = network_settings.get("proxy", "")
         # 并发处理设置
         self.max_concurrency = max(1, min(20, network_settings.get("max_concurrency", 5)))
@@ -356,25 +258,18 @@ class WebAnalyzerPlugin(Star):
     def _load_domain_settings(self):
         """加载和验证域名设置"""
         domain_settings = self.config.get("domain_settings", {})
-        # 解析允许和禁止的域名列表
-        self.allowed_domains = self._parse_domain_list(
-            domain_settings.get("allowed_domains", "")
-        )
-        self.blocked_domains = self._parse_domain_list(
-            domain_settings.get("blocked_domains", "")
-        )
+        self.allowed_domains = self._parse_domain_list(domain_settings.get("allowed_domains", ""))
+        self.blocked_domains = self._parse_domain_list(domain_settings.get("blocked_domains", ""))
 
     def _load_analysis_settings(self):
         """加载和验证分析设置"""
         analysis_settings = self.config.get("analysis_settings", {})
-        # 分析模式：auto(自动)、manual(手动)、hybrid(混合)
+        # 分析模式
         self.analysis_mode = analysis_settings.get("analysis_mode", "auto")
         # 验证分析模式是否有效
         valid_modes = ["auto", "manual", "hybrid", "LLMTOOL"]
         if self.analysis_mode not in valid_modes:
-            logger.warning(
-                f"无效的分析模式: {self.analysis_mode}，将使用默认值 auto"
-            )
+            logger.warning(f"无效的分析模式: {self.analysis_mode}，将使用默认值 auto")
             self.analysis_mode = "auto"
         # 兼容旧的auto_analyze配置
         self.auto_analyze = bool(analysis_settings.get("auto_analyze", True))
@@ -385,10 +280,8 @@ class WebAnalyzerPlugin(Star):
         self.enable_emoji = bool(analysis_settings.get("enable_emoji", True))
         # 是否显示内容统计信息
         self.enable_statistics = bool(analysis_settings.get("enable_statistics", True))
-        # 最大摘要长度：限制LLM生成的摘要大小
-        self.max_summary_length = max(
-            500, min(10000, analysis_settings.get("max_summary_length", 2000))
-        )
+        # 最大摘要长度
+        self.max_summary_length = max(500, min(10000, analysis_settings.get("max_summary_length", 2000)))
 
         # 发送内容类型设置
         self.send_content_type = analysis_settings.get("send_content_type", "both")
@@ -644,94 +537,26 @@ class WebAnalyzerPlugin(Star):
         )
 
     def _parse_domain_list(self, domain_text: str) -> list[str]:
-        """将多行域名文本转换为Python列表
-
-        处理配置中定义的域名列表，支持：
-        - 每行一个域名的格式
-        - 自动去除空行和前后空白字符
-        - 支持域名通配符（如*.example.com）
-
-        Args:
-            domain_text: 包含域名的多行文本字符串
-
-        Returns:
-            解析后的域名列表，已清理无效内容
-        """
+        """将多行域名文本转换为Python列表"""
         return WebAnalyzerUtils.parse_domain_list(domain_text)
 
     def _parse_group_list(self, group_text: str) -> list[str]:
-        """将多行群聊ID文本转换为Python列表
-
-        处理配置中定义的群聊黑名单，支持：
-        - 每行一个群聊ID的格式
-        - 自动去除空行和前后空白字符
-        - 支持数字和字符串类型的群聊ID
-
-        Args:
-            group_text: 包含群聊ID的多行文本字符串
-
-        Returns:
-            解析后的群聊ID列表，已清理无效内容
-        """
+        """将多行群聊ID文本转换为Python列表"""
         return WebAnalyzerUtils.parse_group_list(group_text)
 
     def _is_group_blacklisted(self, group_id: str) -> bool:
-        """检查指定群聊是否在黑名单中
-
-        群聊黑名单功能可以控制哪些群聊不能使用插件，
-        适用于需要限制插件使用范围的场景。
-
-        Args:
-            group_id: 群聊ID，可以是字符串或数字
-
-        Returns:
-            True表示在黑名单中（禁止使用），False表示不在黑名单中（允许使用）
-        """
+        """检查指定群聊是否在黑名单中"""
         if not group_id or not self.group_blacklist:
             return False
         return group_id in self.group_blacklist
 
     def _is_domain_allowed(self, url: str) -> bool:
-        """检查指定URL的域名是否允许访问
-
-        根据配置的允许和禁止域名列表，判断URL是否可以访问，
-        支持灵活的访问控制策略：
-
-        访问规则（优先级从高到低）：
-        1. 如果域名在禁止列表中，直接拒绝访问
-        2. 如果允许列表不为空，只有在列表中的域名才允许访问
-        3. 如果允许列表为空，则允许所有未被禁止的域名
-
-        Args:
-            url: 要检查的完整URL
-
-        Returns:
-            True表示允许访问，False表示禁止访问
-        """
+        """检查指定URL的域名是否允许访问"""
         return WebAnalyzerUtils.is_domain_allowed(url, self.allowed_domains, self.blocked_domains)
 
     @filter.command("网页分析", alias={"分析", "总结", "web", "analyze"})
     async def analyze_webpage(self, event: AstrMessageEvent):
-        """手动触发网页分析命令
-
-        这是插件的核心命令，允许用户手动指定要分析的网页链接，
-        支持多种命令别名，方便不同使用习惯的用户。
-
-        📋 用法示例：
-        - `/网页分析 https://example.com` - 分析单个链接
-        - `/分析 https://example.com https://test.com` - 分析多个链接
-        - `/总结 https://example.com` - 使用别名命令
-
-        🔧 功能特性：
-        - 支持同时分析多个网页链接
-        - 自动验证URL格式正确性
-        - 根据域名黑白名单过滤链接
-        - 异步处理，不阻塞其他操作
-        - 支持各种输出格式
-
-        Args:
-            event: 消息事件对象，包含消息内容和上下文信息
-        """
+        """手动触发网页分析命令"""
         message_text = event.message_str
 
         # 从消息中提取所有URL
@@ -771,13 +596,7 @@ class WebAnalyzerPlugin(Star):
 
     @filter.llm_tool(name="analyze_webpage")
     async def analyze_webpage_tool(self, event: AstrMessageEvent, url: str) -> Any:
-        """智能网页分析工具
-
-        用于分析网页内容，提取关键信息并生成智能总结。
-
-        Args:
-            url(string): 要分析的网页URL地址
-        """
+        """智能网页分析工具"""
         # 检查是否启用了LLMTOOL模式，未启用则不执行
         if self.analysis_mode != "LLMTOOL":
             logger.info(f"当前未启用LLMTOOL模式，拒绝analyze_webpage_tool调用: {url}")
@@ -822,14 +641,7 @@ class WebAnalyzerPlugin(Star):
 
     @filter.llm_tool(name="analyze_webpage_with_decision")
     async def analyze_webpage_with_decision_tool(self, event: AstrMessageEvent, url: str, return_type: str = "both") -> Any:
-        """智能网页分析工具（带自主决策）
-
-        用于分析网页内容，提取关键信息并生成智能总结，允许LLM自主决定返回内容类型。
-
-        Args:
-            url(string): 要分析的网页URL地址
-            return_type(string): 返回内容类型，可选值：analysis_only（仅分析结果）、screenshot_only（仅截图）、both（两者都返回）
-        """
+        """智能网页分析工具（带自主决策）"""
         # 检查是否启用了LLMTOOL模式，未启用则不执行
         if self.analysis_mode != "LLMTOOL":
             logger.info(f"当前未启用LLMTOOL模式，拒绝analyze_webpage_with_decision_tool调用: {url}")
@@ -922,29 +734,7 @@ class WebAnalyzerPlugin(Star):
 
     @filter.event_message_type(filter.EventMessageType.ALL)
     async def auto_detect_urls(self, event: AstrMessageEvent):
-        """自动检测消息中的URL链接并进行分析
-
-        这个方法实现了插件的自动分析功能，无需用户手动调用命令，
-        只要发送包含网页链接的消息，插件就会自动进行分析。
-
-        🚦 自动分析规则：
-        1. 仅当analysis_mode为auto或hybrid时启用
-        2. 智能跳过命令消息，避免重复处理
-        3. 跳过包含网页分析相关指令的消息
-        4. 跳过在黑名单中的群聊消息
-        5. 仅处理格式正确的URL
-        6. 遵守域名黑白名单限制
-        7. 当启用LLM Tool模式时，使用事件监听器获取消息中的链接，并根据消息中的信息智能调用llm决定是否触发解析
-
-        ✨ 优势：
-        - 提升用户体验，无需记忆命令
-        - 支持所有消息类型（私聊、群聊）
-        - 智能过滤，避免误触发
-        - 与手动分析使用相同的核心逻辑
-
-        Args:
-            event: 消息事件对象，包含消息内容和上下文信息
-        """
+        """自动检测消息中的URL链接并进行分析"""
         # 检查分析模式，manual模式下不进行自动分析
         if self.analysis_mode == "manual":
             return
@@ -1045,13 +835,7 @@ class WebAnalyzerPlugin(Star):
                 yield result
 
     async def _use_llm_tool_mode(self, event: AstrMessageEvent, message_text: str, allowed_urls: list):
-        """使用LLM Tool模式处理消息
-        
-        Args:
-            event: 消息事件对象
-            message_text: 消息文本内容
-            allowed_urls: 允许访问的URL列表
-        """
+        """使用LLM Tool模式处理消息"""
         try:
             # 检查是否支持tool_loop_agent
             if not hasattr(self.context, "tool_loop_agent"):
@@ -1119,12 +903,7 @@ class WebAnalyzerPlugin(Star):
                 yield result
 
     async def _fallback_to_old_mode(self, event: AstrMessageEvent, allowed_urls: list):
-        """回退到旧版解析方式
-        
-        Args:
-            event: 消息事件对象
-            allowed_urls: 允许访问的URL列表
-        """
+        """回退到旧版解析方式"""
         # 发送处理提示消息，告知用户正在分析
         if len(allowed_urls) == 1:
             message = f"检测到网页链接，正在分析: {allowed_urls[0]}"
@@ -1143,34 +922,7 @@ class WebAnalyzerPlugin(Star):
     async def _process_single_url(
         self, event: AstrMessageEvent, url: str, analyzer: WebAnalyzer
     ) -> dict:
-        """处理单个网页URL，生成完整的分析结果
-
-        这是处理单个网页链接的核心方法，包含完整的分析流程：
-
-        🔄 处理流程：
-        1. 🔍 检查缓存，避免重复分析
-        2. 🌐 抓取网页HTML内容
-        3. 📝 提取结构化的网页内容
-        4. 🌍 翻译内容（如果启用了翻译功能）
-        5. 🧠 调用大语言模型(LLM)进行智能分析
-        6. 📊 提取特定类型内容（图片、链接、表格等）
-        7. 📸 捕获网页截图（如果启用了截图功能）
-        8. 💾 更新缓存，保存分析结果
-        9. 📤 返回完整的分析结果
-
-        Args:
-            event: 消息事件对象，包含上下文信息
-            url: 要分析的网页URL
-            analyzer: WebAnalyzer实例，用于网页抓取和分析
-
-        Returns:
-            包含分析结果的字典：
-            {
-                'url': 分析的URL地址,
-                'result': 格式化的分析结果文本,
-                'screenshot': 网页截图二进制数据（如果启用）
-            }
-        """
+        """处理单个网页URL，生成完整的分析结果"""
         try:
             # 1. 检查缓存
             cached_result = self._check_cache(url)
@@ -1401,29 +1153,11 @@ class WebAnalyzerPlugin(Star):
 
 
     def _get_url_priority(self, url: str) -> int:
-        """评估URL的处理优先级
-        
-        根据URL的特性评估其处理优先级，优先级从1到10，数字越大优先级越高
-        
-        Args:
-            url: 要评估优先级的URL
-            
-        Returns:
-            优先级数值（1-10）
-        """
+        """评估URL的处理优先级"""
         return WebAnalyzerUtils.get_url_priority(url)
 
     def _render_result_template(self, result: str, url: str, template_type: str) -> str:
-        """根据模板类型渲染分析结果
-        
-        Args:
-            result: 原始分析结果
-            url: 分析的URL
-            template_type: 模板类型
-            
-        Returns:
-            渲染后的分析结果
-        """
+        """根据模板类型渲染分析结果"""
         # 定义不同模板的渲染逻辑
         if template_type == "detailed":
             # 详细模板：包含完整信息和格式
@@ -1449,23 +1183,12 @@ class WebAnalyzerPlugin(Star):
             return f"【网页分析结果】\n{url}\n\n{result}"
 
     def _get_current_time(self) -> str:
-        """获取当前时间的格式化字符串
-        
-        Returns:
-            格式化的时间字符串
-        """
+        """获取当前时间的格式化字符串"""
         from datetime import datetime
         return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
     def _collapse_result(self, result: str) -> str:
-        """根据配置折叠长结果
-        
-        Args:
-            result: 原始分析结果
-            
-        Returns:
-            处理后的结果，可能包含折叠标记
-        """
+        """根据配置折叠长结果"""
         if self.enable_collapsible and len(result) > self.collapse_threshold:
             # 计算折叠位置，寻找合适的换行点
             collapse_pos = self.collapse_threshold
@@ -1482,15 +1205,7 @@ class WebAnalyzerPlugin(Star):
         return result
 
     def _apply_result_settings(self, result: str, url: str) -> str:
-        """应用所有结果设置（模板渲染和折叠）
-        
-        Args:
-            result: 原始分析结果
-            url: 分析的URL
-            
-        Returns:
-            最终处理后的分析结果
-        """
+        """应用所有结果设置（模板渲染和折叠）"""
         # 首先应用模板渲染
         rendered_result = self._render_result_template(result, url, self.result_template)
         # 然后应用结果折叠
@@ -1499,22 +1214,7 @@ class WebAnalyzerPlugin(Star):
 
     @filter.command("web_help", alias={"网页分析帮助", "网页分析命令"})
     async def show_help(self, event: AstrMessageEvent):
-        """显示插件的所有可用命令和帮助信息
-        
-        这个命令允许用户查看插件的所有可用命令和详细帮助信息，
-        方便用户了解和使用插件的各种功能。
-        
-        📋 命令分类：
-        - 🔍  核心分析命令
-        - 🛠️  配置管理命令
-        - 🗑️  缓存管理命令
-        - 👥  群聊管理命令
-        - 📤  导出功能命令
-        - 📋  测试功能命令
-        
-        Args:
-            event: 消息事件对象
-        """
+        """显示插件的所有可用命令和帮助信息"""
         help_text = """【网页分析插件命令帮助】
         
 📋 核心分析命令
@@ -1632,14 +1332,7 @@ class WebAnalyzerPlugin(Star):
         }
 
     def _get_command_completions(self, input_text: str) -> list:
-        """根据用户输入获取命令补全建议
-        
-        Args:
-            input_text: 用户输入的文本
-            
-        Returns:
-            命令补全建议列表
-        """
+        """根据用户输入获取命令补全建议"""
         if not input_text.startswith("/"):
             return []
 
@@ -1663,15 +1356,7 @@ class WebAnalyzerPlugin(Star):
         return completions
 
     def _get_param_hints(self, command: str, current_params: list) -> list:
-        """获取命令参数提示
-        
-        Args:
-            command: 当前命令
-            current_params: 已输入的参数列表
-            
-        Returns:
-            参数提示列表
-        """
+        """获取命令参数提示"""
         commands = self._get_available_commands()
 
         # 查找命令信息
@@ -1697,25 +1382,7 @@ class WebAnalyzerPlugin(Star):
         return []
 
     async def _batch_process_urls(self, event: AstrMessageEvent, urls: list[str], processing_message_id: int | None = None, bot = None):
-        """
-        批量处理多个URL，实现高效的并发分析
-        
-        这个方法负责管理多个URL的并发处理，提高插件的处理效率，
-        支持异步并发处理，避免阻塞等待单个URL分析完成。
-        
-        🔄 处理流程：
-        1. 🚫 过滤掉正在处理的URL，避免重复分析
-        2. 🎯 使用异步方式并发处理多个URL
-        3. 📤 调用_send_analysis_result发送所有分析结果
-        4. 🧹 确保URL处理完成后从处理队列中移除
-        5. 🤖 智能撤回：分析完成后立即撤回处理中消息（如果启用了智能撤回）
-        
-        Args:
-            event: 消息事件对象，用于生成响应
-            urls: 要处理的URL列表
-            processing_message_id: 正在分析消息的ID，用于智能撤回
-            bot: 机器人实例，用于执行撤回操作
-        """
+        """批量处理多个URL，实现高效的并发分析"""
         # 收集所有分析结果
         analysis_results = []
 
@@ -1803,16 +1470,7 @@ class WebAnalyzerPlugin(Star):
                     logger.error(f"智能撤回消息失败: {e}")
 
     def _get_analysis_template(self, content_type: str, emoji_prefix: str, max_length: int) -> str:
-        """根据内容类型获取相应的分析模板
-        
-        Args:
-            content_type: 内容类型
-            emoji_prefix: emoji前缀
-            max_length: 最大长度限制
-            
-        Returns:
-            对应的分析模板字符串
-        """
+        """根据内容类型获取相应的分析模板"""
         # 定义多种分析模板
         templates = {
             "新闻资讯": f"""请对以下新闻资讯进行专业分析和智能总结：
@@ -2104,22 +1762,11 @@ class WebAnalyzerPlugin(Star):
         return templates.get(content_type, templates["默认"])
 
     def _check_llm_availability(self) -> bool:
-        """检查LLM是否可用和启用
-        
-        Returns:
-            True表示LLM可用且启用，False表示不可用或未启用
-        """
+        """检查LLM是否可用和启用"""
         return hasattr(self.context, "llm_generate") and self.llm_enabled
 
     async def _get_llm_provider(self, event: AstrMessageEvent) -> str:
-        """获取合适的LLM提供商
-        
-        Args:
-            event: 消息事件对象，用于获取上下文信息
-        
-        Returns:
-            LLM提供商ID，如果无法获取则返回空字符串
-        """
+        """获取合适的LLM提供商"""
         # 优先使用配置的LLM提供商
         if self.llm_provider:
             return self.llm_provider
@@ -2133,15 +1780,7 @@ class WebAnalyzerPlugin(Star):
             return ""
 
     def _build_llm_prompt(self, content_data: dict, content_type: str) -> str:
-        """构建优化的LLM提示词
-        
-        Args:
-            content_data: 包含网页内容的结构化字典
-            content_type: 检测到的内容类型
-        
-        Returns:
-            构建好的LLM提示词
-        """
+        """构建优化的LLM提示词"""
         title = content_data["title"]
         content = content_data["content"]
         url = content_data["url"]
@@ -2168,16 +1807,7 @@ class WebAnalyzerPlugin(Star):
             )
 
     def _format_llm_result(self, content_data: dict, analysis_text: str, content_type: str) -> str:
-        """格式化LLM返回的结果
-        
-        Args:
-            content_data: 包含网页内容的结构化字典
-            analysis_text: LLM生成的分析文本
-            content_type: 检测到的内容类型
-        
-        Returns:
-            格式化后的分析结果
-        """
+        """格式化LLM返回的结果"""
         title = content_data["title"]
         url = content_data["url"]
 
@@ -2204,31 +1834,7 @@ class WebAnalyzerPlugin(Star):
     async def analyze_with_llm(
         self, event: AstrMessageEvent, content_data: dict
     ) -> str:
-        """调用大语言模型(LLM)进行智能内容分析和总结
-
-        这是实现AI智能分析的核心方法，利用大语言模型对网页内容进行深度理解，
-        支持灵活的配置和优化：
-
-        🔧 功能特性：
-        1. ✅ 检查LLM是否可用和启用
-        2. 🤖 获取合适的LLM提供商
-        3. 💬 根据内容类型智能选择最佳分析模板
-        4. 📝 调用LLM生成高质量分析结果
-        5. 🎨 美化和格式化分析结果
-        6. 🔄 LLM不可用时自动回退到基础分析
-
-        Args:
-            event: 消息事件对象，用于获取上下文信息
-            content_data: 包含网页内容的结构化字典：
-                {
-                    'title': 网页标题,
-                    'content': 网页正文内容,
-                    'url': 网页URL地址
-                }
-
-        Returns:
-            格式化的AI分析结果文本，包含标题、链接、分析内容等
-        """
+        """调用大语言模型(LLM)进行智能内容分析和总结"""
         try:
             title = content_data["title"]
             content = content_data["content"]
@@ -2273,34 +1879,7 @@ class WebAnalyzerPlugin(Star):
             return self._handle_error(ErrorType.LLM_ERROR, e, url)
 
     def get_enhanced_analysis(self, content_data: dict) -> str:
-        """增强版基础分析 - LLM不可用时的智能回退方案
-
-        当LLM不可用或未启用时，提供可靠的基础分析功能，
-        包含多种智能分析特性，确保插件在各种环境下都能正常工作：
-
-        📊 分析内容：
-        1. 🔢 内容统计（字符数、段落数、词数）
-        2. 🧠 智能内容类型检测（新闻、教程、博客等）
-        3. 🔍 提取关键句子作为内容摘要
-        4. ⭐ 内容质量评估
-        5. 🎨 美观的格式化输出
-
-        ✨ 配置支持：
-        - 根据配置显示/隐藏emoji
-        - 根据配置显示/隐藏详细统计信息
-        - 支持自定义格式
-
-        Args:
-            content_data: 包含网页内容的结构化字典：
-                {
-                    'title': 网页标题,
-                    'content': 网页正文内容,
-                    'url': 网页URL地址
-                }
-
-        Returns:
-            格式化的基础分析结果文本，包含所有分析内容
-        """
+        """增强版基础分析 - LLM不可用时的智能回退方案"""
         title = content_data["title"]
         content = content_data["content"]
         url = content_data["url"]
@@ -2324,14 +1903,7 @@ class WebAnalyzerPlugin(Star):
         )
 
     def _calculate_content_statistics(self, content: str) -> dict:
-        """计算内容统计信息
-        
-        Args:
-            content: 网页正文内容
-            
-        Returns:
-            包含字符数、词数的统计字典
-        """
+        """计算内容统计信息"""
         char_count = len(content)
         word_count = len(content.split())
         return {
@@ -2340,14 +1912,7 @@ class WebAnalyzerPlugin(Star):
         }
 
     def _detect_content_type(self, content: str) -> str:
-        """智能检测内容类型
-        
-        Args:
-            content: 网页正文内容
-            
-        Returns:
-            检测到的内容类型字符串
-        """
+        """智能检测内容类型"""
         content_lower = content.lower()
 
         content_type_rules = [
@@ -2370,26 +1935,12 @@ class WebAnalyzerPlugin(Star):
         return "文章"
 
     def _extract_key_sentences(self, paragraphs: list) -> list:
-        """提取关键句子作为内容摘要
-        
-        Args:
-            paragraphs: 段落列表
-            
-        Returns:
-            关键句子列表
-        """
+        """提取关键句子作为内容摘要"""
         # 提取前3个段落作为关键句子
         return paragraphs[:3]
 
     def _evaluate_content_quality(self, char_count: int) -> str:
-        """评估内容质量
-        
-        Args:
-            char_count: 内容字符数
-            
-        Returns:
-            质量评估字符串
-        """
+        """评估内容质量"""
         if char_count > 5000:
             return "内容详实"
         elif char_count > 1000:
@@ -2398,11 +1949,7 @@ class WebAnalyzerPlugin(Star):
             return "内容简洁"
 
     def _build_analysis_header(self) -> str:
-        """构建分析结果的标题部分
-        
-        Returns:
-            格式化的标题字符串
-        """
+        """构建分析结果的标题部分"""
         robot_emoji = "🤖" if self.enable_emoji else ""
         page_emoji = "📄" if self.enable_emoji else ""
         return f"{robot_emoji} **智能网页分析** {page_emoji}\n\n"
@@ -2436,15 +1983,7 @@ class WebAnalyzerPlugin(Star):
         return "".join(basic_info)
 
     def _build_statistics_info(self, content_stats: dict, paragraphs: list) -> str:
-        """构建分析结果的统计信息部分
-        
-        Args:
-            content_stats: 内容统计信息
-            paragraphs: 段落列表
-            
-        Returns:
-            格式化的统计信息字符串
-        """
+        """构建分析结果的统计信息部分"""
         if not self.enable_statistics:
             return ""
 
@@ -2463,14 +2002,7 @@ class WebAnalyzerPlugin(Star):
         return "".join(stats_info)
 
     def _build_content_summary(self, key_sentences: list) -> str:
-        """构建分析结果的内容摘要部分
-        
-        Args:
-            key_sentences: 关键句子列表
-            
-        Returns:
-            格式化的内容摘要字符串
-        """
+        """构建分析结果的内容摘要部分"""
         search_emoji = "🔍" if self.enable_emoji else ""
 
         summary_info = []
@@ -2489,11 +2021,7 @@ class WebAnalyzerPlugin(Star):
         return "".join(summary_info)
 
     def _build_analysis_note(self) -> str:
-        """构建分析结果的分析说明部分
-        
-        Returns:
-            格式化的分析说明字符串
-        """
+        """构建分析结果的分析说明部分"""
         light_emoji = "💡" if self.enable_emoji else ""
 
         note_info = []
@@ -2510,20 +2038,7 @@ class WebAnalyzerPlugin(Star):
     def _build_analysis_result(self, title: str, url: str, content_type: str,
                               quality_indicator: str, content_stats: dict,
                               paragraphs: list, key_sentences: list) -> str:
-        """构建最终的分析结果
-        
-        Args:
-            title: 网页标题
-            url: 网页URL
-            content_type: 内容类型
-            quality_indicator: 质量评估
-            content_stats: 内容统计信息
-            paragraphs: 段落列表
-            key_sentences: 关键句子列表
-            
-        Returns:
-            格式化的分析结果字符串
-        """
+        """构建最终的分析结果"""
         # 构建分析结果
         result_parts = []
         result_parts.append(self._build_analysis_header())
@@ -2537,19 +2052,7 @@ class WebAnalyzerPlugin(Star):
 
 
     def _handle_error(self, error_type: str, original_error: Exception, url: str | None = None, context: dict | None = None) -> str:
-        """统一错误处理方法
-        
-        根据错误类型生成格式化的错误信息，并记录详细日志，包含完整的上下文信息和堆栈跟踪
-        
-        Args:
-            error_type: 错误类型
-            original_error: 原始异常对象
-            url: 相关URL（如果有）
-            context: 错误上下文信息，包含更多相关数据
-            
-        Returns:
-            格式化的错误信息字符串
-        """
+        """统一错误处理方法"""
         # 获取错误配置
         error_config = ERROR_MESSAGES.get(error_type, ERROR_MESSAGES["unknown_error"])
         error_message = error_config["message"]
@@ -2605,14 +2108,7 @@ class WebAnalyzerPlugin(Star):
         return "\n".join(user_message)
 
     def _get_error_type(self, exception: Exception) -> str:
-        """根据异常类型获取对应的错误类型
-        
-        Args:
-            exception: 异常对象
-            
-        Returns:
-            对应的错误类型字符串
-        """
+        """根据异常类型获取对应的错误类型"""
 
         from httpx import ConnectError, HTTPError, TimeoutException
 
@@ -2687,14 +2183,7 @@ class WebAnalyzerPlugin(Star):
             return ErrorType.UNKNOWN_ERROR
 
     async def _auto_recall_message(self, bot, message_id: int, recall_time: int) -> None:
-        """
-        自动撤回消息
-        
-        参数:
-            bot: 机器人实例，用于发送撤回请求
-            message_id: 要撤回的消息ID
-            recall_time: 延迟撤回的时间（秒）
-        """
+        """自动撤回消息"""
         try:
             import asyncio
 
@@ -2709,16 +2198,7 @@ class WebAnalyzerPlugin(Star):
             logger.error(f"撤回消息失败: {e}")
 
     async def _send_processing_message(self, event: AstrMessageEvent, message: str) -> tuple:
-        """
-        发送正在分析的消息并设置自动撤回
-        
-        参数:
-            event: 消息事件对象，用于获取bot实例和消息上下文
-            message: 要发送的消息内容
-        
-        返回:
-            tuple: (message_id, bot_instance) - 消息ID和机器人实例
-        """
+        """发送正在分析的消息并设置自动撤回"""
         import asyncio
 
         # 获取bot实例
@@ -2825,29 +2305,7 @@ class WebAnalyzerPlugin(Star):
 
     @filter.command("web_config", alias={"网页分析配置", "网页分析设置"})
     async def show_config(self, event: AstrMessageEvent):
-        """显示当前插件的详细配置信息
-
-        这个命令允许用户查看插件的所有配置项，方便了解插件的当前状态和设置，
-        支持多种命令别名，方便用户调用。
-
-        📋 显示内容：
-        - 🛠️  基本设置（超时、重试、自动分析等）
-        - 🚫  域名控制（允许/禁止列表）
-        - 👥  群聊控制（黑名单）
-        - 📊  分析设置（emoji、统计、摘要长度等）
-        - 🧠  LLM配置（提供商、自定义提示词等）
-        - 🌐  翻译设置（自动翻译、目标语言等）
-        - 💾  缓存设置（过期时间、最大数量等）
-        - 📋  内容提取设置（提取类型等）
-
-        📝 使用示例：
-        - `/web_config` - 查看配置
-        - `/网页分析配置` - 中文命令
-        - `/网页分析设置` - 中文别名
-
-        Args:
-            event: 消息事件对象，用于生成响应
-        """
+        """显示当前插件的详细配置信息"""
         config_info = f"""**网页分析插件配置信息**
 
 **基本设置**
@@ -2920,25 +2378,7 @@ class WebAnalyzerPlugin(Star):
 
     @filter.command("test_merge", alias={"测试合并转发", "测试转发"})
     async def test_merge_forward(self, event: AstrMessageEvent):
-        """测试合并转发功能
-
-        这个命令用于测试插件的合并转发功能，仅在群聊环境中可用，
-        方便用户验证合并转发功能是否正常工作。
-
-        📝 使用示例：
-        - `/test_merge` - 测试合并转发
-        - `/测试合并转发` - 中文命令
-        - `/测试转发` - 中文别名
-
-        ✨ 功能说明：
-        - 创建测试用的合并转发消息
-        - 包含标题节点和两个内容节点
-        - 演示合并转发的基本用法和效果
-        - 验证合并转发功能是否正常工作
-
-        Args:
-            event: 消息事件对象，用于生成测试消息
-        """
+        """测试合并转发功能"""
         from astrbot.api.message_components import Node, Nodes, Plain
 
         # 检查是否为群聊消息，合并转发仅支持群聊
@@ -2990,24 +2430,7 @@ class WebAnalyzerPlugin(Star):
 
     @filter.command("group_blacklist", alias={"群黑名单", "黑名单"})
     async def manage_group_blacklist(self, event: AstrMessageEvent):
-        """管理群聊黑名单
-
-        这个命令允许用户管理插件的群聊黑名单，控制哪些群聊不能使用插件，
-        支持多种操作，包括查看、添加、移除和清空黑名单。
-
-        📋 命令用法：
-        1. 🔍 查看黑名单：`/group_blacklist`
-        2. ➕ 添加群聊：`/group_blacklist add <群号>`
-        3. ➖ 移除群聊：`/group_blacklist remove <群号>`
-        4. 🗑️ 清空黑名单：`/group_blacklist clear`
-
-        🔤 支持别名：
-        - `/群黑名单`
-        - `/黑名单`
-
-        Args:
-            event: 消息事件对象，用于获取命令参数和生成响应
-        """
+        """管理群聊黑名单"""
         # 解析命令参数
         message_parts = event.message_str.strip().split()
 
@@ -3071,27 +2494,7 @@ class WebAnalyzerPlugin(Star):
     @filter.permission_type(filter.PermissionType.ADMIN)
     @filter.command("web_cache", alias={"网页缓存", "清理缓存"})
     async def manage_cache(self, event: AstrMessageEvent):
-        """管理插件的网页分析结果缓存
-
-        这个命令允许用户管理插件的缓存，包括查看缓存状态和清空缓存，
-        方便用户控制缓存的使用和释放存储空间。
-
-        📋 命令用法：
-        1. 🔍 查看缓存状态：`/web_cache`
-        2. 🗑️ 清空所有缓存：`/web_cache clear`
-
-        🔤 支持别名：
-        - `/网页缓存`
-        - `/清理缓存`
-
-        💡 缓存说明：
-        - ⏰ 缓存有效期：由配置中的`cache_expire_time`决定
-        - 📊 最大缓存数量：由配置中的`max_cache_size`决定
-        - 📦 缓存内容：包括网页分析结果和截图数据
-
-        Args:
-            event: 消息事件对象，用于获取命令参数和生成响应
-        """
+        """管理插件的网页分析结果缓存"""
         # 解析命令参数
         message_parts = event.message_str.strip().split()
 
@@ -3132,37 +2535,7 @@ class WebAnalyzerPlugin(Star):
     @filter.permission_type(filter.PermissionType.ADMIN)
     @filter.command("web_mode", alias={"分析模式", "网页分析模式"})
     async def manage_analysis_mode(self, event: AstrMessageEvent):
-        """管理插件的网页分析模式
-
-        这个命令允许管理员切换插件的网页分析模式，包括自动分析、手动分析和混合模式，
-        方便管理员根据实际需求控制插件的行为。
-
-        📋 命令用法：
-        1. 🔍 查看当前模式：`/web_mode`
-        2. 🔄 切换模式：`/web_mode <模式>`
-
-        📁 支持的模式：
-        - `auto`：自动分析检测到的链接（默认）
-        - `manual`：仅通过手动命令分析
-        - `hybrid`：混合模式，自动分析但管理员可临时切换
-
-        🔤 支持别名：
-        - `/分析模式`
-        - `/网页分析模式`
-
-        💡 模式说明：
-        - ⚡ auto模式：检测到链接自动分析，无需命令
-        - 🎯 manual模式：必须使用`/网页分析`命令才会分析
-        - 🔄 hybrid模式：默认自动分析，但管理员可通过命令临时切换
-
-        ⚠️ 注意：
-        - 此命令仅限管理员使用
-        - 切换模式会立即生效
-        - 配置文件中的analysis_mode设置会覆盖此命令的设置
-
-        Args:
-            event: 消息事件对象，用于获取命令参数和生成响应
-        """
+        """管理插件的网页分析模式"""
         # 解析命令参数
         message_parts = event.message_str.strip().split()
 
@@ -3214,34 +2587,7 @@ class WebAnalyzerPlugin(Star):
 
     @filter.command("web_export", alias={"导出分析结果", "网页导出"})
     async def export_analysis_result(self, event: AstrMessageEvent):
-        """导出网页分析结果
-
-        这个命令允许用户导出网页分析结果，支持多种格式和导出范围，
-        方便用户保存和分享分析结果。
-
-        📋 命令用法：
-        1. 📄 导出单个URL：`/web_export https://example.com [格式]`
-        2. 📚 导出所有缓存：`/web_export all [格式]`
-
-        📁 支持的格式：
-        - 📝 `md/markdown`：Markdown格式，适合阅读和编辑
-        - 📊 `json`：JSON格式，适合程序处理
-        - 📄 `txt`：纯文本格式，适合简单查看
-
-        🔤 支持别名：
-        - `/导出分析结果`
-        - `/网页导出`
-
-        ✨ 功能特点：
-        - 🔄 支持导出单个URL的分析结果
-        - 📚 支持导出所有缓存的分析结果
-        - 📤 导出文件会自动发送给用户
-        - 🔍 如果缓存中没有结果，会先进行分析
-        - 📦 支持多种导出格式，满足不同需求
-
-        Args:
-            event: 消息事件对象，用于获取命令参数和生成响应
-        """
+        """导出网页分析结果"""
         # 解析命令参数
         message_parts = event.message_str.strip().split()
 
@@ -3496,16 +2842,7 @@ class WebAnalyzerPlugin(Star):
             yield event.plain_result(f"❌ 导出分析结果失败: {str(e)}")
 
     def _save_group_blacklist(self):
-        """保存群聊黑名单到配置文件
-
-        该方法负责将群聊黑名单列表转换为文本格式，并保存到配置中
-
-        功能说明：
-        - 将群聊ID列表转换为换行分隔的文本
-        - 更新配置文件中的group_settings.group_blacklist字段
-        - 保存配置更改
-        - 处理保存过程中可能出现的异常
-        """
+        """保存群聊黑名单到配置文件"""
         try:
             # 将群聊列表转换为文本格式，每行一个群聊ID
             group_text = "\n".join(self.group_blacklist)
@@ -3520,15 +2857,7 @@ class WebAnalyzerPlugin(Star):
             logger.error(f"保存群聊黑名单失败: {e}")
 
     def _check_cache(self, url: str) -> dict:
-        """检查指定URL的缓存是否存在且有效
-
-        Args:
-            url: 要检查缓存的网页URL
-
-        Returns:
-            - 如果缓存存在且有效，返回缓存的分析结果
-            - 如果缓存不存在或无效，返回None
-        """
+        """检查指定URL的缓存是否存在且有效"""
         if not self.enable_cache:
             return None
 
@@ -3537,13 +2866,7 @@ class WebAnalyzerPlugin(Star):
         return self.cache_manager.get(normalized_url)
 
     def _update_cache(self, url: str, result: dict, content: str = None):
-        """更新指定URL的缓存，支持基于内容哈希的缓存策略
-
-        Args:
-            url: 要更新缓存的网页URL
-            result: 包含分析结果的字典，格式与_check_cache返回值一致
-            content: 网页内容，用于基于内容哈希的缓存
-        """
+        """更新指定URL的缓存，支持基于内容哈希的缓存策略"""
         if not self.enable_cache:
             return
 
@@ -3558,27 +2881,12 @@ class WebAnalyzerPlugin(Star):
             self.cache_manager.set(normalized_url, result)
 
     def _clean_cache(self):
-        """清理过期缓存
-
-        注意：缓存管理器会自动清理过期缓存，因此该方法目前留空
-        如需手动清理，可以在此方法中添加相应逻辑
-        """
+        """清理过期缓存"""
         # 缓存管理器会自动清理过期缓存，这里留空即可
         pass
 
     async def _translate_content(self, event: AstrMessageEvent, content: str) -> str:
-        """翻译网页内容
-
-        该方法负责调用LLM对网页内容进行翻译
-
-        Args:
-            event: 消息事件对象
-            content: 要翻译的网页内容
-
-        Returns:
-            - 如果翻译成功，返回翻译后的内容
-            - 如果翻译失败或未启用翻译，返回原始内容
-        """
+        """翻译网页内容"""
         if not self.enable_translation:
             return content
 
@@ -3623,18 +2931,7 @@ class WebAnalyzerPlugin(Star):
             return content
 
     def _extract_specific_content(self, html: str, url: str) -> dict:
-        """提取特定类型的内容
-
-        该方法负责从HTML中提取特定类型的内容，如图片、链接、代码块等
-
-        Args:
-            html: 网页HTML内容
-            url: 网页URL
-
-        Returns:
-            - 如果提取成功，返回包含特定内容的字典
-            - 如果提取失败或未启用特定内容提取，返回空字典
-        """
+        """提取特定类型的内容"""
         if not self.enable_specific_extraction:
             return {}
 
@@ -3646,14 +2943,7 @@ class WebAnalyzerPlugin(Star):
             return {}
 
     async def _send_analysis_result(self, event, analysis_results):
-        """发送分析结果，根据配置决定是否使用合并转发
-
-        该方法负责将分析结果发送给用户，支持普通消息和合并转发两种方式
-
-        Args:
-            event: 消息事件对象
-            analysis_results: 包含所有分析结果的列表
-        """
+        """发送分析结果，根据配置决定是否使用合并转发"""
         # 检查是否有有效的分析结果
         if not analysis_results:
             logger.info("没有分析结果，不发送消息")
