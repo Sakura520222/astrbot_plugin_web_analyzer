@@ -179,7 +179,7 @@ ERROR_MESSAGES: dict[str, dict[str, Any]] = {
     "astrbot_plugin_web_analyzer",
     "Sakura520222",
     "自动识别网页链接，智能抓取解析内容，集成大语言模型进行深度分析和总结，支持网页截图、缓存机制和多种管理命令",
-    "1.3.6",
+    "1.3.7",
     "https://github.com/Sakura520222/astrbot_plugin_web_analyzer",
 )
 class WebAnalyzerPlugin(Star):
@@ -596,7 +596,11 @@ class WebAnalyzerPlugin(Star):
 
     @filter.llm_tool(name="analyze_webpage")
     async def analyze_webpage_tool(self, event: AstrMessageEvent, url: str) -> Any:
-        """智能网页分析工具"""
+        """智能网页分析工具
+        
+        Args:
+            url(string): 要分析的网页URL地址，支持http和https协议
+        """
         # 检查是否启用了LLMTOOL模式，未启用则不执行
         if self.analysis_mode != "LLMTOOL":
             logger.info(f"当前未启用LLMTOOL模式，拒绝analyze_webpage_tool调用: {url}")
@@ -641,7 +645,12 @@ class WebAnalyzerPlugin(Star):
 
     @filter.llm_tool(name="analyze_webpage_with_decision")
     async def analyze_webpage_with_decision_tool(self, event: AstrMessageEvent, url: str, return_type: str = "both") -> Any:
-        """智能网页分析工具（带自主决策）"""
+        """智能网页分析工具（带自主决策）
+        
+        Args:
+            url(string): 要分析的网页URL地址，支持http和https协议
+            return_type(string): 返回结果类型，可选值：analysis_only（仅分析结果）、screenshot_only（仅截图）、both（两者都返回），默认为both
+        """
         # 检查是否启用了LLMTOOL模式，未启用则不执行
         if self.analysis_mode != "LLMTOOL":
             logger.info(f"当前未启用LLMTOOL模式，拒绝analyze_webpage_with_decision_tool调用: {url}")

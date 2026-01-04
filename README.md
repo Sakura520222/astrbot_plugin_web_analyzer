@@ -11,6 +11,13 @@ AstrBot网页分析插件，能够自动识别用户发送的网页链接，智�
 
 ## 更新日志
 
+## [v1.3.7] - 2026-01-04
+
+### 🐛 Bug修复
+- 修复LLM工具调用失败问题：完善工具方法文档字符串，确保@filter.llm_tool装饰器能正确生成参数定义
+- 修复analyze_webpage_tool函数参数解析问题，添加详细的Args文档
+- 修复analyze_webpage_with_decision_tool函数参数解析问题，添加详细的Args文档
+
 ## [v1.3.6] - 2026-01-03
 
 ### ✨ 功能增强
@@ -36,36 +43,6 @@ AstrBot网页分析插件，能够自动识别用户发送的网页链接，智�
 - 浏览器实例池配置：设置最大实例数量为3，清理间隔为5分钟，实例超时时间为30分钟
 - 内存检查间隔从60秒延长到5分钟，降低性能开销
 - 实现基于内存使用情况的动态浏览器实例数量调整
-
-## [v1.3.5] - 2025-12-27
-
-### ✨ 功能增强
-- 新增LLM自主决策功能，允许LLM决定返回分析结果还是截图
-- 实现`analyze_webpage_with_decision`函数工具，支持指定返回内容类型
-- 支持三种返回类型：`analysis_only`（仅分析结果）、`screenshot_only`（仅截图）、`both`（两者都返回）
-
-### ⚙️ 配置调整
-- 新增`enable_llm_decision`配置项，用于控制是否启用LLM自主决策功能
-- 将`enable_llm_decision`配置项添加到`analysis_settings`中，使其与分析相关配置更集中
-
-## [v1.3.4] - 2025-12-26
-
-### ✨ 功能增强
-- 新增LLM Tool模式，将其合并到analysis_mode配置中
-- 当analysis_mode设置为LLMTOOL时，不自动分析链接，让LLM自己决定是否调用analyze_webpage工具
-- 当analysis_mode为其他值时，使用对应模式的解析方式
-- 注册analyze_webpage工具，供LLM自行调用
-- 支持自动补全URL协议头，处理没有协议头的URL（如www.google.com）
-- 支持URL预处理，去除可能的反引号、空格等
-- 支持URL规范化，确保URL格式一致
-- 新增详细的日志记录，便于调试和监控
-- 当未启用LLMTOOL模式时，拒绝analyze_webpage工具调用
-
-### ⚙️ 配置调整
-- 将LLM Tool模式合并到analysis_mode配置中，新增LLMTOOL选项
-- 移除llm_tool_settings配置项和enable_llm_tool配置开关
-- 分析模式现在包含四个选项：auto(自动)、manual(手动)、hybrid(混合)、LLMTOOL(LLM智能决定)
-- 当analysis_mode为LLMTOOL时，不自动分析链接，让LLM自己决定
 
 > [⚠警告]
 > **v1.2.4版本重要更新**：配置文件结构已发生改变，请在AstrBot管理面板中重新设置所有配置项。

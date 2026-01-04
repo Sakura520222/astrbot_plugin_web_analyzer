@@ -1,5 +1,12 @@
 # 更新日志
 
+## [v1.3.7] - 2026-01-04
+
+### 🐛 Bug修复
+- 修复LLM工具调用失败问题：完善工具方法文档字符串，确保@filter.llm_tool装饰器能正确生成参数定义
+- 修复analyze_webpage_tool函数参数解析问题，添加详细的Args文档
+- 修复analyze_webpage_with_decision_tool函数参数解析问题，添加详细的Args文档
+
 ## [v1.3.6] - 2026-01-03
 
 ### ✨ 功能增强
