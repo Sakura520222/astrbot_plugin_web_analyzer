@@ -1,7 +1,6 @@
 # AstrBot 网页分析插件
 
 [![License](https://img.shields.io/github/license/Sakura520222/astrbot_plugin_web_analyzer)](https://github.com/Sakura520222/astrbot_plugin_web_analyzer/blob/main/LICENSE)
-[![Python Version](https://img.shields.io/badge/python-3.8%2B-blue)](https://www.python.org/)
 [![Version](https://img.shields.io/github/v/release/Sakura520222/astrbot_plugin_web_analyzer?include_prereleases)](https://github.com/Sakura520222/astrbot_plugin_web_analyzer/releases)
 [![Last Commit](https://img.shields.io/github/last-commit/Sakura520222/astrbot_plugin_web_analyzer)](https://github.com/Sakura520222/astrbot_plugin_web_analyzer/commits/main)
 [![GitHub Stars](https://img.shields.io/github/stars/Sakura520222/astrbot_plugin_web_analyzer?style=social)](https://github.com/Sakura520222/astrbot_plugin_web_analyzer/stargazers)
