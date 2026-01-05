@@ -18,6 +18,7 @@ from .utils import WebAnalyzerUtils
 # 错误类型枚举
 class ErrorType:
     """错误类型枚举"""
+
     # 网络相关
     NETWORK_ERROR = "network_error"  # 网络错误
     NETWORK_TIMEOUT = "network_timeout"  # 网络超时
@@ -59,6 +60,7 @@ class ErrorType:
 # 错误严重程度枚举
 class ErrorSeverity:
     """错误严重程度枚举"""
+
     INFO = "info"  # 信息级
     WARNING = "warning"  # 警告级
     ERROR = "error"  # 错误级
@@ -70,108 +72,108 @@ ERROR_MESSAGES: dict[str, dict[str, Any]] = {
     "network_error": {
         "message": "网络请求失败",
         "solution": "请检查网络连接或URL是否正确，或尝试调整请求超时设置",
-        "severity": ErrorSeverity.ERROR
+        "severity": ErrorSeverity.ERROR,
     },
     "network_timeout": {
         "message": "网络请求超时",
         "solution": "目标网站响应缓慢，请稍后重试或调整请求超时设置",
-        "severity": ErrorSeverity.ERROR
+        "severity": ErrorSeverity.ERROR,
     },
     "network_connection": {
         "message": "网络连接失败",
         "solution": "无法连接到服务器，请检查网络连接或目标网站是否可访问",
-        "severity": ErrorSeverity.ERROR
+        "severity": ErrorSeverity.ERROR,
     },
     "parsing_error": {
         "message": "网页内容解析失败",
         "solution": "该网页结构可能较为特殊，建议尝试其他分析方式",
-        "severity": ErrorSeverity.WARNING
+        "severity": ErrorSeverity.WARNING,
     },
     "content_empty": {
         "message": "提取的内容为空",
         "solution": "目标网页可能没有可提取的内容，或内容格式不支持",
-        "severity": ErrorSeverity.WARNING
+        "severity": ErrorSeverity.WARNING,
     },
     "html_parsing": {
         "message": "HTML解析错误",
         "solution": "网页HTML格式异常，无法正确解析",
-        "severity": ErrorSeverity.ERROR
+        "severity": ErrorSeverity.ERROR,
     },
     "llm_error": {
         "message": "大语言模型分析失败",
         "solution": "请检查LLM配置是否正确，或尝试调整分析参数",
-        "severity": ErrorSeverity.ERROR
+        "severity": ErrorSeverity.ERROR,
     },
     "llm_timeout": {
         "message": "大语言模型响应超时",
         "solution": "LLM响应缓慢，请稍后重试或调整LLM超时设置",
-        "severity": ErrorSeverity.ERROR
+        "severity": ErrorSeverity.ERROR,
     },
     "llm_invalid_response": {
         "message": "大语言模型返回无效响应",
         "solution": "LLM返回格式异常，请检查LLM配置或稍后重试",
-        "severity": ErrorSeverity.ERROR
+        "severity": ErrorSeverity.ERROR,
     },
     "llm_permission": {
         "message": "大语言模型权限不足",
         "solution": "请检查LLM API密钥或权限配置",
-        "severity": ErrorSeverity.ERROR
+        "severity": ErrorSeverity.ERROR,
     },
     "screenshot_error": {
         "message": "网页截图失败",
         "solution": "请检查浏览器配置或网络连接，或尝试调整截图参数",
-        "severity": ErrorSeverity.WARNING
+        "severity": ErrorSeverity.WARNING,
     },
     "browser_error": {
         "message": "浏览器操作失败",
         "solution": "浏览器初始化或操作失败，请检查浏览器配置或重启插件",
-        "severity": ErrorSeverity.ERROR
+        "severity": ErrorSeverity.ERROR,
     },
     "cache_error": {
         "message": "缓存操作失败",
         "solution": "请检查缓存目录权限或存储空间",
-        "severity": ErrorSeverity.WARNING
+        "severity": ErrorSeverity.WARNING,
     },
     "cache_write": {
         "message": "缓存写入失败",
         "solution": "无法写入缓存文件，请检查缓存目录权限或存储空间",
-        "severity": ErrorSeverity.WARNING
+        "severity": ErrorSeverity.WARNING,
     },
     "cache_read": {
         "message": "缓存读取失败",
         "solution": "无法读取缓存文件，缓存可能已损坏",
-        "severity": ErrorSeverity.WARNING
+        "severity": ErrorSeverity.WARNING,
     },
     "config_error": {
         "message": "配置错误",
         "solution": "请检查插件配置是否正确，或尝试重置配置",
-        "severity": ErrorSeverity.ERROR
+        "severity": ErrorSeverity.ERROR,
     },
     "config_invalid": {
         "message": "配置无效",
         "solution": "插件配置格式无效，请检查配置项是否正确",
-        "severity": ErrorSeverity.ERROR
+        "severity": ErrorSeverity.ERROR,
     },
     "permission_error": {
         "message": "权限不足",
         "solution": "请检查插件权限配置，或联系管理员获取权限",
-        "severity": ErrorSeverity.ERROR
+        "severity": ErrorSeverity.ERROR,
     },
     "domain_blocked": {
         "message": "域名被阻止",
         "solution": "该域名已被加入黑名单，无法访问",
-        "severity": ErrorSeverity.ERROR
+        "severity": ErrorSeverity.ERROR,
     },
     "unknown_error": {
         "message": "未知错误",
         "solution": "请检查日志获取详细信息，或尝试重启插件",
-        "severity": ErrorSeverity.CRITICAL
+        "severity": ErrorSeverity.CRITICAL,
     },
     "internal_error": {
         "message": "内部错误",
         "solution": "插件内部发生错误，请检查日志或联系开发者",
-        "severity": ErrorSeverity.CRITICAL
-    }
+        "severity": ErrorSeverity.CRITICAL,
+    },
 }
 
 
@@ -179,7 +181,7 @@ ERROR_MESSAGES: dict[str, dict[str, Any]] = {
     "astrbot_plugin_web_analyzer",
     "Sakura520222",
     "自动识别网页链接，智能抓取解析内容，集成大语言模型进行深度分析和总结，支持网页截图、缓存机制和多种管理命令",
-    "1.3.7",
+    "1.3.8",
     "https://github.com/Sakura520222/astrbot_plugin_web_analyzer",
 )
 class WebAnalyzerPlugin(Star):
@@ -220,8 +222,18 @@ class WebAnalyzerPlugin(Star):
     def _load_network_settings(self):
         """加载和验证网络设置"""
         network_settings = self.config.get("network_settings", {})
+        self._load_basic_network_settings(network_settings)
+        self._load_concurrency_settings(network_settings)
+        self._load_priority_settings(network_settings)
+        self._load_url_processing_settings(network_settings)
+        self._validate_proxy()
+
+    def _load_basic_network_settings(self, network_settings: dict):
+        """加载基本网络设置"""
         # 最大内容长度
-        self.max_content_length = max(1000, network_settings.get("max_content_length", 10000))
+        self.max_content_length = max(
+            1000, network_settings.get("max_content_length", 10000)
+        )
         # 请求超时时间
         self.timeout = max(5, min(300, network_settings.get("request_timeout", 30)))
         # 重试次数
@@ -234,15 +246,30 @@ class WebAnalyzerPlugin(Star):
         )
         # 代理设置
         self.proxy = network_settings.get("proxy", "")
-        # 并发处理设置
-        self.max_concurrency = max(1, min(20, network_settings.get("max_concurrency", 5)))
-        self.dynamic_concurrency = bool(network_settings.get("dynamic_concurrency", True))
-        # 优先级设置
-        self.enable_priority_scheduling = bool(network_settings.get("enable_priority_scheduling", False))
-        # URL处理设置
-        self.enable_unified_domain = bool(network_settings.get("enable_unified_domain", True))
 
-        # 验证代理格式是否正确
+    def _load_concurrency_settings(self, network_settings: dict):
+        """加载并发处理设置"""
+        self.max_concurrency = max(
+            1, min(20, network_settings.get("max_concurrency", 5))
+        )
+        self.dynamic_concurrency = bool(
+            network_settings.get("dynamic_concurrency", True)
+        )
+
+    def _load_priority_settings(self, network_settings: dict):
+        """加载优先级设置"""
+        self.enable_priority_scheduling = bool(
+            network_settings.get("enable_priority_scheduling", False)
+        )
+
+    def _load_url_processing_settings(self, network_settings: dict):
+        """加载URL处理设置"""
+        self.enable_unified_domain = bool(
+            network_settings.get("enable_unified_domain", True)
+        )
+
+    def _validate_proxy(self):
+        """验证代理格式是否正确"""
         if self.proxy:
             try:
                 from urllib.parse import urlparse
@@ -258,119 +285,162 @@ class WebAnalyzerPlugin(Star):
     def _load_domain_settings(self):
         """加载和验证域名设置"""
         domain_settings = self.config.get("domain_settings", {})
-        self.allowed_domains = self._parse_domain_list(domain_settings.get("allowed_domains", ""))
-        self.blocked_domains = self._parse_domain_list(domain_settings.get("blocked_domains", ""))
+        self.allowed_domains = self._parse_domain_list(
+            domain_settings.get("allowed_domains", "")
+        )
+        self.blocked_domains = self._parse_domain_list(
+            domain_settings.get("blocked_domains", "")
+        )
 
     def _load_analysis_settings(self):
         """加载和验证分析设置"""
         analysis_settings = self.config.get("analysis_settings", {})
-        # 分析模式
-        self.analysis_mode = analysis_settings.get("analysis_mode", "auto")
-        # 验证分析模式是否有效
+
+        self._load_analysis_mode_settings(analysis_settings)
+        self._load_result_style_settings(analysis_settings)
+        self._load_content_type_settings(analysis_settings)
+        self._load_template_settings(analysis_settings)
+        self._load_collapse_settings(analysis_settings)
+        self._load_url_recognition_settings(analysis_settings)
+        self._load_llm_decision_settings(analysis_settings)
+
+    def _load_analysis_mode_settings(self, analysis_settings: dict) -> None:
+        """加载分析模式设置"""
         valid_modes = ["auto", "manual", "hybrid", "LLMTOOL"]
+        self.analysis_mode = analysis_settings.get("analysis_mode", "auto")
         if self.analysis_mode not in valid_modes:
             logger.warning(f"无效的分析模式: {self.analysis_mode}，将使用默认值 auto")
             self.analysis_mode = "auto"
-        # 兼容旧的auto_analyze配置
-        self.auto_analyze = bool(analysis_settings.get("auto_analyze", True))
-        # 如果设置了analysis_mode，优先使用新配置
-        if "analysis_mode" in analysis_settings:
-            self.auto_analyze = (self.analysis_mode == "auto")
-        # 是否在结果中使用emoji
-        self.enable_emoji = bool(analysis_settings.get("enable_emoji", True))
-        # 是否显示内容统计信息
-        self.enable_statistics = bool(analysis_settings.get("enable_statistics", True))
-        # 最大摘要长度
-        self.max_summary_length = max(500, min(10000, analysis_settings.get("max_summary_length", 2000)))
 
-        # 发送内容类型设置
+        self.auto_analyze = bool(analysis_settings.get("auto_analyze", True))
+        if "analysis_mode" in analysis_settings:
+            self.auto_analyze = self.analysis_mode == "auto"
+
+    def _load_result_style_settings(self, analysis_settings: dict) -> None:
+        """加载结果样式设置"""
+        self.enable_emoji = bool(analysis_settings.get("enable_emoji", True))
+        self.enable_statistics = bool(analysis_settings.get("enable_statistics", True))
+        self.max_summary_length = max(
+            500, min(10000, analysis_settings.get("max_summary_length", 2000))
+        )
+
+    def _load_content_type_settings(self, analysis_settings: dict) -> None:
+        """加载发送内容类型设置"""
+        valid_content_types = ["both", "analysis_only", "screenshot_only"]
         self.send_content_type = analysis_settings.get("send_content_type", "both")
-        # 验证发送内容类型是否有效
-        if self.send_content_type not in ["both", "analysis_only", "screenshot_only"]:
+        if self.send_content_type not in valid_content_types:
             logger.warning(
                 f"无效的发送内容类型: {self.send_content_type}，将使用默认值 both"
             )
             self.send_content_type = "both"
 
-        # 结果展示设置
-        self.result_template = analysis_settings.get("result_template", "default")
-        # 验证结果模板是否有效
+    def _load_template_settings(self, analysis_settings: dict) -> None:
+        """加载结果模板设置"""
         valid_templates = ["default", "detailed", "compact", "markdown", "simple"]
+        self.result_template = analysis_settings.get("result_template", "default")
         if self.result_template not in valid_templates:
             logger.warning(
                 f"无效的结果模板: {self.result_template}，将使用默认值 default"
             )
             self.result_template = "default"
 
-        # 结果折叠设置
-        self.enable_collapsible = bool(analysis_settings.get("enable_collapsible", False))
-        self.collapse_threshold = max(500, min(5000, analysis_settings.get("collapse_threshold", 1500)))
+    def _load_collapse_settings(self, analysis_settings: dict) -> None:
+        """加载结果折叠设置"""
+        self.enable_collapsible = bool(
+            analysis_settings.get("enable_collapsible", False)
+        )
+        self.collapse_threshold = max(
+            500, min(5000, analysis_settings.get("collapse_threshold", 1500))
+        )
 
-        # 无协议头URL识别设置
-        self.enable_no_protocol_url = bool(analysis_settings.get("enable_no_protocol_url", False))
+    def _load_url_recognition_settings(self, analysis_settings: dict) -> None:
+        """加载URL识别设置"""
+        self.enable_no_protocol_url = bool(
+            analysis_settings.get("enable_no_protocol_url", False)
+        )
+
+        valid_protocols = ["http", "https"]
         self.default_protocol = analysis_settings.get("default_protocol", "https")
-        # 验证默认协议是否有效
-        if self.default_protocol not in ["http", "https"]:
-            logger.warning(f"无效的默认协议: {self.default_protocol}，将使用默认值 https")
+        if self.default_protocol not in valid_protocols:
+            logger.warning(
+                f"无效的默认协议: {self.default_protocol}，将使用默认值 https"
+            )
             self.default_protocol = "https"
-        # 是否允许LLM自主决策：允许LLM决定是发送分析结果还是截图
-        self.enable_llm_decision = bool(analysis_settings.get("enable_llm_decision", False))
+
+    def _load_llm_decision_settings(self, analysis_settings: dict) -> None:
+        """加载LLM决策设置"""
+        self.enable_llm_decision = bool(
+            analysis_settings.get("enable_llm_decision", False)
+        )
+
+    def _validate_crop_area(self, crop_area_str: str, default_area: list) -> list:
+        """验证和处理裁剪区域配置"""
+        try:
+            # 尝试将字符串转换为列表
+            crop_area = eval(crop_area_str)
+            if isinstance(crop_area, list) and len(crop_area) == 4:
+                return crop_area
+            else:
+                logger.warning(f"裁剪区域格式无效: {crop_area_str}，将使用默认值")
+                return default_area
+        except Exception as e:
+            logger.warning(
+                f"解析裁剪区域失败: {crop_area_str}，错误: {e}，将使用默认值"
+            )
+            return default_area
 
     def _load_screenshot_settings(self):
         """加载和验证截图设置"""
         screenshot_settings = self.config.get("screenshot_settings", {})
-        # 是否启用网页截图
-        self.enable_screenshot = bool(screenshot_settings.get("enable_screenshot", True))
-        # 截图质量：控制截图的清晰度和文件大小
+        self._load_basic_screenshot_settings(screenshot_settings)
+        self._load_screenshot_format_settings(screenshot_settings)
+        self._load_crop_settings(screenshot_settings)
+
+    def _load_basic_screenshot_settings(self, screenshot_settings: dict):
+        """加载基本截图设置"""
+        self.enable_screenshot = bool(
+            screenshot_settings.get("enable_screenshot", True)
+        )
         self.screenshot_quality = max(
             10, min(100, screenshot_settings.get("screenshot_quality", 80))
         )
-        # 截图宽度和高度：控制截图的分辨率
         self.screenshot_width = max(
             320, min(4096, screenshot_settings.get("screenshot_width", 1280))
         )
         self.screenshot_height = max(
             240, min(4096, screenshot_settings.get("screenshot_height", 720))
         )
-        # 是否截取整页：控制是否截取完整的网页内容
         self.screenshot_full_page = bool(
             screenshot_settings.get("screenshot_full_page", False)
         )
-        # 截图等待时间：页面加载完成后等待的时间，确保内容完整显示
         self.screenshot_wait_time = max(
             0, min(10000, screenshot_settings.get("screenshot_wait_time", 2000))
         )
 
-        # 验证截图格式是否支持
+    def _load_screenshot_format_settings(self, screenshot_settings: dict):
+        """加载截图格式设置"""
+        valid_formats = ["jpeg", "png"]
         screenshot_format = screenshot_settings.get("screenshot_format", "jpeg").lower()
-        if screenshot_format not in ["jpeg", "png"]:
+        self.screenshot_format = (
+            screenshot_format if screenshot_format in valid_formats else "jpeg"
+        )
+        if self.screenshot_format != screenshot_format:
             logger.warning(f"无效的截图格式: {screenshot_format}，将使用默认格式 jpeg")
-            self.screenshot_format = "jpeg"
-        else:
-            self.screenshot_format = screenshot_format
 
-        # 截图裁剪设置
+    def _load_crop_settings(self, screenshot_settings: dict):
+        """加载截图裁剪设置"""
         self.enable_crop = bool(screenshot_settings.get("enable_crop", False))
-        # 裁剪区域，格式为 [left, top, right, bottom]
-        crop_area = screenshot_settings.get("crop_area", [0, 0, self.screenshot_width, self.screenshot_height])
+        default_crop_area = [0, 0, self.screenshot_width, self.screenshot_height]
+        crop_area = screenshot_settings.get("crop_area", default_crop_area)
 
-        # 处理字符串格式的裁剪区域
+        # 处理裁剪区域配置
         if isinstance(crop_area, str):
-            try:
-                # 尝试将字符串转换为列表
-                crop_area = eval(crop_area)
-            except Exception as e:
-                logger.warning(f"解析裁剪区域失败: {crop_area}，错误: {e}，将使用默认值")
-                crop_area = [0, 0, self.screenshot_width, self.screenshot_height]
-
-        # 验证裁剪区域是否有效
-        if not isinstance(crop_area, list) or len(crop_area) != 4:
+            crop_area = self._validate_crop_area(crop_area, default_crop_area)
+        elif not (isinstance(crop_area, list) and len(crop_area) == 4):
             logger.warning(f"无效的裁剪区域: {crop_area}，将使用默认值")
-            crop_area = [0, 0, self.screenshot_width, self.screenshot_height]
+            crop_area = default_crop_area
 
         self.crop_area = crop_area
-
-
 
     def _load_llm_settings(self):
         """加载和验证LLM设置"""
@@ -435,7 +505,9 @@ class WebAnalyzerPlugin(Star):
             10, min(1000, cache_settings.get("max_cache_size", 100))
         )
         # 缓存预加载设置
-        self.cache_preload_enabled = bool(cache_settings.get("cache_preload_enabled", False))
+        self.cache_preload_enabled = bool(
+            cache_settings.get("cache_preload_enabled", False)
+        )
         self.cache_preload_count = max(
             0, min(100, cache_settings.get("cache_preload_count", 20))
         )
@@ -454,8 +526,12 @@ class WebAnalyzerPlugin(Star):
         # 使用辅助方法处理提取类型
         self.extract_types = WebAnalyzerUtils.parse_extract_types(extract_types_text)
         self.extract_types = WebAnalyzerUtils.validate_extract_types(self.extract_types)
-        self.extract_types = WebAnalyzerUtils.ensure_minimal_extract_types(self.extract_types)
-        self.extract_types = WebAnalyzerUtils.add_required_extract_types(self.extract_types)
+        self.extract_types = WebAnalyzerUtils.ensure_minimal_extract_types(
+            self.extract_types
+        )
+        self.extract_types = WebAnalyzerUtils.add_required_extract_types(
+            self.extract_types
+        )
 
     def _load_recall_settings(self):
         """加载和验证撤回设置"""
@@ -467,7 +543,9 @@ class WebAnalyzerPlugin(Star):
         # 撤回延迟时间：设置合理的范围，避免过短或过长
         self.recall_time = max(0, min(120, recall_settings.get("recall_time", 10)))
         # 是否启用智能撤回
-        self.smart_recall_enabled = bool(recall_settings.get("smart_recall_enabled", True))
+        self.smart_recall_enabled = bool(
+            recall_settings.get("smart_recall_enabled", True)
+        )
 
     def _load_command_settings(self):
         """加载和验证命令设置"""
@@ -487,7 +565,9 @@ class WebAnalyzerPlugin(Star):
                         continue
                     command, aliases = line.split("=", 1)
                     command = command.strip()
-                    alias_list = [alias.strip() for alias in aliases.split(",") if alias.strip()]
+                    alias_list = [
+                        alias.strip() for alias in aliases.split(",") if alias.strip()
+                    ]
                     if command and alias_list:
                         parsed_aliases[command] = alias_list
                 self.custom_command_aliases = parsed_aliases
@@ -498,7 +578,9 @@ class WebAnalyzerPlugin(Star):
             self.custom_command_aliases = custom_aliases
 
         # 命令补全设置
-        self.enable_command_completion = bool(command_settings.get("enable_completion", True))
+        self.enable_command_completion = bool(
+            command_settings.get("enable_completion", True)
+        )
         # 命令帮助设置
         self.enable_command_help = bool(command_settings.get("enable_help", True))
         # 命令参数提示设置
@@ -508,10 +590,13 @@ class WebAnalyzerPlugin(Star):
         """加载和验证资源管理设置"""
         resource_settings = self.config.get("resource_settings", {})
         # 内存监控设置
-        self.enable_memory_monitor = bool(resource_settings.get("enable_memory_monitor", True))
+        self.enable_memory_monitor = bool(
+            resource_settings.get("enable_memory_monitor", True)
+        )
         # 内存使用阈值，确保在合理范围内
-        self.memory_threshold = max(0.0, min(100.0, resource_settings.get("memory_threshold", 80.0)))
-
+        self.memory_threshold = max(
+            0.0, min(100.0, resource_settings.get("memory_threshold", 80.0))
+        )
 
     def _init_cache_manager(self):
         """初始化缓存管理器"""
@@ -519,7 +604,7 @@ class WebAnalyzerPlugin(Star):
             max_size=self.max_cache_size,
             expire_time=self.cache_expire_time,
             preload_enabled=self.cache_preload_enabled,
-            preload_count=self.cache_preload_count
+            preload_count=self.cache_preload_count,
         )
 
     def _init_web_analyzer(self):
@@ -552,7 +637,9 @@ class WebAnalyzerPlugin(Star):
 
     def _is_domain_allowed(self, url: str) -> bool:
         """检查指定URL的域名是否允许访问"""
-        return WebAnalyzerUtils.is_domain_allowed(url, self.allowed_domains, self.blocked_domains)
+        return WebAnalyzerUtils.is_domain_allowed(
+            url, self.allowed_domains, self.blocked_domains
+        )
 
     @filter.command("网页分析", alias={"分析", "总结", "web", "analyze"})
     async def analyze_webpage(self, event: AstrMessageEvent):
@@ -560,7 +647,9 @@ class WebAnalyzerPlugin(Star):
         message_text = event.message_str
 
         # 从消息中提取所有URL
-        urls = self.analyzer.extract_urls(message_text, self.enable_no_protocol_url, self.default_protocol)
+        urls = self.analyzer.extract_urls(
+            message_text, self.enable_no_protocol_url, self.default_protocol
+        )
         if not urls:
             yield event.plain_result(
                 "请提供要分析的网页链接，例如：/网页分析 https://example.com"
@@ -568,7 +657,11 @@ class WebAnalyzerPlugin(Star):
             return
 
         # 验证URL格式是否正确，并规范化URL
-        valid_urls = [self.analyzer.normalize_url(url) for url in urls if self.analyzer.is_valid_url(url)]
+        valid_urls = [
+            self.analyzer.normalize_url(url)
+            for url in urls
+            if self.analyzer.is_valid_url(url)
+        ]
         # 去重，避免重复分析相同URL
         valid_urls = list(set(valid_urls))
         if not valid_urls:
@@ -591,13 +684,15 @@ class WebAnalyzerPlugin(Star):
         processing_message_id, bot = await self._send_processing_message(event, message)
 
         # 批量处理所有允许访问的URL
-        async for result in self._batch_process_urls(event, allowed_urls, processing_message_id, bot):
+        async for result in self._batch_process_urls(
+            event, allowed_urls, processing_message_id, bot
+        ):
             yield result
 
     @filter.llm_tool(name="analyze_webpage")
     async def analyze_webpage_tool(self, event: AstrMessageEvent, url: str) -> Any:
         """智能网页分析工具
-        
+
         Args:
             url(string): 要分析的网页URL地址，支持http和https协议
         """
@@ -640,30 +735,40 @@ class WebAnalyzerPlugin(Star):
         processing_message_id, bot = await self._send_processing_message(event, message)
 
         # 处理单个URL
-        async for result in self._batch_process_urls(event, [normalized_url], processing_message_id, bot):
+        async for result in self._batch_process_urls(
+            event, [normalized_url], processing_message_id, bot
+        ):
             yield result
 
     @filter.llm_tool(name="analyze_webpage_with_decision")
-    async def analyze_webpage_with_decision_tool(self, event: AstrMessageEvent, url: str, return_type: str = "both") -> Any:
+    async def analyze_webpage_with_decision_tool(
+        self, event: AstrMessageEvent, url: str, return_type: str = "both"
+    ) -> Any:
         """智能网页分析工具（带自主决策）
-        
+
         Args:
             url(string): 要分析的网页URL地址，支持http和https协议
             return_type(string): 返回结果类型，可选值：analysis_only（仅分析结果）、screenshot_only（仅截图）、both（两者都返回），默认为both
         """
         # 检查是否启用了LLMTOOL模式，未启用则不执行
         if self.analysis_mode != "LLMTOOL":
-            logger.info(f"当前未启用LLMTOOL模式，拒绝analyze_webpage_with_decision_tool调用: {url}")
+            logger.info(
+                f"当前未启用LLMTOOL模式，拒绝analyze_webpage_with_decision_tool调用: {url}"
+            )
             yield event.plain_result("当前未启用网页分析工具模式")
             return
 
         # 检查是否启用了LLM自主决策功能
         if not self.enable_llm_decision:
-            logger.info(f"当前未启用LLM自主决策功能，拒绝analyze_webpage_with_decision_tool调用: {url}")
+            logger.info(
+                f"当前未启用LLM自主决策功能，拒绝analyze_webpage_with_decision_tool调用: {url}"
+            )
             yield event.plain_result("当前未启用LLM自主决策功能")
             return
 
-        logger.info(f"收到analyze_webpage_with_decision_tool调用，原始URL: {url}，返回类型: {return_type}")
+        logger.info(
+            f"收到analyze_webpage_with_decision_tool调用，原始URL: {url}，返回类型: {return_type}"
+        )
 
         # 验证返回类型
         valid_return_types = ["analysis_only", "screenshot_only", "both"]
@@ -730,11 +835,13 @@ class WebAnalyzerPlugin(Star):
                 logger.info(f"恢复send_content_type为: {original_send_content_type}")
 
             # 智能撤回：分析完成后立即撤回处理中消息
-            if (self.enable_recall and
-                self.recall_type == "smart" and
-                self.smart_recall_enabled and
-                processing_message_id and
-                bot):
+            if (
+                self.enable_recall
+                and self.recall_type == "smart"
+                and self.smart_recall_enabled
+                and processing_message_id
+                and bot
+            ):
                 try:
                     await bot.delete_msg(message_id=processing_message_id)
                     logger.info(f"已撤回处理中消息: {processing_message_id}")
@@ -806,12 +913,18 @@ class WebAnalyzerPlugin(Star):
             return
 
         # 从消息中提取所有URL
-        urls = self.analyzer.extract_urls(message_text, self.enable_no_protocol_url, self.default_protocol)
+        urls = self.analyzer.extract_urls(
+            message_text, self.enable_no_protocol_url, self.default_protocol
+        )
         if not urls:
             return  # 没有URL，不处理
 
         # 验证URL格式是否正确，并规范化URL
-        valid_urls = [self.analyzer.normalize_url(url) for url in urls if self.analyzer.is_valid_url(url)]
+        valid_urls = [
+            self.analyzer.normalize_url(url)
+            for url in urls
+            if self.analyzer.is_valid_url(url)
+        ]
         # 去重，避免重复分析相同URL
         valid_urls = list(set(valid_urls))
         if not valid_urls:
@@ -826,7 +939,9 @@ class WebAnalyzerPlugin(Star):
         if self.analysis_mode == "LLMTOOL":
             # 启用了LLM函数工具模式，不使用旧版直接分析
             # 让LLM自己决定是否调用analyze_webpage工具
-            logger.info(f"启用了LLM函数工具模式，不自动分析链接，让LLM自己决定: {allowed_urls}")
+            logger.info(
+                f"启用了LLM函数工具模式，不自动分析链接，让LLM自己决定: {allowed_urls}"
+            )
             return
         else:
             # 未启用LLM函数工具模式，使用旧版直接分析方式
@@ -837,13 +952,19 @@ class WebAnalyzerPlugin(Star):
                 message = f"检测到{len(allowed_urls)}个网页链接，正在分析..."
 
             # 直接调用发送方法，不使用yield，获取message_id和bot实例
-            processing_message_id, bot = await self._send_processing_message(event, message)
+            processing_message_id, bot = await self._send_processing_message(
+                event, message
+            )
 
             # 批量处理所有允许访问的URL
-            async for result in self._batch_process_urls(event, allowed_urls, processing_message_id, bot):
+            async for result in self._batch_process_urls(
+                event, allowed_urls, processing_message_id, bot
+            ):
                 yield result
 
-    async def _use_llm_tool_mode(self, event: AstrMessageEvent, message_text: str, allowed_urls: list):
+    async def _use_llm_tool_mode(
+        self, event: AstrMessageEvent, message_text: str, allowed_urls: list
+    ):
         """使用LLM Tool模式处理消息"""
         try:
             # 检查是否支持tool_loop_agent
@@ -876,6 +997,7 @@ class WebAnalyzerPlugin(Star):
             try:
                 # 尝试导入ToolSet
                 from astrbot.core.agent.tool import ToolSet
+
                 # 调用tool_loop_agent
                 llm_resp = await self.context.tool_loop_agent(
                     event=event,
@@ -885,7 +1007,9 @@ class WebAnalyzerPlugin(Star):
                     max_steps=30,  # Agent最大执行步骤
                     tool_call_timeout=60,  # 工具调用超时时间
                 )
-                logger.info(f"tool_loop_agent执行完成，结果: {llm_resp.completion_text if hasattr(llm_resp, 'completion_text') else '无文本结果'}")
+                logger.info(
+                    f"tool_loop_agent执行完成，结果: {llm_resp.completion_text if hasattr(llm_resp, 'completion_text') else '无文本结果'}"
+                )
             except Exception as e_inner:
                 logger.error(f"调用tool_loop_agent失败: {e_inner}")
                 # 尝试不使用ToolSet参数调用（兼容不同版本）
@@ -897,7 +1021,9 @@ class WebAnalyzerPlugin(Star):
                         max_steps=30,
                         tool_call_timeout=60,
                     )
-                    logger.info(f"tool_loop_agent执行完成（无ToolSet），结果: {llm_resp.completion_text if hasattr(llm_resp, 'completion_text') else '无文本结果'}")
+                    logger.info(
+                        f"tool_loop_agent执行完成（无ToolSet），结果: {llm_resp.completion_text if hasattr(llm_resp, 'completion_text') else '无文本结果'}"
+                    )
                 except Exception as e_inner2:
                     logger.error(f"调用tool_loop_agent（无ToolSet）失败: {e_inner2}")
                     # 回退到旧版解析方式
@@ -923,10 +1049,10 @@ class WebAnalyzerPlugin(Star):
         processing_message_id, bot = await self._send_processing_message(event, message)
 
         # 批量处理所有允许访问的URL
-        async for result in self._batch_process_urls(event, allowed_urls, processing_message_id, bot):
+        async for result in self._batch_process_urls(
+            event, allowed_urls, processing_message_id, bot
+        ):
             yield result
-
-
 
     async def _process_single_url(
         self, event: AstrMessageEvent, url: str, analyzer: WebAnalyzer
@@ -942,7 +1068,9 @@ class WebAnalyzerPlugin(Star):
             # 2. 抓取网页内容
             html = await self._fetch_webpage_content(analyzer, url)
             if not html:
-                error_msg = self._handle_error(ErrorType.NETWORK_ERROR, Exception("无法获取网页内容"), url)
+                error_msg = self._handle_error(
+                    ErrorType.NETWORK_ERROR, Exception("无法获取网页内容"), url
+                )
                 return {
                     "url": url,
                     "result": error_msg,
@@ -952,7 +1080,9 @@ class WebAnalyzerPlugin(Star):
             # 3. 提取结构化内容
             content_data = await self._extract_structured_content(analyzer, html, url)
             if not content_data:
-                error_msg = self._handle_error(ErrorType.PARSING_ERROR, Exception("无法解析网页内容"), url)
+                error_msg = self._handle_error(
+                    ErrorType.PARSING_ERROR, Exception("无法解析网页内容"), url
+                )
                 return {
                     "url": url,
                     "result": error_msg,
@@ -963,7 +1093,9 @@ class WebAnalyzerPlugin(Star):
             analysis_result = await self._analyze_content(event, content_data)
 
             # 5. 提取特定内容
-            analysis_result = await self._extract_and_add_specific_content(analysis_result, html, url)
+            analysis_result = await self._extract_and_add_specific_content(
+                analysis_result, html, url
+            )
 
             # 6. 生成截图
             screenshot = await self._generate_screenshot(analyzer, url, analysis_result)
@@ -994,11 +1126,11 @@ class WebAnalyzerPlugin(Star):
 
     async def _fetch_webpage_content(self, analyzer: WebAnalyzer, url: str) -> str:
         """抓取网页HTML内容
-        
+
         Args:
             analyzer: WebAnalyzer实例
             url: 要抓取的URL
-        
+
         Returns:
             网页HTML内容，如果抓取失败则返回空字符串
         """
@@ -1009,14 +1141,16 @@ class WebAnalyzerPlugin(Star):
             logger.error(f"抓取网页失败: {url}, 错误: {e}")
             return ""
 
-    async def _extract_structured_content(self, analyzer: WebAnalyzer, html: str, url: str) -> dict:
+    async def _extract_structured_content(
+        self, analyzer: WebAnalyzer, html: str, url: str
+    ) -> dict:
         """从HTML中提取结构化内容
-        
+
         Args:
             analyzer: WebAnalyzer实例
             html: 网页HTML内容
             url: 网页URL
-        
+
         Returns:
             包含结构化内容的字典，如果提取失败则返回None
         """
@@ -1027,13 +1161,15 @@ class WebAnalyzerPlugin(Star):
             logger.error(f"提取结构化内容失败: {url}, 错误: {e}")
             return None
 
-    async def _analyze_content(self, event: AstrMessageEvent, content_data: dict) -> str:
+    async def _analyze_content(
+        self, event: AstrMessageEvent, content_data: dict
+    ) -> str:
         """调用LLM或基础分析方法分析内容
-        
+
         Args:
             event: 消息事件对象
             content_data: 结构化内容数据
-        
+
         Returns:
             分析结果文本
         """
@@ -1051,7 +1187,9 @@ class WebAnalyzerPlugin(Star):
                     return await self.analyze_with_llm(event, translated_content_data)
                 except Exception as e:
                     # 翻译失败时，使用原始内容进行分析
-                    logger.warning(f"翻译失败，使用原始内容进行分析: {content_data['url']}, 错误: {e}")
+                    logger.warning(
+                        f"翻译失败，使用原始内容进行分析: {content_data['url']}, 错误: {e}"
+                    )
 
             # 直接调用LLM进行分析
             return await self.analyze_with_llm(event, content_data)
@@ -1059,14 +1197,16 @@ class WebAnalyzerPlugin(Star):
             logger.error(f"分析内容失败: {content_data['url']}, 错误: {e}")
             return self.get_enhanced_analysis(content_data)
 
-    async def _extract_and_add_specific_content(self, analysis_result: str, html: str, url: str) -> str:
+    async def _extract_and_add_specific_content(
+        self, analysis_result: str, html: str, url: str
+    ) -> str:
         """提取特定类型内容并添加到分析结果中
-        
+
         Args:
             analysis_result: 当前的分析结果
             html: 网页HTML内容
             url: 网页URL
-        
+
         Returns:
             更新后的分析结果
         """
@@ -1119,14 +1259,16 @@ class WebAnalyzerPlugin(Star):
             logger.warning(f"特定内容提取失败: {url}, 错误: {e}")
             return analysis_result
 
-    async def _generate_screenshot(self, analyzer: WebAnalyzer, url: str, analysis_result: str) -> bytes:
+    async def _generate_screenshot(
+        self, analyzer: WebAnalyzer, url: str, analysis_result: str
+    ) -> bytes:
         """生成网页截图
-        
+
         Args:
             analyzer: WebAnalyzer实例
             url: 网页URL
             analysis_result: 当前的分析结果
-        
+
         Returns:
             截图二进制数据，如果生成失败则返回None
         """
@@ -1147,7 +1289,9 @@ class WebAnalyzerPlugin(Star):
             # 应用截图裁剪
             if self.enable_crop and screenshot:
                 try:
-                    screenshot = analyzer.crop_screenshot(screenshot, tuple(self.crop_area))
+                    screenshot = analyzer.crop_screenshot(
+                        screenshot, tuple(self.crop_area)
+                    )
                 except Exception as e:
                     logger.warning(f"裁剪截图失败: {url}, 错误: {e}")
 
@@ -1159,8 +1303,6 @@ class WebAnalyzerPlugin(Star):
             analysis_result += f"\n\n⚠️ 截图功能提示: {error_msg.splitlines()[0]}"
             return None
 
-
-
     def _get_url_priority(self, url: str) -> int:
         """评估URL的处理优先级"""
         return WebAnalyzerUtils.get_url_priority(url)
@@ -1170,7 +1312,9 @@ class WebAnalyzerPlugin(Star):
         # 定义不同模板的渲染逻辑
         if template_type == "detailed":
             # 详细模板：包含完整信息和格式
-            return f"【详细分析结果】\n\n📌 分析URL：{url}\n\n{result}\n\n--- 分析结束 ---"
+            return (
+                f"【详细分析结果】\n\n📌 分析URL：{url}\n\n{result}\n\n--- 分析结束 ---"
+            )
         elif template_type == "compact":
             # 紧凑模板：简洁展示核心信息
             lines = result.splitlines()
@@ -1180,7 +1324,11 @@ class WebAnalyzerPlugin(Star):
                     compact_result.append(line)
                     if len(compact_result) >= 10:  # 最多显示10行
                         break
-            return f"【紧凑分析结果】\n{url}\n\n" + "\n".join(compact_result) + "\n\n... 更多内容请查看完整分析"
+            return (
+                f"【紧凑分析结果】\n{url}\n\n"
+                + "\n".join(compact_result)
+                + "\n\n... 更多内容请查看完整分析"
+            )
         elif template_type == "markdown":
             # Markdown模板：使用Markdown格式
             return f"# 网页分析结果\n\n## URL\n{url}\n\n## 分析内容\n{result}\n\n---\n*分析完成于 {self._get_current_time()}*"
@@ -1194,6 +1342,7 @@ class WebAnalyzerPlugin(Star):
     def _get_current_time(self) -> str:
         """获取当前时间的格式化字符串"""
         from datetime import datetime
+
         return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
     def _collapse_result(self, result: str) -> str:
@@ -1216,7 +1365,9 @@ class WebAnalyzerPlugin(Star):
     def _apply_result_settings(self, result: str, url: str) -> str:
         """应用所有结果设置（模板渲染和折叠）"""
         # 首先应用模板渲染
-        rendered_result = self._render_result_template(result, url, self.result_template)
+        rendered_result = self._render_result_template(
+            result, url, self.result_template
+        )
         # 然后应用结果折叠
         final_result = self._collapse_result(rendered_result)
         return final_result
@@ -1284,60 +1435,88 @@ class WebAnalyzerPlugin(Star):
 
     def _get_available_commands(self) -> dict:
         """获取所有可用命令的信息
-        
+
         Returns:
             包含所有命令信息的字典
         """
         return {
-            "网页分析": {
-                "aliases": ["分析", "总结", "web", "analyze"],
-                "description": "手动分析指定网页链接",
-                "usage": "/网页分析 <URL1> <URL2>...",
-                "options": [],
-                "example": "/网页分析 https://example.com"
-            },
-            "web_config": {
-                "aliases": ["网页分析配置", "网页分析设置"],
-                "description": "查看当前插件配置",
-                "usage": "/web_config",
-                "options": [],
-                "example": "/web_config"
-            },
-            "web_cache": {
-                "aliases": ["网页缓存", "清理缓存"],
-                "description": "管理分析结果缓存",
-                "usage": "/web_cache [clear]",
-                "options": ["clear"],
-                "example": "/web_cache clear"
-            },
-            "group_blacklist": {
-                "aliases": ["群黑名单", "黑名单"],
-                "description": "管理群聊黑名单",
-                "usage": "/group_blacklist [add/remove/clear] <群号>",
-                "options": ["add", "remove", "clear"],
-                "example": "/群黑名单 add 123456789"
-            },
-            "web_export": {
-                "aliases": ["导出分析结果", "网页导出"],
-                "description": "导出分析结果",
-                "usage": "/web_export",
-                "options": [],
-                "example": "/web_export"
-            },
-            "test_merge": {
-                "aliases": ["测试合并转发", "测试转发"],
-                "description": "测试合并转发功能",
-                "usage": "/test_merge",
-                "options": [],
-                "example": "/test_merge"
-            },
-            "web_help": {
-                "aliases": ["网页分析帮助", "网页分析命令"],
-                "description": "显示命令帮助信息",
-                "usage": "/web_help",
-                "options": [],
-                "example": "/web_help"
-            }
+            "网页分析": self._get_web_analyze_command(),
+            "web_config": self._get_web_config_command(),
+            "web_cache": self._get_web_cache_command(),
+            "group_blacklist": self._get_group_blacklist_command(),
+            "web_export": self._get_web_export_command(),
+            "test_merge": self._get_test_merge_command(),
+            "web_help": self._get_web_help_command(),
+        }
+
+    def _get_web_analyze_command(self) -> dict:
+        """获取网页分析命令信息"""
+        return {
+            "aliases": ["分析", "总结", "web", "analyze"],
+            "description": "手动分析指定网页链接",
+            "usage": "/网页分析 <URL1> <URL2>...",
+            "options": [],
+            "example": "/网页分析 https://example.com",
+        }
+
+    def _get_web_config_command(self) -> dict:
+        """获取网页配置命令信息"""
+        return {
+            "aliases": ["网页分析配置", "网页分析设置"],
+            "description": "查看当前插件配置",
+            "usage": "/web_config",
+            "options": [],
+            "example": "/web_config",
+        }
+
+    def _get_web_cache_command(self) -> dict:
+        """获取网页缓存命令信息"""
+        return {
+            "aliases": ["网页缓存", "清理缓存"],
+            "description": "管理分析结果缓存",
+            "usage": "/web_cache [clear]",
+            "options": ["clear"],
+            "example": "/web_cache clear",
+        }
+
+    def _get_group_blacklist_command(self) -> dict:
+        """获取群黑名单命令信息"""
+        return {
+            "aliases": ["群黑名单", "黑名单"],
+            "description": "管理群聊黑名单",
+            "usage": "/group_blacklist [add/remove/clear] <群号>",
+            "options": ["add", "remove", "clear"],
+            "example": "/群黑名单 add 123456789",
+        }
+
+    def _get_web_export_command(self) -> dict:
+        """获取导出命令信息"""
+        return {
+            "aliases": ["导出分析结果", "网页导出"],
+            "description": "导出分析结果",
+            "usage": "/web_export",
+            "options": [],
+            "example": "/web_export",
+        }
+
+    def _get_test_merge_command(self) -> dict:
+        """获取测试合并转发命令信息"""
+        return {
+            "aliases": ["测试合并转发", "测试转发"],
+            "description": "测试合并转发功能",
+            "usage": "/test_merge",
+            "options": [],
+            "example": "/test_merge",
+        }
+
+    def _get_web_help_command(self) -> dict:
+        """获取帮助命令信息"""
+        return {
+            "aliases": ["网页分析帮助", "网页分析命令"],
+            "description": "显示命令帮助信息",
+            "usage": "/web_help",
+            "options": [],
+            "example": "/web_help",
         }
 
     def _get_command_completions(self, input_text: str) -> list:
@@ -1366,31 +1545,52 @@ class WebAnalyzerPlugin(Star):
 
     def _get_param_hints(self, command: str, current_params: list) -> list:
         """获取命令参数提示"""
-        commands = self._get_available_commands()
-
-        # 查找命令信息
-        cmd_info = None
-        for cmd_name, info in commands.items():
-            if command == cmd_name or command in info["aliases"]:
-                cmd_info = info
-                break
-
+        cmd_info = self._find_command_info(command)
         if not cmd_info:
             return []
+        return self._get_hints_for_command(cmd_info["name"], current_params)
 
-        # 根据命令和已输入参数返回提示
+    def _find_command_info(self, command: str) -> dict | None:
+        """查找命令信息"""
+        commands = self._get_available_commands()
+        for cmd_name, info in commands.items():
+            if command == cmd_name or command in info["aliases"]:
+                return {"name": cmd_name, "info": info}
+        return None
+
+    def _get_hints_for_command(self, cmd_name: str, current_params: list) -> list:
+        """根据命令和已输入参数返回提示"""
+        param_count = len(current_params)
+
         if cmd_name == "group_blacklist":
-            if len(current_params) == 0:
-                return ["add", "remove", "clear"]
-            elif len(current_params) == 1 and current_params[0] in ["add", "remove"]:
-                return ["<群号>"]
-        elif cmd_name == "web_cache":
-            if len(current_params) == 0:
-                return ["clear"]
-
+            return self._get_group_blacklist_hints(param_count, current_params)
+        if cmd_name == "web_cache":
+            return self._get_cache_hints(param_count)
         return []
 
-    async def _batch_process_urls(self, event: AstrMessageEvent, urls: list[str], processing_message_id: int | None = None, bot = None):
+    def _get_group_blacklist_hints(
+        self, param_count: int, current_params: list
+    ) -> list:
+        """获取群黑名单命令的参数提示"""
+        if param_count == 0:
+            return ["add", "remove", "clear"]
+        if param_count == 1 and current_params[0] in ["add", "remove"]:
+            return ["<群号>"]
+        return []
+
+    def _get_cache_hints(self, param_count: int) -> list:
+        """获取缓存命令的参数提示"""
+        if param_count == 0:
+            return ["clear"]
+        return []
+
+    async def _batch_process_urls(
+        self,
+        event: AstrMessageEvent,
+        urls: list[str],
+        processing_message_id: int | None = None,
+        bot=None,
+    ):
         """批量处理多个URL，实现高效的并发分析"""
         # 收集所有分析结果
         analysis_results = []
@@ -1411,8 +1611,12 @@ class WebAnalyzerPlugin(Star):
 
         # 根据优先级对URL进行排序
         if self.enable_priority_scheduling:
-            filtered_urls = sorted(filtered_urls, key=lambda url: self._get_url_priority(url), reverse=True)
-            logger.info(f"URL优先级排序完成: {[(url, self._get_url_priority(url)) for url in filtered_urls]}")
+            filtered_urls = sorted(
+                filtered_urls, key=lambda url: self._get_url_priority(url), reverse=True
+            )
+            logger.info(
+                f"URL优先级排序完成: {[(url, self._get_url_priority(url)) for url in filtered_urls]}"
+            )
 
         try:
             # 创建WebAnalyzer实例，使用上下文管理器确保资源正确释放
@@ -1432,10 +1636,14 @@ class WebAnalyzerPlugin(Star):
                 if self.dynamic_concurrency:
                     # 根据URL数量动态调整并发数
                     # 计算合理的并发数：URL数量的平方根，不超过max_concurrency
-                    dynamic_concurrency = min(self.max_concurrency, max(1, int(len(filtered_urls) ** 0.5) + 1))
+                    dynamic_concurrency = min(
+                        self.max_concurrency, max(1, int(len(filtered_urls) ** 0.5) + 1)
+                    )
                     concurrency = dynamic_concurrency
 
-                logger.info(f"使用并发数: {concurrency} 处理 {len(filtered_urls)} 个URL")
+                logger.info(
+                    f"使用并发数: {concurrency} 处理 {len(filtered_urls)} 个URL"
+                )
 
                 # 分批次处理URL，控制并发数
                 batch_size = concurrency
@@ -1443,14 +1651,22 @@ class WebAnalyzerPlugin(Star):
 
                 # 如果并发数大于等于URL数量，直接处理所有URL
                 if batch_size >= len(filtered_urls):
-                    tasks = [self._process_single_url(event, url, analyzer) for url in filtered_urls]
+                    tasks = [
+                        self._process_single_url(event, url, analyzer)
+                        for url in filtered_urls
+                    ]
                     results = await asyncio.gather(*tasks)
                 else:
                     # 分批次处理
                     for i in range(0, len(filtered_urls), batch_size):
-                        batch_urls = filtered_urls[i:i+batch_size]
-                        logger.info(f"处理批次 {i//batch_size + 1}/{(len(filtered_urls) + batch_size - 1)//batch_size}: {batch_urls}")
-                        tasks = [self._process_single_url(event, url, analyzer) for url in batch_urls]
+                        batch_urls = filtered_urls[i : i + batch_size]
+                        logger.info(
+                            f"处理批次 {i // batch_size + 1}/{(len(filtered_urls) + batch_size - 1) // batch_size}: {batch_urls}"
+                        )
+                        tasks = [
+                            self._process_single_url(event, url, analyzer)
+                            for url in batch_urls
+                        ]
                         batch_results = await asyncio.gather(*tasks)
                         results.extend(batch_results)
 
@@ -1466,19 +1682,25 @@ class WebAnalyzerPlugin(Star):
                     self.processing_urls.remove(url)
 
             # 智能撤回：分析完成后立即撤回处理中消息
-            if (self.enable_recall and
-                self.recall_type == "smart" and
-                self.smart_recall_enabled and
-                processing_message_id and
-                bot):
+            if (
+                self.enable_recall
+                and self.recall_type == "smart"
+                and self.smart_recall_enabled
+                and processing_message_id
+                and bot
+            ):
                 try:
-                    logger.info(f"智能撤回：分析完成，立即撤回处理中消息，message_id: {processing_message_id}")
+                    logger.info(
+                        f"智能撤回：分析完成，立即撤回处理中消息，message_id: {processing_message_id}"
+                    )
                     await bot.delete_msg(message_id=processing_message_id)
                     logger.info(f"智能撤回成功，已撤回消息: {processing_message_id}")
                 except Exception as e:
                     logger.error(f"智能撤回消息失败: {e}")
 
-    def _get_analysis_template(self, content_type: str, emoji_prefix: str, max_length: int) -> str:
+    def _get_analysis_template(
+        self, content_type: str, emoji_prefix: str, max_length: int
+    ) -> str:
         """根据内容类型获取相应的分析模板"""
         # 定义多种分析模板
         templates = {
@@ -1506,7 +1728,6 @@ class WebAnalyzerPlugin(Star):
 - 总字数不超过{max_length}字
 
 请确保分析准确、全面且易于理解。""",
-
             "教程指南": f"""请对以下教程指南进行专业分析和智能总结：
 
 **网页信息**
@@ -1532,7 +1753,6 @@ class WebAnalyzerPlugin(Star):
 - 总字数不超过{max_length}字
 
 请确保分析准确、全面且易于理解。""",
-
             "个人博客": f"""请对以下个人博客进行专业分析和智能总结：
 
 **网页信息**
@@ -1557,7 +1777,6 @@ class WebAnalyzerPlugin(Star):
 - 总字数不超过{max_length}字
 
 请确保分析准确、全面且易于理解。""",
-
             "产品介绍": f"""请对以下产品介绍进行专业分析和智能总结：
 
 **网页信息**
@@ -1583,7 +1802,6 @@ class WebAnalyzerPlugin(Star):
 - 总字数不超过{max_length}字
 
 请确保分析准确、全面且易于理解。""",
-
             "技术文档": f"""请对以下技术文档进行专业分析和智能总结：
 
 **网页信息**
@@ -1609,7 +1827,6 @@ class WebAnalyzerPlugin(Star):
 - 总字数不超过{max_length}字
 
 请确保分析准确、全面且易于理解。""",
-
             "学术论文": f"""请对以下学术论文进行专业分析和智能总结：
 
 **网页信息**
@@ -1635,7 +1852,6 @@ class WebAnalyzerPlugin(Star):
 - 总字数不超过{max_length}字
 
 请确保分析准确、全面且易于理解。""",
-
             "商业分析": f"""请对以下商业分析进行专业分析和智能总结：
 
 **网页信息**
@@ -1661,7 +1877,6 @@ class WebAnalyzerPlugin(Star):
 - 总字数不超过{max_length}字
 
 请确保分析准确、全面且易于理解。""",
-
             "娱乐资讯": f"""请对以下娱乐资讯进行专业分析和智能总结：
 
 **网页信息**
@@ -1687,7 +1902,6 @@ class WebAnalyzerPlugin(Star):
 - 总字数不超过{max_length}字
 
 请确保分析准确、全面且易于理解。""",
-
             "体育新闻": f"""请对以下体育新闻进行专业分析和智能总结：
 
 **网页信息**
@@ -1713,7 +1927,6 @@ class WebAnalyzerPlugin(Star):
 - 总字数不超过{max_length}字
 
 请确保分析准确、全面且易于理解。""",
-
             "教育资讯": f"""请对以下教育资讯进行专业分析和智能总结：
 
 **网页信息**
@@ -1739,7 +1952,6 @@ class WebAnalyzerPlugin(Star):
 - 总字数不超过{max_length}字
 
 请确保分析准确、全面且易于理解。""",
-
             # 默认模板
             "默认": f"""请对以下网页内容进行专业分析和智能总结：
 
@@ -1764,7 +1976,7 @@ class WebAnalyzerPlugin(Star):
 - 保持客观中立的态度
 - 总字数不超过{max_length}字
 
-请确保分析准确、全面且易于理解。"""
+请确保分析准确、全面且易于理解。""",
         }
 
         # 返回对应的模板，如果没有则使用默认模板
@@ -1803,19 +2015,19 @@ class WebAnalyzerPlugin(Star):
                 url=url,
                 content=content,
                 max_length=self.max_summary_length,
-                content_type=content_type
+                content_type=content_type,
             )
         else:
             # 根据内容类型获取相应的分析模板
-            template = self._get_analysis_template(content_type, emoji_prefix, self.max_summary_length)
-            # 替换模板中的变量
-            return template.format(
-                title=title,
-                url=url,
-                content=content
+            template = self._get_analysis_template(
+                content_type, emoji_prefix, self.max_summary_length
             )
+            # 替换模板中的变量
+            return template.format(title=title, url=url, content=content)
 
-    def _format_llm_result(self, content_data: dict, analysis_text: str, content_type: str) -> str:
+    def _format_llm_result(
+        self, content_data: dict, analysis_text: str, content_type: str
+    ) -> str:
         """格式化LLM返回的结果"""
         title = content_data["title"]
         url = content_data["url"]
@@ -1845,7 +2057,6 @@ class WebAnalyzerPlugin(Star):
     ) -> str:
         """调用大语言模型(LLM)进行智能内容分析和总结"""
         try:
-            title = content_data["title"]
             content = content_data["content"]
             url = content_data["url"]
 
@@ -1875,9 +2086,7 @@ class WebAnalyzerPlugin(Star):
             if llm_resp and llm_resp.completion_text:
                 # 格式化LLM结果
                 return self._format_llm_result(
-                    content_data,
-                    llm_resp.completion_text.strip(),
-                    content_type
+                    content_data, llm_resp.completion_text.strip(), content_type
                 )
             else:
                 # LLM调用失败，使用基础分析
@@ -1908,40 +2117,48 @@ class WebAnalyzerPlugin(Star):
 
         # 构建分析结果
         return self._build_analysis_result(
-            title, url, content_type, quality_indicator, content_stats, paragraphs, key_sentences
+            title,
+            url,
+            content_type,
+            quality_indicator,
+            content_stats,
+            paragraphs,
+            key_sentences,
         )
 
     def _calculate_content_statistics(self, content: str) -> dict:
         """计算内容统计信息"""
         char_count = len(content)
         word_count = len(content.split())
+        return {"char_count": char_count, "word_count": word_count}
+
+    def _get_content_type_rules(self) -> dict[str, list[str]]:
+        """获取内容类型检测规则"""
         return {
-            "char_count": char_count,
-            "word_count": word_count
+            "新闻资讯": ["新闻", "报道", "消息", "时事", "快讯", "头条", "要闻", "热点", "事件"],
+            "教程指南": ["教程", "指南", "教学", "步骤", "方法", "如何", "怎样", "攻略", "技巧"],
+            "个人博客": ["博客", "随笔", "日记", "个人", "观点", "感想", "感悟", "思考", "分享"],
+            "产品介绍": ["产品", "服务", "购买", "价格", "优惠", "功能", "特性", "参数", "规格", "评测"],
+            "技术文档": ["技术", "开发", "编程", "代码", "API", "SDK", "文档", "说明"],
+            "学术论文": ["论文", "研究", "实验", "结论", "摘要", "关键词", "引用", "参考文献"],
+            "商业分析": ["分析", "报告", "数据", "统计", "趋势", "预测", "市场", "行业"],
+            "娱乐资讯": ["娱乐", "明星", "电影", "音乐", "综艺", "演唱会", "首映", "新歌"],
+            "体育新闻": ["体育", "比赛", "赛事", "比分", "运动员", "冠军", "亚军", "季军"],
+            "教育资讯": ["教育", "学校", "招生", "考试", "培训", "学习", "课程", "教材"]
         }
+
+    def _match_content_type(self, content_lower: str, rules: dict[str, list[str]]) -> str:
+        """根据规则匹配内容类型"""
+        for type_name, keywords in rules.items():
+            if any(keyword in content_lower for keyword in keywords):
+                return type_name
+        return "文章"
 
     def _detect_content_type(self, content: str) -> str:
         """智能检测内容类型"""
         content_lower = content.lower()
-
-        content_type_rules = [
-            ("新闻资讯", ["新闻", "报道", "消息", "时事", "快讯", "头条", "要闻", "热点", "事件"]),
-            ("教程指南", ["教程", "指南", "教学", "步骤", "方法", "如何", "怎样", "教程", "指南", "攻略", "技巧"]),
-            ("个人博客", ["博客", "随笔", "日记", "个人", "观点", "感想", "感悟", "思考", "分享"]),
-            ("产品介绍", ["产品", "服务", "购买", "价格", "优惠", "功能", "特性", "参数", "规格", "评测"]),
-            ("技术文档", ["技术", "开发", "编程", "代码", "API", "SDK", "文档", "教程", "指南", "说明"]),
-            ("学术论文", ["论文", "研究", "实验", "结论", "摘要", "关键词", "引用", "参考文献"]),
-            ("商业分析", ["分析", "报告", "数据", "统计", "趋势", "预测", "市场", "行业"]),
-            ("娱乐资讯", ["娱乐", "明星", "电影", "音乐", "综艺", "演唱会", "首映", "新歌"]),
-            ("体育新闻", ["体育", "比赛", "赛事", "比分", "运动员", "冠军", "亚军", "季军"]),
-            ("教育资讯", ["教育", "学校", "招生", "考试", "培训", "学习", "课程", "教材"])
-        ]
-
-        for type_name, keywords in content_type_rules:
-            if any(keyword in content_lower for keyword in keywords):
-                return type_name
-
-        return "文章"
+        rules = self._get_content_type_rules()
+        return self._match_content_type(content_lower, rules)
 
     def _extract_key_sentences(self, paragraphs: list) -> list:
         """提取关键句子作为内容摘要"""
@@ -1963,16 +2180,17 @@ class WebAnalyzerPlugin(Star):
         page_emoji = "📄" if self.enable_emoji else ""
         return f"{robot_emoji} **智能网页分析** {page_emoji}\n\n"
 
-    def _build_basic_info(self, title: str, url: str, content_type: str,
-                         quality_indicator: str) -> str:
+    def _build_basic_info(
+        self, title: str, url: str, content_type: str, quality_indicator: str
+    ) -> str:
         """构建分析结果的基本信息部分
-        
+
         Args:
             title: 网页标题
             url: 网页URL
             content_type: 内容类型
             quality_indicator: 质量评估
-            
+
         Returns:
             格式化的基本信息字符串
         """
@@ -2039,159 +2257,246 @@ class WebAnalyzerPlugin(Star):
         else:
             note_info.append("**分析说明**\n")
 
-        note_info.append("此分析基于网页内容提取，如需更深入的AI智能分析，请确保AstrBot已正确配置LLM功能。\n\n")
+        note_info.append(
+            "此分析基于网页内容提取，如需更深入的AI智能分析，请确保AstrBot已正确配置LLM功能。\n\n"
+        )
         note_info.append("*提示：完整内容预览请查看原始网页*")
 
         return "".join(note_info)
 
-    def _build_analysis_result(self, title: str, url: str, content_type: str,
-                              quality_indicator: str, content_stats: dict,
-                              paragraphs: list, key_sentences: list) -> str:
+    def _build_analysis_result(
+        self,
+        title: str,
+        url: str,
+        content_type: str,
+        quality_indicator: str,
+        content_stats: dict,
+        paragraphs: list,
+        key_sentences: list,
+    ) -> str:
         """构建最终的分析结果"""
         # 构建分析结果
         result_parts = []
         result_parts.append(self._build_analysis_header())
-        result_parts.append(self._build_basic_info(title, url, content_type, quality_indicator))
+        result_parts.append(
+            self._build_basic_info(title, url, content_type, quality_indicator)
+        )
         result_parts.append(self._build_statistics_info(content_stats, paragraphs))
         result_parts.append(self._build_content_summary(key_sentences))
         result_parts.append(self._build_analysis_note())
 
         return "".join(result_parts)
 
-
-
-    def _handle_error(self, error_type: str, original_error: Exception, url: str | None = None, context: dict | None = None) -> str:
+    def _handle_error(
+        self,
+        error_type: str,
+        original_error: Exception,
+        url: str | None = None,
+        context: dict | None = None,
+    ) -> str:
         """统一错误处理方法"""
-        # 获取错误配置
         error_config = ERROR_MESSAGES.get(error_type, ERROR_MESSAGES["unknown_error"])
         error_message = error_config["message"]
         solution = error_config["solution"]
         severity = error_config["severity"]
 
-        # 构建完整的上下文信息
+        context_str = self._build_context_str(url, context)
+        self._log_error(error_message, original_error, context_str, severity)
+        return self._build_user_message(
+            error_message, url, original_error, solution, error_type, severity
+        )
+
+    def _build_context_str(self, url: str | None, context: dict | None) -> str:
+        """构建上下文信息字符串"""
         context_info = []
         if url:
             context_info.append(f"URL: {url}")
         if context:
-            for key, value in context.items():
-                context_info.append(f"{key}: {value}")
-        context_str = " | ".join(context_info)
+            context_info.extend([f"{key}: {value}" for key, value in context.items()])
+        return " | ".join(context_info)
 
-        # 构建日志信息
+    def _log_error(
+        self,
+        error_message: str,
+        original_error: Exception,
+        context_str: str,
+        severity: str,
+    ) -> None:
+        """记录错误日志"""
         log_message = f"{error_message}: {str(original_error)}"
         if context_str:
             log_message += f" ({context_str})"
 
-        # 根据严重程度记录日志，所有错误级别都包含堆栈跟踪
-        if severity == ErrorSeverity.INFO:
-            logger.info(log_message, exc_info=True)
-        elif severity == ErrorSeverity.WARNING:
-            logger.warning(log_message, exc_info=True)
-        elif severity == ErrorSeverity.ERROR:
-            logger.error(log_message, exc_info=True)
-        elif severity == ErrorSeverity.CRITICAL:
-            logger.critical(log_message, exc_info=True)
+        log_levels = {
+            ErrorSeverity.INFO: logger.info,
+            ErrorSeverity.WARNING: logger.warning,
+            ErrorSeverity.ERROR: logger.error,
+            ErrorSeverity.CRITICAL: logger.critical,
+        }
+        log_levels[severity](log_message, exc_info=True)
 
-        # 生成用户友好的错误信息
-        user_message = []
-        user_message.append(f"❌ {error_message}")
-
-        # 添加上下文信息
-        if url:
-            user_message.append(f"🔗 相关链接: {url}")
-
-        # 添加错误详情，仅显示关键信息，避免过长
+    def _build_user_message(
+        self,
+        error_message: str,
+        url: str | None,
+        original_error: Exception,
+        solution: str,
+        error_type: str,
+        severity: str,
+    ) -> str:
+        """构建用户友好的错误信息"""
         error_detail = str(original_error)
         if len(error_detail) > 100:
             error_detail = error_detail[:100] + "..."
-        user_message.append(f"📋 错误详情: {error_detail}")
 
-        # 添加建议解决方案
-        user_message.append(f"💡 建议解决方案: {solution}")
+        user_message = [
+            f"❌ {error_message}",
+            f"🔗 相关链接: {url}" if url else None,
+            f"📋 错误详情: {error_detail}",
+            f"💡 建议解决方案: {solution}",
+        ]
 
-        # 添加错误类型和严重程度（仅在调试模式或严重错误时显示）
         if severity in [ErrorSeverity.ERROR, ErrorSeverity.CRITICAL]:
-            user_message.append(f"⚠️  错误类型: {error_type}")
-            user_message.append(f"🔴 严重程度: {severity.upper()}")
+            user_message.extend(
+                [f"⚠️  错误类型: {error_type}", f"🔴 严重程度: {severity.upper()}"]
+            )
 
-        return "\n".join(user_message)
+        return "\n".join([msg for msg in user_message if msg is not None])
 
     def _get_error_type(self, exception: Exception) -> str:
         """根据异常类型获取对应的错误类型"""
-
-        from httpx import ConnectError, HTTPError, TimeoutException
-
         exception_type = type(exception).__name__
         exception_msg = str(exception).lower()
+        exception_type_lower = exception_type.lower()
 
-        # 网络相关错误
+        # 按优先级检查各类错误
+        error_type = (
+            self._check_network_errors(exception, exception_type_lower, exception_msg)
+            or self._check_parsing_errors(exception_type_lower, exception_msg)
+            or self._check_llm_errors(exception_type_lower, exception_msg)
+            or self._check_screenshot_errors(exception_type_lower, exception_msg)
+            or self._check_cache_errors(exception_type_lower, exception_msg)
+            or self._check_config_errors(exception_type_lower, exception_msg)
+            or self._check_permission_errors(exception_type_lower, exception_msg)
+            or self._check_other_errors(exception_type_lower, exception_msg)
+            or ErrorType.UNKNOWN_ERROR
+        )
+        return error_type
+
+    def _check_network_errors(
+        self, exception: Exception, exception_type_lower: str, exception_msg: str
+    ) -> str | None:
+        """检查网络相关错误"""
+        from httpx import ConnectError, HTTPError, TimeoutException
+
         if isinstance(exception, HTTPError):
             if isinstance(exception, TimeoutException):
                 return ErrorType.NETWORK_TIMEOUT
-            elif isinstance(exception, ConnectError):
+            if isinstance(exception, ConnectError):
                 return ErrorType.NETWORK_CONNECTION
-            else:
-                return ErrorType.NETWORK_ERROR
-        elif "timeout" in exception_type.lower() or "timeout" in exception_msg:
-            return ErrorType.NETWORK_TIMEOUT
-        elif "connect" in exception_type.lower() or "connection" in exception_msg:
-            return ErrorType.NETWORK_CONNECTION
-        elif "network" in exception_type.lower() or "http" in exception_type.lower():
             return ErrorType.NETWORK_ERROR
 
-        # 解析相关错误
-        elif "parse" in exception_type.lower() or "soup" in exception_type.lower() or "lxml" in exception_type.lower():
+        if "timeout" in exception_type_lower or "timeout" in exception_msg:
+            return ErrorType.NETWORK_TIMEOUT
+        if "connect" in exception_type_lower or "connection" in exception_msg:
+            return ErrorType.NETWORK_CONNECTION
+        if "network" in exception_type_lower or "http" in exception_type_lower:
+            return ErrorType.NETWORK_ERROR
+        return None
+
+    def _check_parsing_errors(
+        self, exception_type_lower: str, exception_msg: str
+    ) -> str | None:
+        """检查解析相关错误"""
+        if (
+            "parse" in exception_type_lower
+            or "soup" in exception_type_lower
+            or "lxml" in exception_type_lower
+        ):
             return ErrorType.HTML_PARSING
-        elif "empty" in exception_msg or "none" in exception_msg or "null" in exception_msg:
+        if (
+            "empty" in exception_msg
+            or "none" in exception_msg
+            or "null" in exception_msg
+        ):
             return ErrorType.CONTENT_EMPTY
-        elif "parse" in exception_msg:
+        if "parse" in exception_msg:
             return ErrorType.PARSING_ERROR
+        return None
 
-        # LLM相关错误
-        elif "llm" in exception_type.lower() or "llm" in exception_msg:
+    def _check_llm_errors(
+        self, exception_type_lower: str, exception_msg: str
+    ) -> str | None:
+        """检查LLM相关错误"""
+        if "llm" in exception_type_lower or "llm" in exception_msg:
             return ErrorType.LLM_ERROR
-        elif "generate" in exception_type.lower() or "generate" in exception_msg:
+        if "generate" in exception_type_lower or "generate" in exception_msg:
             return ErrorType.LLM_ERROR
-        elif "timeout" in exception_msg and "llm" in exception_msg:
+        if "timeout" in exception_msg and "llm" in exception_msg:
             return ErrorType.LLM_TIMEOUT
-        elif "invalid" in exception_msg or "format" in exception_msg:
+        if "invalid" in exception_msg or "format" in exception_msg:
             return ErrorType.LLM_INVALID_RESPONSE
-        elif "permission" in exception_msg or "auth" in exception_msg or "key" in exception_msg:
+        if (
+            "permission" in exception_msg
+            or "auth" in exception_msg
+            or "key" in exception_msg
+        ):
             return ErrorType.LLM_PERMISSION
+        return None
 
-        # 截图相关错误
-        elif "screenshot" in exception_type.lower() or "screenshot" in exception_msg:
+    def _check_screenshot_errors(
+        self, exception_type_lower: str, exception_msg: str
+    ) -> str | None:
+        """检查截图相关错误"""
+        if "screenshot" in exception_type_lower or "screenshot" in exception_msg:
             return ErrorType.SCREENSHOT_ERROR
-        elif "browser" in exception_type.lower() or "playwright" in exception_type.lower():
+        if "browser" in exception_type_lower or "playwright" in exception_type_lower:
             return ErrorType.BROWSER_ERROR
+        return None
 
-        # 缓存相关错误
-        elif "cache" in exception_type.lower() or "cache" in exception_msg:
+    def _check_cache_errors(
+        self, exception_type_lower: str, exception_msg: str
+    ) -> str | None:
+        """检查缓存相关错误"""
+        if "cache" in exception_type_lower or "cache" in exception_msg:
             return ErrorType.CACHE_ERROR
-        elif "write" in exception_msg or "save" in exception_msg:
+        if "write" in exception_msg or "save" in exception_msg:
             return ErrorType.CACHE_WRITE
-        elif "read" in exception_msg or "load" in exception_msg:
+        if "read" in exception_msg or "load" in exception_msg:
             return ErrorType.CACHE_READ
+        return None
 
-        # 配置相关错误
-        elif "config" in exception_type.lower() or "setting" in exception_type.lower():
+    def _check_config_errors(
+        self, exception_type_lower: str, exception_msg: str
+    ) -> str | None:
+        """检查配置相关错误"""
+        if "config" in exception_type_lower or "setting" in exception_type_lower:
             return ErrorType.CONFIG_ERROR
-        elif "invalid" in exception_msg:
+        if "invalid" in exception_msg:
             return ErrorType.CONFIG_INVALID
+        return None
 
-        # 权限相关错误
-        elif "permission" in exception_type.lower() or "auth" in exception_type.lower():
+    def _check_permission_errors(
+        self, exception_type_lower: str, exception_msg: str
+    ) -> str | None:
+        """检查权限相关错误"""
+        if "permission" in exception_type_lower or "auth" in exception_type_lower:
             return ErrorType.PERMISSION_ERROR
-        elif "blocked" in exception_msg or "deny" in exception_msg:
+        if "blocked" in exception_msg or "deny" in exception_msg:
             return ErrorType.DOMAIN_BLOCKED
+        return None
 
-        # 其他错误
-        elif "internal" in exception_type.lower() or "internal" in exception_msg:
+    def _check_other_errors(
+        self, exception_type_lower: str, exception_msg: str
+    ) -> str | None:
+        """检查其他错误"""
+        if "internal" in exception_type_lower or "internal" in exception_msg:
             return ErrorType.INTERNAL_ERROR
-        else:
-            return ErrorType.UNKNOWN_ERROR
+        return None
 
-    async def _auto_recall_message(self, bot, message_id: int, recall_time: int) -> None:
+    async def _auto_recall_message(
+        self, bot, message_id: int, recall_time: int
+    ) -> None:
         """自动撤回消息"""
         try:
             import asyncio
@@ -2206,7 +2511,9 @@ class WebAnalyzerPlugin(Star):
         except Exception as e:
             logger.error(f"撤回消息失败: {e}")
 
-    async def _send_processing_message(self, event: AstrMessageEvent, message: str) -> tuple:
+    async def _send_processing_message(
+        self, event: AstrMessageEvent, message: str
+    ) -> tuple:
         """发送正在分析的消息并设置自动撤回"""
         import asyncio
 
@@ -2236,8 +2543,7 @@ class WebAnalyzerPlugin(Star):
             if group_id:
                 # 群聊消息
                 send_result = await bot.send_group_msg(
-                    group_id=group_id,
-                    message=message
+                    group_id=group_id, message=message
                 )
                 logger.debug(f"发送群聊处理消息: {message} 到群 {group_id}")
             elif user_id or is_private:
@@ -2247,8 +2553,7 @@ class WebAnalyzerPlugin(Star):
 
                 if user_id:
                     send_result = await bot.send_private_msg(
-                        user_id=user_id,
-                        message=message
+                        user_id=user_id, message=message
                     )
                     logger.debug(f"发送私聊处理消息: {message} 到用户 {user_id}")
                 else:
@@ -2260,7 +2565,9 @@ class WebAnalyzerPlugin(Star):
                     return None, bot
             else:
                 # 无法确定消息类型，使用原始方式发送并记录详细信息
-                logger.error(f"无法确定消息类型，event类型: {type(event)}, event方法: get_group_id={hasattr(event, 'get_group_id')}, get_sender_id={hasattr(event, 'get_sender_id')}, is_private_chat={hasattr(event, 'is_private_chat')}")
+                logger.error(
+                    f"无法确定消息类型，event类型: {type(event)}, event方法: get_group_id={hasattr(event, 'get_group_id')}, get_sender_id={hasattr(event, 'get_sender_id')}, is_private_chat={hasattr(event, 'is_private_chat')}"
+                )
                 # 尝试使用event.plain_result发送，虽然无法获取message_id
                 response = event.plain_result(message)
                 # 使用event的send方法发送
@@ -2280,7 +2587,9 @@ class WebAnalyzerPlugin(Star):
             if message_id and self.enable_recall:
                 # 定时撤回模式
                 if self.recall_type == "time_based":
-                    logger.info(f"创建定时撤回任务，message_id: {message_id}，延迟: {self.recall_time}秒")
+                    logger.info(
+                        f"创建定时撤回任务，message_id: {message_id}，延迟: {self.recall_time}秒"
+                    )
 
                     async def _recall_task():
                         try:
@@ -2305,7 +2614,9 @@ class WebAnalyzerPlugin(Star):
                     task.add_done_callback(_remove_task)
                 # 智能撤回模式 - 只发送消息，不创建定时任务，等待分析完成后立即撤回
                 elif self.recall_type == "smart" and self.smart_recall_enabled:
-                    logger.info(f"已发送智能撤回消息，message_id: {message_id}，等待分析完成后立即撤回")
+                    logger.info(
+                        f"已发送智能撤回消息，message_id: {message_id}，等待分析完成后立即撤回"
+                    )
 
         except Exception as e:
             logger.error(f"发送处理消息或设置撤回失败: {e}")
@@ -2553,11 +2864,13 @@ class WebAnalyzerPlugin(Star):
             mode_names = {
                 "auto": "自动分析",
                 "manual": "手动分析",
-                "hybrid": "混合模式"
+                "hybrid": "混合模式",
             }
             mode_info = "**当前分析模式**\n\n"
             mode_info += f"- 模式: {mode_names.get(self.analysis_mode, self.analysis_mode)} ({self.analysis_mode})\n"
-            mode_info += f"- 自动分析: {'✅ 已启用' if self.auto_analyze else '❌ 已禁用'}\n\n"
+            mode_info += (
+                f"- 自动分析: {'✅ 已启用' if self.auto_analyze else '❌ 已禁用'}\n\n"
+            )
             mode_info += "使用 `/web_mode <模式>` 切换模式\n"
             mode_info += "支持的模式: auto, manual, hybrid"
 
@@ -2570,14 +2883,12 @@ class WebAnalyzerPlugin(Star):
 
         # 验证模式是否有效
         if mode not in valid_modes:
-            yield event.plain_result(
-                f"无效的模式，请使用: {', '.join(valid_modes)}"
-            )
+            yield event.plain_result(f"无效的模式，请使用: {', '.join(valid_modes)}")
             return
 
         # 更新分析模式
         self.analysis_mode = mode
-        self.auto_analyze = (mode == "auto")
+        self.auto_analyze = mode == "auto"
 
         # 保存配置
         analysis_settings = self.config.get("analysis_settings", {})
@@ -2585,14 +2896,8 @@ class WebAnalyzerPlugin(Star):
         self.config["analysis_settings"] = analysis_settings
         self.config.save_config()
 
-        mode_names = {
-            "auto": "自动分析",
-            "manual": "手动分析",
-            "hybrid": "混合模式"
-        }
-        yield event.plain_result(
-            f"✅ 已切换到 {mode_names.get(mode, mode)} 模式"
-        )
+        mode_names = {"auto": "自动分析", "manual": "手动分析", "hybrid": "混合模式"}
+        yield event.plain_result(f"✅ 已切换到 {mode_names.get(mode, mode)} 模式")
 
     @filter.command("web_export", alias={"导出分析结果", "网页导出"})
     async def export_analysis_result(self, event: AstrMessageEvent):
@@ -2967,7 +3272,9 @@ class WebAnalyzerPlugin(Star):
                 break
             # 检查结果是否包含错误关键词
             result_text = result.get("result", "")
-            if not any(keyword in result_text for keyword in ["失败", "错误", "无法", "❌"]):
+            if not any(
+                keyword in result_text for keyword in ["失败", "错误", "无法", "❌"]
+            ):
                 all_errors = False
                 break
 

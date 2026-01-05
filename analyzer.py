@@ -28,26 +28,31 @@ from astrbot.api import logger
 # 自定义异常类
 class WebAnalyzerException(Exception):
     """网页分析器基础异常类"""
+
     pass
 
 
 class NetworkError(WebAnalyzerException):
     """网络相关错误"""
+
     pass
 
 
 class ParsingError(WebAnalyzerException):
     """网页解析相关错误"""
+
     pass
 
 
 class ScreenshotError(WebAnalyzerException):
     """网页截图相关错误"""
+
     pass
 
 
 class ContentExtractionError(WebAnalyzerException):
     """内容提取相关错误"""
+
     pass
 
 
@@ -120,12 +125,13 @@ class WebAnalyzer:
         # 初始化浏览器锁
         if not WebAnalyzer._browser_lock:
             import asyncio
+
             WebAnalyzer._browser_lock = asyncio.Lock()
 
     @staticmethod
     async def _cleanup_browser_pool():
         """定期清理浏览器实例池，移除过期或无效的实例
-        
+
         该方法会：
         1. 清理超过30分钟未使用的浏览器实例
         2. 清理已断开连接的浏览器实例
@@ -135,7 +141,10 @@ class WebAnalyzer:
             current_time = time.time()
 
             # 检查是否需要执行清理
-            if current_time - WebAnalyzer._last_cleanup_time < WebAnalyzer._cleanup_interval:
+            if (
+                current_time - WebAnalyzer._last_cleanup_time
+                < WebAnalyzer._cleanup_interval
+            ):
                 return
 
             async with WebAnalyzer._browser_lock:
@@ -146,8 +155,10 @@ class WebAnalyzer:
                     last_used = WebAnalyzer._browser_last_used.get(id(browser), 0)
                     try:
                         # 检查浏览器实例是否有效（未过期且已连接）
-                        if (current_time - last_used < WebAnalyzer._instance_timeout and
-                            browser.is_connected()):
+                        if (
+                            current_time - last_used < WebAnalyzer._instance_timeout
+                            and browser.is_connected()
+                        ):
                             valid_browsers.append(browser)
                         else:
                             # 关闭过期或已断开连接的浏览器实例
@@ -161,14 +172,18 @@ class WebAnalyzer:
                             logger.error(f"关闭异常浏览器实例失败: {close_e}")
 
                 # 更新浏览器实例池，确保不超过最大实例数量
-                WebAnalyzer._browser_pool = valid_browsers[:WebAnalyzer._max_browser_instances]
-                logger.debug(f"浏览器实例池清理完成，当前池大小: {len(WebAnalyzer._browser_pool)}")
+                WebAnalyzer._browser_pool = valid_browsers[
+                    : WebAnalyzer._max_browser_instances
+                ]
+                logger.debug(
+                    f"浏览器实例池清理完成，当前池大小: {len(WebAnalyzer._browser_pool)}"
+                )
         except Exception as e:
             logger.error(f"清理浏览器实例池失败: {e}")
 
     def _check_memory_usage(self):
         """检查内存使用情况，超过阈值时自动释放内存
-        
+
         Returns:
             bool: 如果释放了内存，返回True，否则返回False
         """
@@ -187,7 +202,9 @@ class WebAnalyzer:
             logger.debug(f"当前内存使用情况: {memory_usage:.1f}%")
 
             if memory_usage > self.memory_threshold:
-                logger.warning(f"内存使用超过阈值 ({self.memory_threshold}%), 自动释放资源")
+                logger.warning(
+                    f"内存使用超过阈值 ({self.memory_threshold}%), 自动释放资源"
+                )
                 # 释放内存
                 self._release_memory()
                 return True
@@ -196,13 +213,53 @@ class WebAnalyzer:
 
         return False
 
+    async def _optimize_browser_pool(self):
+        """异步优化浏览器实例池，根据内存使用情况调整实例数量
+
+        根据当前内存使用情况动态调整浏览器实例池大小：
+        - 内存使用率 > 90%: 只保留0个实例
+        - 内存使用率 > 80%: 只保留1个实例
+        - 内存使用率 > 70%: 只保留2个实例
+        - 内存使用率 ≤70%: 保留最大数量减1个实例
+        """
+        try:
+            async with WebAnalyzer._browser_lock:
+                # 获取当前内存使用情况
+                memory_info = psutil.virtual_memory()
+                memory_usage = memory_info.percent
+
+                # 根据内存使用情况决定保留的实例数量
+                if memory_usage > 90:
+                    max_keep = 0
+                elif memory_usage > 80:
+                    max_keep = 1
+                elif memory_usage > 70:
+                    max_keep = 2
+                else:
+                    max_keep = WebAnalyzer._max_browser_instances - 1
+
+                # 释放超出保留数量的浏览器实例
+                while len(WebAnalyzer._browser_pool) > max_keep:
+                    browser = WebAnalyzer._browser_pool.pop()
+                    try:
+                        if browser.is_connected():
+                            await browser.close()
+                            logger.info(
+                                f"释放空闲浏览器实例，当前池大小: {len(WebAnalyzer._browser_pool)}"
+                            )
+                    except Exception as e:
+                        logger.error(f"释放浏览器实例失败: {e}")
+                        # 忽略单个实例释放失败，继续处理其他实例
+        except Exception as e:
+            logger.error(f"优化浏览器实例池失败: {e}")
+
     def _release_memory(self):
         """释放内存资源
-        
+
         执行垃圾回收，释放不再使用的资源，优化内存使用
-        
+
         优化策略：
-        1. 只在必要时执行垃圾回收
+        1. 执行垃圾回收释放内存
         2. 智能调整浏览器实例池大小
         3. 增强容错机制，确保内存释放过程稳定
         """
@@ -211,53 +268,18 @@ class WebAnalyzer:
             collected = gc.collect()
             logger.info(f"执行垃圾回收，释放内存，回收了 {collected} 个对象")
 
-            # 优化浏览器实例池管理，根据当前内存使用情况调整实例数量
-            async def optimize_browser_pool():
-                try:
-                    async with WebAnalyzer._browser_lock:
-                        # 获取当前内存使用情况，动态调整保留的实例数量
-                        memory_info = psutil.virtual_memory()
-                        memory_usage = memory_info.percent
-
-                        # 根据内存使用情况决定保留的实例数量
-                        # 内存使用率越高，保留的实例数量越少
-                        if memory_usage > 90:
-                            # 内存紧张，只保留0个实例
-                            max_keep = 0
-                        elif memory_usage > 80:
-                            # 内存较高，只保留1个实例
-                            max_keep = 1
-                        elif memory_usage > 70:
-                            # 内存适中，保留2个实例
-                            max_keep = 2
-                        else:
-                            # 内存充足，保留最大数量减1个实例
-                            max_keep = WebAnalyzer._max_browser_instances - 1
-
-                        # 释放超出保留数量的浏览器实例
-                        while len(WebAnalyzer._browser_pool) > max_keep:
-                            browser = WebAnalyzer._browser_pool.pop()
-                            try:
-                                if browser.is_connected():
-                                    await browser.close()
-                                    logger.info(f"释放空闲浏览器实例，当前池大小: {len(WebAnalyzer._browser_pool)}")
-                            except Exception as e:
-                                logger.error(f"释放浏览器实例失败: {e}")
-                                # 忽略单个实例释放失败，继续处理其他实例
-                except Exception as inner_e:
-                    logger.error(f"优化浏览器实例池失败: {inner_e}")
-
             # 在异步上下文中执行浏览器池优化
             try:
                 import asyncio
+
                 loop = asyncio.get_event_loop()
                 if loop.is_running():
-                    loop.create_task(optimize_browser_pool())
+                    loop.create_task(self._optimize_browser_pool())
                 else:
                     # 如果事件循环未运行，记录警告但不抛出异常
                     logger.warning("事件循环未运行，跳过浏览器实例池优化")
-            except Exception as loop_e:
-                logger.error(f"执行浏览器实例池优化失败: {loop_e}")
+            except Exception as e:
+                logger.error(f"执行浏览器实例池优化失败: {e}")
         except Exception as e:
             logger.error(f"释放内存资源失败: {e}")
             # 增强容错机制，确保内存释放失败不会影响插件正常运行
@@ -304,12 +326,17 @@ class WebAnalyzer:
                 # 将浏览器实例放回池中，以便复用
                 async with WebAnalyzer._browser_lock:
                     # 检查浏览器实例是否仍然可用
-                    if len(WebAnalyzer._browser_pool) < WebAnalyzer._max_browser_instances:
+                    if (
+                        len(WebAnalyzer._browser_pool)
+                        < WebAnalyzer._max_browser_instances
+                    ):
                         # 更新最后使用时间
                         WebAnalyzer._browser_last_used[id(self.browser)] = time.time()
                         # 将浏览器实例放回池中
                         WebAnalyzer._browser_pool.append(self.browser)
-                        logger.debug(f"浏览器实例已放回池中，当前池大小: {len(WebAnalyzer._browser_pool)}")
+                        logger.debug(
+                            f"浏览器实例已放回池中，当前池大小: {len(WebAnalyzer._browser_pool)}"
+                        )
                     else:
                         # 池已满，关闭浏览器实例
                         await self.browser.close()
@@ -325,7 +352,12 @@ class WebAnalyzer:
         # 检查内存使用情况
         self._check_memory_usage()
 
-    def extract_urls(self, text: str, enable_no_protocol: bool = False, default_protocol: str = "https") -> list[str]:
+    def extract_urls(
+        self,
+        text: str,
+        enable_no_protocol: bool = False,
+        default_protocol: str = "https",
+    ) -> list[str]:
         """从文本中提取所有HTTP/HTTPS URL链接
 
         使用正则表达式匹配文本中的URL，支持：
@@ -342,33 +374,49 @@ class WebAnalyzer:
         Returns:
             包含所有提取到的URL的列表
         """
-        urls = []
-
-        # 匹配带协议头的URL
-        url_pattern = r"https?://[^\s\u4e00-\u9fff]+"
-        urls.extend(re.findall(url_pattern, text))
-
-        # 如果启用无协议头URL识别
+        urls = self._extract_protocol_urls(text)
         if enable_no_protocol:
-            # 先移除已提取的带协议头的URL，避免重复匹配
-            text_for_no_protocol = text
-            for url in urls:
-                text_for_no_protocol = text_for_no_protocol.replace(url, "")
-
-            # 匹配无协议头的URL（以www.开头或不带www.的域名）
-            # 匹配格式：www.example.com 或 example.com
-            # 要求：至少有两个域名部分（如 example.com），每部分至少2个字符
-            no_protocol_pattern = r"(?:www\.)?[a-zA-Z0-9][a-zA-Z0-9-]{1,61}[a-zA-Z0-9](?:\.[a-zA-Z0-9][a-zA-Z0-9-]{0,61}[a-zA-Z0-9])+(?:/[^\s\u4e00-\u9fff]*)?"
-            no_protocol_urls = re.findall(no_protocol_pattern, text_for_no_protocol)
-
-            # 为无协议头的URL添加默认协议
-            for url in no_protocol_urls:
-                # 清理URL末尾的标点符号
-                cleaned_url = url.rstrip('.,;:!?)\'"')
-                full_url = f"{default_protocol}://{cleaned_url}"
-                urls.append(full_url)
-
+            no_protocol_urls = self._extract_no_protocol_urls(
+                text, urls, default_protocol
+            )
+            urls.extend(no_protocol_urls)
         return urls
+
+    def _extract_protocol_urls(self, text: str) -> list[str]:
+        """提取带协议头的URL"""
+        url_pattern = r"https?://[^\s\u4e00-\u9fff]+"
+        return re.findall(url_pattern, text)
+
+    def _extract_no_protocol_urls(
+        self, text: str, existing_urls: list[str], default_protocol: str
+    ) -> list[str]:
+        """提取无协议头的URL"""
+        text_for_no_protocol = self._remove_existing_urls(text, existing_urls)
+        no_protocol_urls = self._find_no_protocol_urls(text_for_no_protocol)
+        return self._format_no_protocol_urls(no_protocol_urls, default_protocol)
+
+    def _remove_existing_urls(self, text: str, urls: list[str]) -> str:
+        """从文本中移除已提取的URL"""
+        text_for_no_protocol = text
+        for url in urls:
+            text_for_no_protocol = text_for_no_protocol.replace(url, "")
+        return text_for_no_protocol
+
+    def _find_no_protocol_urls(self, text: str) -> list[str]:
+        """查找无协议头的URL"""
+        no_protocol_pattern = r"(?:www\.)?[a-zA-Z0-9][a-zA-Z0-9-]{1,61}[a-zA-Z0-9](?:\.[a-zA-Z0-9][a-zA-Z0-9-]{0,61}[a-zA-Z0-9])+(?:/[^\s\u4e00-\u9fff]*)?"
+        return re.findall(no_protocol_pattern, text)
+
+    def _format_no_protocol_urls(
+        self, urls: list[str], default_protocol: str
+    ) -> list[str]:
+        """格式化无协议头的URL"""
+        formatted_urls = []
+        for url in urls:
+            cleaned_url = url.rstrip(".,;:!?)'\"")
+            full_url = f"{default_protocol}://{cleaned_url}"
+            formatted_urls.append(full_url)
+        return formatted_urls
 
     def is_valid_url(self, url: str) -> bool:
         """验证URL格式是否有效
@@ -407,30 +455,35 @@ class WebAnalyzer:
         """
         try:
             parsed = urlparse(url)
-            netloc = parsed.netloc.lower()
-
-            # 如果启用了域名统一处理
-            if self.enable_unified_domain:
-                # 统一域名格式：将没有www前缀的域名转换为带有www前缀
-                # 检查是否是顶级域名且没有www前缀
-                if netloc and "." in netloc and not netloc.startswith("www.") and ".www." not in netloc:
-                    # 检查是否为IP地址，避免对IP地址添加www前缀
-                    try:
-                        import ipaddress
-                        ipaddress.ip_address(netloc)
-                    except ValueError:
-                        # 不是IP地址，添加www前缀
-                        netloc = f"www.{netloc}"
-
-            # 转换为小写并处理路径
+            netloc = self._normalize_netloc(parsed.netloc.lower())
             normalized = parsed._replace(
                 scheme=parsed.scheme.lower(),
                 netloc=netloc,
-                path=parsed.path.rstrip("/")  # 移除尾部斜杠
+                path=parsed.path.rstrip("/"),
             )
             return normalized.geturl()
         except Exception:
             return url
+
+    def _normalize_netloc(self, netloc: str) -> str:
+        """规范化网络位置（域名或IP）"""
+        if not self.enable_unified_domain or not netloc or "." not in netloc:
+            return netloc
+        if netloc.startswith("www.") or ".www." in netloc:
+            return netloc
+        if self._is_ip_address(netloc):
+            return netloc
+        return f"www.{netloc}"
+
+    def _is_ip_address(self, netloc: str) -> bool:
+        """检查是否为IP地址"""
+        try:
+            import ipaddress
+
+            ipaddress.ip_address(netloc)
+            return True
+        except ValueError:
+            return False
 
     async def fetch_webpage(self, url: str) -> str:
         """异步抓取网页HTML内容
@@ -458,7 +511,7 @@ class WebAnalyzer:
             "Connection": "keep-alive",
             "Upgrade-Insecure-Requests": "1",
             "DNT": "1",
-            "Sec-GPC": "1"
+            "Sec-GPC": "1",
         }
 
         # 实现重试机制，最多尝试 retry_count + 1 次
@@ -529,10 +582,10 @@ class WebAnalyzer:
 
     def _extract_title(self, soup: BeautifulSoup) -> str:
         """从BeautifulSoup对象中提取网页标题
-        
+
         Args:
             soup: BeautifulSoup对象
-            
+
         Returns:
             网页标题文本
         """
@@ -541,10 +594,10 @@ class WebAnalyzer:
 
     def _extract_main_content(self, soup: BeautifulSoup) -> str:
         """从BeautifulSoup对象中提取主要内容
-        
+
         Args:
             soup: BeautifulSoup对象
-            
+
         Returns:
             提取的主要内容文本
         """
@@ -579,10 +632,10 @@ class WebAnalyzer:
 
     def _clean_content_element(self, element: BeautifulSoup) -> BeautifulSoup:
         """清理内容元素，移除脚本和样式标签
-        
+
         Args:
             element: BeautifulSoup元素
-            
+
         Returns:
             清理后的BeautifulSoup元素
         """
@@ -594,10 +647,10 @@ class WebAnalyzer:
 
     def _limit_content_length(self, content: str) -> str:
         """限制内容长度，防止内容过大
-        
+
         Args:
             content: 原始内容文本
-            
+
         Returns:
             限制长度后的内容文本
         """
@@ -605,13 +658,15 @@ class WebAnalyzer:
             return content[: self.max_content_length] + "..."
         return content
 
-    def crop_screenshot(self, screenshot_bytes: bytes, crop_area: tuple[int, int, int, int]) -> bytes:
+    def crop_screenshot(
+        self, screenshot_bytes: bytes, crop_area: tuple[int, int, int, int]
+    ) -> bytes:
         """裁剪截图
-        
+
         Args:
             screenshot_bytes: 原始截图二进制数据
             crop_area: 裁剪区域，格式为 (left, top, right, bottom)
-            
+
         Returns:
             裁剪后的截图二进制数据
         """
@@ -629,8 +684,6 @@ class WebAnalyzer:
         except Exception as e:
             logger.error(f"裁剪截图失败: {e}")
             raise ScreenshotError(f"裁剪截图失败: {str(e)}") from e
-
-
 
     async def capture_screenshot(
         self,
@@ -676,7 +729,9 @@ class WebAnalyzer:
             if not hasattr(self, "_playwright_browser_checked"):
                 logger.info("正在检查浏览器...")
                 # 检查浏览器是否已安装
-                browser_path = os.path.join(os.path.expanduser("~"), ".cache", "ms-playwright", "chromium")
+                browser_path = os.path.join(
+                    os.path.expanduser("~"), ".cache", "ms-playwright", "chromium"
+                )
                 if os.path.exists(browser_path):
                     logger.info("浏览器已安装，跳过安装步骤")
                 else:
@@ -690,7 +745,9 @@ class WebAnalyzer:
 
                     if result.returncode != 0:
                         logger.error(f"浏览器安装失败: {result.stderr}")
-                        raise ScreenshotError(f"浏览器安装失败: {result.stderr}") from None
+                        raise ScreenshotError(
+                            f"浏览器安装失败: {result.stderr}"
+                        ) from None
                     logger.info("浏览器安装成功")
 
             # 标记已检查浏览器
@@ -719,7 +776,9 @@ class WebAnalyzer:
                                 logger.warn("跳过已断开连接的浏览器实例")
                                 await candidate_browser.close()
                         except Exception as e:
-                            logger.error(f"检查浏览器实例连接状态失败: {e}, 将跳过该实例")
+                            logger.error(
+                                f"检查浏览器实例连接状态失败: {e}, 将跳过该实例"
+                            )
                             try:
                                 await candidate_browser.close()
                             except Exception:
@@ -777,7 +836,9 @@ class WebAnalyzer:
                             WebAnalyzer._browser_last_used[id(browser)] = time.time()
                             # 将浏览器实例放回池中
                             WebAnalyzer._browser_pool.append(browser)
-                            logger.debug(f"浏览器实例已放回池中，当前池大小: {len(WebAnalyzer._browser_pool)}")
+                            logger.debug(
+                                f"浏览器实例已放回池中，当前池大小: {len(WebAnalyzer._browser_pool)}"
+                            )
                     else:
                         # 新创建的浏览器实例，保存到self.browser
                         self.browser = browser
@@ -787,7 +848,9 @@ class WebAnalyzer:
                     # 当从池中获取的浏览器实例无效时，捕获异常并处理
                     if not playwright_instance:
                         # 从池中获取的浏览器实例，说明实例已失效，从池中移除并创建新实例
-                        logger.error(f"从池中获取的浏览器实例无效，重新创建浏览器实例: {new_page_error}")
+                        logger.error(
+                            f"从池中获取的浏览器实例无效，重新创建浏览器实例: {new_page_error}"
+                        )
                         # 关闭无效的浏览器实例
                         try:
                             await browser.close()
@@ -813,7 +876,9 @@ class WebAnalyzer:
                             viewport={"width": width, "height": height},
                             user_agent=self.user_agent,
                         )
-                        await page.goto(url, wait_until="domcontentloaded", timeout=60000)
+                        await page.goto(
+                            url, wait_until="domcontentloaded", timeout=60000
+                        )
                         await page.wait_for_timeout(wait_time)
                         screenshot_bytes = await page.screenshot(
                             full_page=full_page,

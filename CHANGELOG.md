@@ -1,5 +1,27 @@
 # 更新日志
 
+## [v1.3.8] - 2026-01-05
+
+### 🎯 代码质量提升与重构
+- 重构`_get_error_type`函数：将大量if-elif条件判断改为规则列表，降低循环复杂度，拆分为8个更小的方法，每个方法专注于单一职责
+- 重构`detect_content_type`函数：使用内容类型规则列表替代重复的if-elif判断，提高可维护性，拆分为2个更小的方法，分离规则定义和匹配逻辑
+- 重构`_handle_error`函数：使用字典映射简化日志记录，优化错误信息生成逻辑，拆分为3个更小的方法，优化错误处理流程
+- 重构`_get_param_hints`函数：拆分为4个更小的方法，提高命令提示功能可维护性
+- 重构`_load_analysis_settings`函数：优化配置加载逻辑，简化函数结构，拆分为7个更小的方法，每个方法负责一类配置
+- 重构`_get_available_commands`函数：拆分为8个更小的方法，每个方法返回一个命令的信息
+- 重构`get_url_priority`函数：拆分为`_is_news_domain`、`_is_tech_domain`和`_is_video_domain`三个辅助函数，分离路径和域名优先级计算
+- 重构`extract_urls`函数：拆分为5个更小的方法，分离URL提取的不同阶段
+- 重构`normalize_url`函数：拆分为2个更小的方法，简化URL规范化逻辑
+- 重构`_get_content_type_rules`函数：将返回类型从元组列表改为字典，简化函数结构
+- 拆分`_preload_cache`函数：将其拆分为多个辅助函数，每个函数只负责一个具体任务
+- 拆分`_release_memory`函数：将浏览器实例池优化提取为独立的异步函数
+- 拆分`_cleanup`函数：拆分为`_clean_expired_cache`和`_cleanup_lru_cache`两个辅助函数
+- 简化`_save_cache_to_disk`函数：提取截图处理逻辑到单独的`_process_screenshot_for_cache`函数
+- 优化`_load_network_settings`函数：拆分为`_load_basic_network_settings`、`_load_concurrency_settings`、`_load_priority_settings`、`_load_url_processing_settings`和`_validate_proxy`五个辅助函数
+- 修复代码质量问题：移除未使用的变量和导入，使用ruff --fix修复部分格式化问题
+- 使用ruff格式化所有代码，确保代码符合PEP 8规范
+- 提高代码的可读性和可维护性
+
 ## [v1.3.7] - 2026-01-04
 
 ### 🐛 Bug修复

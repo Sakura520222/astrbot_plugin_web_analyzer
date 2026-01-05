@@ -31,21 +31,25 @@ except ImportError:
 # 自定义异常类
 class CacheException(Exception):
     """缓存相关基础异常类"""
+
     pass
 
 
 class CacheReadError(CacheException):
     """缓存读取错误"""
+
     pass
 
 
 class CacheWriteError(CacheException):
     """缓存写入错误"""
+
     pass
 
 
 class CacheCleanupError(CacheException):
     """缓存清理错误"""
+
     pass
 
 
@@ -57,7 +61,12 @@ class CacheManager:
     """
 
     def __init__(
-        self, cache_dir: str = None, max_size: int = 100, expire_time: int = 1440, preload_enabled: bool = False, preload_count: int = 20
+        self,
+        cache_dir: str = None,
+        max_size: int = 100,
+        expire_time: int = 1440,
+        preload_enabled: bool = False,
+        preload_count: int = 20,
     ):
         """初始化缓存管理器
 
@@ -133,7 +142,7 @@ class CacheManager:
             cache_files = self._get_sorted_cache_files()
 
             # 只加载不超过最大数量的缓存
-            for cache_file in cache_files[:self.max_size]:
+            for cache_file in cache_files[: self.max_size]:
                 self._load_single_cache_file(cache_file)
         except Exception as e:
             error_msg = f"从磁盘加载缓存失败: {e}"
@@ -142,7 +151,7 @@ class CacheManager:
 
     def _get_sorted_cache_files(self) -> list:
         """获取按修改时间排序的缓存文件列表
-        
+
         Returns:
             按修改时间降序排序的缓存文件列表
         """
@@ -159,18 +168,85 @@ class CacheManager:
 
     def _calculate_content_hash(self, content: str) -> str:
         """计算内容哈希值
-        
+
         Args:
             content: 要计算哈希的内容
-            
+
         Returns:
             内容的MD5哈希值
         """
         return hashlib.md5(content.encode("utf-8")).hexdigest()
 
+    def _get_cache_file_for_url(self, url: str, cache_files: list) -> str | None:
+        """获取指定URL对应的缓存文件路径"""
+        for cache_file in cache_files:
+            file_path = os.path.join(self.cache_dir, cache_file)
+            try:
+                with open(file_path, encoding="utf-8") as f:
+                    cache_data = json.load(f)
+                    if cache_data.get("url") == url:
+                        return cache_file
+            except Exception as e:
+                logger.error(f"检查缓存文件失败: {file_path}, 错误: {e}")
+        return None
+
+    def _load_preload_file(self, cache_file: str) -> bool:
+        """加载单个预加载文件到内存"""
+        file_path = os.path.join(self.cache_dir, cache_file)
+        try:
+            with open(file_path, encoding="utf-8") as f:
+                cache_data = json.load(f)
+                url = cache_data.get("url")
+                if url:
+                    result = cache_data.get("result", {})
+                    # 检查并加载截图文件
+                    if isinstance(result, dict) and result.get("has_screenshot", False):
+                        result = self._load_screenshot_for_cache(url, result)
+
+                    self.memory_cache[url] = cache_data
+                    self.preload_urls.add(url)
+                    # 更新缓存的最后使用时间为当前时间
+                    self.cache_last_used[url] = time.time()
+                    return True
+        except Exception as e:
+            logger.error(f"预加载缓存文件失败: {file_path}, 错误: {e}")
+            # 删除损坏的缓存文件
+            self._cleanup_corrupted_cache(file_path)
+        return False
+
+    def _preload_hot_urls(self, cache_files: list) -> tuple[list, int]:
+        """预加载热点URL"""
+        preload_files = []
+        loaded_count = 0
+
+        if self.hot_urls:
+            for hot_url in self.hot_urls:
+                if loaded_count >= self.preload_count:
+                    break
+
+                cache_file = self._get_cache_file_for_url(hot_url, cache_files)
+                if cache_file:
+                    preload_files.append(cache_file)
+                    loaded_count += 1
+
+        return preload_files, loaded_count
+
+    def _preload_recent_files(
+        self, cache_files: list, preload_files: list, loaded_count: int
+    ) -> tuple[list, int]:
+        """预加载最近修改的缓存文件"""
+        for cache_file in cache_files:
+            if loaded_count >= self.preload_count:
+                break
+            if cache_file not in preload_files:
+                preload_files.append(cache_file)
+                loaded_count += 1
+
+        return preload_files, loaded_count
+
     def _preload_cache(self):
         """预加载缓存，将最近使用的缓存加载到内存中
-        
+
         实现智能预加载策略：
         1. 优先预加载热点URL
         2. 然后加载最近修改的缓存文件
@@ -183,60 +259,19 @@ class CacheManager:
             # 获取按修改时间排序的缓存文件列表
             cache_files = self._get_sorted_cache_files()
 
-            loaded_count = 0
-            preload_files = []
-
-            # 1. 首先处理热点URL（如果有）
-            if self.hot_urls:
-                for hot_url in self.hot_urls:
-                    if loaded_count >= self.preload_count:
-                        break
-                    # 查找热点URL对应的缓存文件
-                    for cache_file in cache_files:
-                        file_path = os.path.join(self.cache_dir, cache_file)
-                        try:
-                            with open(file_path, encoding="utf-8") as f:
-                                cache_data = json.load(f)
-                                url = cache_data.get("url")
-                                if url == hot_url:
-                                    preload_files.append(cache_file)
-                                    loaded_count += 1
-                                    break
-                        except Exception as e:
-                            logger.error(f"检查热点URL缓存文件失败: {file_path}, 错误: {e}")
-                            continue
+            # 1. 首先预加载热点URL
+            preload_files, loaded_count = self._preload_hot_urls(cache_files)
 
             # 2. 然后加载最近修改的缓存文件，补充预加载数量
-            for cache_file in cache_files:
-                if loaded_count >= self.preload_count:
-                    break
-                if cache_file not in preload_files:
-                    preload_files.append(cache_file)
-                    loaded_count += 1
+            preload_files, loaded_count = self._preload_recent_files(
+                cache_files, preload_files, loaded_count
+            )
 
             # 3. 加载缓存文件到内存
             loaded_urls = 0
             for cache_file in preload_files:
-                file_path = os.path.join(self.cache_dir, cache_file)
-                try:
-                    with open(file_path, encoding="utf-8") as f:
-                        cache_data = json.load(f)
-                        url = cache_data.get("url")
-                        if url:
-                            result = cache_data.get("result", {})
-                            # 检查并加载截图文件
-                            if isinstance(result, dict) and result.get("has_screenshot", False):
-                                result = self._load_screenshot_for_cache(url, result)
-
-                            self.memory_cache[url] = cache_data
-                            self.preload_urls.add(url)
-                            # 更新缓存的最后使用时间为当前时间
-                            self.cache_last_used[url] = time.time()
-                            loaded_urls += 1
-                except Exception as e:
-                    logger.error(f"预加载缓存文件失败: {file_path}, 错误: {e}")
-                    # 删除损坏的缓存文件
-                    self._cleanup_corrupted_cache(file_path)
+                if self._load_preload_file(cache_file):
+                    loaded_urls += 1
 
             logger.info(f"缓存预加载完成，成功加载 {loaded_urls} 个缓存文件")
         except Exception as e:
@@ -244,10 +279,10 @@ class CacheManager:
 
     def get_by_content_hash(self, content: str) -> dict[str, Any] | None:
         """根据内容哈希获取缓存结果
-        
+
         Args:
             content: 网页内容
-            
+
         Returns:
             缓存的分析结果，如果不存在或已过期则返回None
         """
@@ -264,7 +299,7 @@ class CacheManager:
 
     def set_with_content_hash(self, url: str, result: dict[str, Any], content: str):
         """设置缓存结果，并关联内容哈希
-        
+
         Args:
             url: 网页的完整URL
             result: 网页分析结果
@@ -281,10 +316,10 @@ class CacheManager:
 
     def _load_single_cache_file(self, cache_file: str):
         """加载单个缓存文件到内存
-        
+
         Args:
             cache_file: 缓存文件名
-            
+
         Raises:
             CacheReadError: 当加载单个缓存文件失败时抛出
         """
@@ -309,11 +344,11 @@ class CacheManager:
 
     def _load_screenshot_for_cache(self, url: str, result: dict) -> dict:
         """加载缓存对应的截图文件
-        
+
         Args:
             url: 网页URL
             result: 缓存结果字典
-            
+
         Returns:
             更新后的结果字典，包含实际截图数据
         """
@@ -327,7 +362,7 @@ class CacheManager:
 
     def _cleanup_corrupted_cache(self, file_path: str):
         """清理损坏的缓存文件
-        
+
         Args:
             file_path: 损坏的缓存文件路径
         """
@@ -335,6 +370,40 @@ class CacheManager:
             os.remove(file_path)
         except Exception as e:
             logger.error(f"删除损坏的缓存文件失败: {file_path}, 错误: {e}")
+
+    def _process_screenshot_for_cache(
+        self, url: str, cache_data: dict[str, Any]
+    ) -> dict[str, Any]:
+        """处理缓存数据中的截图，将其保存为单独文件并更新缓存数据
+
+        Args:
+            url: 网页的完整URL
+            cache_data: 包含分析结果和时间戳的完整缓存数据
+
+        Returns:
+            处理后的缓存数据（移除了bytes类型的截图数据）
+        """
+        cache_data_copy = cache_data.copy()
+        result = cache_data_copy.get("result", {})
+
+        # 处理截图数据，JSON不支持bytes类型
+        if (
+            isinstance(result, dict)
+            and "screenshot" in result
+            and isinstance(result["screenshot"], bytes)
+        ):
+            # 将截图保存为二进制文件
+            screenshot_path = self._get_cache_file_path(url, "screenshot")
+            with open(screenshot_path, "wb") as f:
+                f.write(result["screenshot"])
+
+            # 从JSON数据中移除截图bytes，添加截图存在标记
+            result_copy = result.copy()
+            result_copy.pop("screenshot", None)
+            result_copy["has_screenshot"] = True
+            cache_data_copy["result"] = result_copy
+
+        return cache_data_copy
 
     def _save_cache_to_disk(self, url: str, cache_data: dict[str, Any]):
         """将缓存数据保存到磁盘
@@ -347,32 +416,15 @@ class CacheManager:
         Args:
             url: 网页的完整URL
             cache_data: 包含分析结果和时间戳的完整缓存数据
-            
+
         Raises:
             CacheWriteError: 当保存缓存到磁盘失败时抛出
         """
         try:
-            # 创建一个副本，避免修改原始数据
-            cache_data_copy = cache_data.copy()
-            result = cache_data_copy.get("result", {})
+            # 处理缓存数据中的截图
+            cache_data_copy = self._process_screenshot_for_cache(url, cache_data)
 
-            # 处理截图数据，JSON不支持bytes类型
-            if (
-                isinstance(result, dict)
-                and "screenshot" in result
-                and isinstance(result["screenshot"], bytes)
-            ):
-                # 将截图保存为二进制文件
-                screenshot_path = self._get_cache_file_path(url, "screenshot")
-                with open(screenshot_path, "wb") as f:
-                    f.write(result["screenshot"])
-
-                # 从JSON数据中移除截图bytes，添加截图存在标记
-                result_copy = result.copy()
-                result_copy.pop("screenshot", None)
-                result_copy["has_screenshot"] = True
-                cache_data_copy["result"] = result_copy
-
+            # 保存到JSON文件
             file_path = self._get_cache_file_path(url)
             with open(file_path, "w", encoding="utf-8") as f:
                 json.dump(cache_data_copy, f, ensure_ascii=False, indent=2)
@@ -390,7 +442,7 @@ class CacheManager:
 
         Args:
             url: 要删除缓存的网页URL
-            
+
         Raises:
             CacheCleanupError: 当删除缓存文件失败时抛出
         """
@@ -414,7 +466,7 @@ class CacheManager:
 
         检查缓存是否存在且未过期，如果缓存有效则返回分析结果，
         否则返回None并自动清理过期缓存。
-        
+
         实现了LRU(最近最少使用)策略，每次获取缓存时更新使用时间。
 
         Args:
@@ -450,7 +502,7 @@ class CacheManager:
         Args:
             url: 网页的完整URL
             result: 网页分析结果，包含文本、截图等信息
-            
+
         Raises:
             CacheWriteError: 当保存缓存失败时抛出
         """
@@ -476,7 +528,7 @@ class CacheManager:
 
         Args:
             url: 要删除缓存的网页URL
-            
+
         Raises:
             CacheCleanupError: 当删除缓存失败时抛出
         """
@@ -507,7 +559,7 @@ class CacheManager:
 
         清除内存中的所有缓存，并删除磁盘上的所有缓存文件，
         用于重置缓存状态或释放磁盘空间。
-        
+
         Raises:
             CacheCleanupError: 当清空缓存失败时抛出
         """
@@ -534,22 +586,14 @@ class CacheManager:
             logger.error(error_msg)
             raise CacheCleanupError(error_msg) from e
 
-    def _cleanup(self):
-        """清理缓存，保持缓存的健康状态
+    def _clean_expired_cache(self):
+        """清理所有已过期的缓存
 
-        执行两项清理任务：
-        1. 删除所有已过期的缓存（基于expire_time）
-        2. 如果缓存数量超过max_size，使用LRU策略删除最久未使用的缓存
-
-        这个方法会在每次添加新缓存后自动调用。
-        
-        Raises:
-            CacheCleanupError: 当清理缓存失败时抛出
+        基于expire_time删除所有过期的缓存项。
         """
         current_time = time.time()
-
-        # 清理过期缓存
         expired_urls = []
+
         for url, cache_data in self.memory_cache.items():
             if current_time - cache_data.get("timestamp", 0) >= self.expire_time:
                 expired_urls.append(url)
@@ -557,10 +601,15 @@ class CacheManager:
         for url in expired_urls:
             self.delete(url)
 
-        # 检查是否超出最大缓存大小
+    def _cleanup_lru_cache(self):
+        """使用LRU策略清理超出大小限制的缓存
+
+        如果缓存数量超过max_size，删除最久未使用的缓存项。
+        """
         if len(self.memory_cache) > self.max_size:
-            # 使用LRU策略，删除最久未使用的缓存
-            # 首先确保所有缓存项都有使用时间记录
+            current_time = time.time()
+
+            # 确保所有缓存项都有使用时间记录
             for url in self.memory_cache:
                 if url not in self.cache_last_used:
                     self.cache_last_used[url] = current_time
@@ -574,6 +623,21 @@ class CacheManager:
             # 删除超出部分
             for url in sorted_urls[: len(self.memory_cache) - self.max_size]:
                 self.delete(url)
+
+    def _cleanup(self):
+        """清理缓存，保持缓存的健康状态
+
+        执行两项清理任务：
+        1. 删除所有已过期的缓存（基于expire_time）
+        2. 如果缓存数量超过max_size，使用LRU策略删除最久未使用的缓存
+
+        这个方法会在每次添加新缓存后自动调用。
+
+        Raises:
+            CacheCleanupError: 当清理缓存失败时抛出
+        """
+        self._clean_expired_cache()
+        self._cleanup_lru_cache()
 
     def get_stats(self) -> dict[str, int]:
         """获取缓存的统计信息
