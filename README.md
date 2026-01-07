@@ -544,6 +544,14 @@ AstrBot网页分析插件，能够自动识别用户发送的网页链接，智�
 - GitHub: [https://github.com/Sakura520222](https://github.com/Sakura520222)
 - Email: sakura520222@outlook.com
 
+## 贡献者
+
+<a href="https://github.com/Sakura520222/astrbot_plugin_web_analyzer/graphs/contributors">
+  <img src="https://contrib.rocks/image?repo=Sakura520222/astrbot_plugin_web_analyzer" />
+</a>
+
+- Ciallo～(∠・ω< )⌒★
+- 
 ## 许可证
 
 本项目采用 [MIT License](LICENSE) 开源协议。
