@@ -1,5 +1,13 @@
 # 更新日志
 
+## [v1.3.9] - 2026-01-07
+
+### 🐛 Bug修复
+- 修复Telegram平台事件处理错误：解决'TelegramPlatformEvent' object has no attribute 'bot'问题，使插件能够兼容不同类型的事件对象
+- 优化_send_processing_message方法，添加bot属性检查，确保在没有bot实例时仍能正常发送消息
+- 修复特定内容提取不工作的问题：将analysis_result += specific_content_str代码的缩进调整到元信息处理条件判断的外部，确保无论网页是否包含元信息，都会将提取到的特定内容添加到分析结果中
+- 修复依赖缺失问题：在requirements.txt中添加pyee>=11.0.0依赖，解决部分环境网页截图功能中可能出现的"No module named 'pyee.asyncio'"错误
+
 ## [v1.3.8] - 2026-01-05
 
 ### 🎯 代码质量提升与重构

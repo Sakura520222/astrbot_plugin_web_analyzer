@@ -181,7 +181,7 @@ ERROR_MESSAGES: dict[str, dict[str, Any]] = {
     "astrbot_plugin_web_analyzer",
     "Sakura520222",
     "自动识别网页链接，智能抓取解析内容，集成大语言模型进行深度分析和总结，支持网页截图、缓存机制和多种管理命令",
-    "1.3.8",
+    "1.3.9",
     "https://github.com/Sakura520222/astrbot_plugin_web_analyzer",
 )
 class WebAnalyzerPlugin(Star):
@@ -1244,15 +1244,15 @@ class WebAnalyzerPlugin(Star):
                         specific_content_str += f"```\n{code}\n```\n"
 
                 # 添加元信息（如果有）
-                if "meta" in specific_content and specific_content["meta"]:
-                    meta_info = specific_content["meta"]
-                    specific_content_str += "\n📋 元信息:\n"
-                    for key, value in meta_info.items():
-                        if value:
-                            specific_content_str += f"- {key}: {value}\n"
+            if "meta" in specific_content and specific_content["meta"]:
+                meta_info = specific_content["meta"]
+                specific_content_str += "\n📋 元信息:\n"
+                for key, value in meta_info.items():
+                    if value:
+                        specific_content_str += f"- {key}: {value}\n"
 
-                    # 将特定内容添加到分析结果中
-                    analysis_result += specific_content_str
+            # 将特定内容添加到分析结果中
+            analysis_result += specific_content_str
             return analysis_result
         except Exception as e:
             # 特定内容提取失败时，记录警告但不影响主分析结果
@@ -2517,8 +2517,8 @@ class WebAnalyzerPlugin(Star):
         """发送正在分析的消息并设置自动撤回"""
         import asyncio
 
-        # 获取bot实例
-        bot = event.bot
+        # 获取bot实例（兼容不同类型的事件）
+        bot = event.bot if hasattr(event, "bot") else None
         message_id = None
 
         # 直接调用bot的发送消息方法，获取消息ID
@@ -2540,13 +2540,13 @@ class WebAnalyzerPlugin(Star):
                 is_private = event.is_private_chat()
 
             # 发送消息
-            if group_id:
+            if bot and group_id:
                 # 群聊消息
                 send_result = await bot.send_group_msg(
                     group_id=group_id, message=message
                 )
                 logger.debug(f"发送群聊处理消息: {message} 到群 {group_id}")
-            elif user_id or is_private:
+            elif bot and (user_id or is_private):
                 # 私聊消息
                 if not user_id and hasattr(event, "get_sender_id"):
                     user_id = event.get_sender_id()
@@ -2564,9 +2564,9 @@ class WebAnalyzerPlugin(Star):
                         await event.send(response)
                     return None, bot
             else:
-                # 无法确定消息类型，使用原始方式发送并记录详细信息
-                logger.error(
-                    f"无法确定消息类型，event类型: {type(event)}, event方法: get_group_id={hasattr(event, 'get_group_id')}, get_sender_id={hasattr(event, 'get_sender_id')}, is_private_chat={hasattr(event, 'is_private_chat')}"
+                # 无法确定消息类型或没有bot实例，使用原始方式发送并记录详细信息
+                logger.debug(
+                    f"使用原始方式发送处理消息，event类型: {type(event)}, has_bot={hasattr(event, 'bot')}, get_group_id={hasattr(event, 'get_group_id')}, get_sender_id={hasattr(event, 'get_sender_id')}, is_private_chat={hasattr(event, 'is_private_chat')}"
                 )
                 # 尝试使用event.plain_result发送，虽然无法获取message_id
                 response = event.plain_result(message)
@@ -2583,8 +2583,8 @@ class WebAnalyzerPlugin(Star):
 
             logger.debug(f"发送处理消息成功，message_id: {message_id}")
 
-            # 如果获取到message_id且启用了自动撤回
-            if message_id and self.enable_recall:
+            # 如果获取到message_id且启用了自动撤回且有bot实例
+            if message_id and self.enable_recall and bot:
                 # 定时撤回模式
                 if self.recall_type == "time_based":
                     logger.info(
