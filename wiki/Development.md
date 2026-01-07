@@ -339,14 +339,6 @@ pytest tests/
 4. 支持更多平台
 5. 提供更丰富的分析报告
 
-## 参考资源
-
-1. [AstrBot插件开发文档](https://github.com/Sakura520222/AstrBot/blob/main/docs/插件开发指南.md)
-2. [Python异步编程](https://docs.python.org/3/library/asyncio.html)
-3. [BeautifulSoup文档](https://www.crummy.com/software/BeautifulSoup/bs4/doc/)
-4. [Playwright文档](https://playwright.dev/python/docs/intro)
-5. [httpx文档](https://www.python-httpx.org/)
-
 ## 开发者联系方式
 
 - GitHub: [https://github.com/Sakura520222](https://github.com/Sakura520222)
