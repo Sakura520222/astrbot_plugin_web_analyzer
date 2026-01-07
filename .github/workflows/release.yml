@@ -1,0 +1,59 @@
+name: Auto Release
+
+on:
+  push:
+    branches: [ master ]
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Get current version from metadata
+        id: get_current_version
+        run: |
+          VERSION=$(grep -E '^version:' metadata.yaml | cut -d' ' -f2)
+          echo "VERSION=v$VERSION" >> $GITHUB_OUTPUT
+
+      - name: Check if tag already exists
+        id: check_tag
+        run: |
+          if git rev-parse "${{ steps.get_current_version.outputs.VERSION }}" >/dev/null 2>&1; then
+            echo "EXISTS=true" >> $GITHUB_OUTPUT
+          else
+            echo "EXISTS=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Extract changelog for current version
+        id: extract_changelog
+        run: |
+          VERSION=$(echo ${{ steps.get_current_version.outputs.VERSION }} | sed 's/^v//')
+          awk -v ver="$VERSION" '\
+            /^## \[v'"$VERSION"'\]/ {flag=1; next} \
+            /^## \[v/ {if(flag) exit} \
+            flag {print} \
+          ' CHANGELOG.md > current_changelog.md
+          echo "CHANGELOG<<EOF" >> $GITHUB_OUTPUT
+          cat current_changelog.md >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+
+      - name: Create release
+        if: steps.check_tag.outputs.EXISTS == 'false'
+        id: create_release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.get_current_version.outputs.VERSION }}
+          name: Release ${{ steps.get_current_version.outputs.VERSION }}
+          body: |
+            ${{ steps.extract_changelog.outputs.CHANGELOG }}
+          draft: false
+          prerelease: false
+          generate_release_notes: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
