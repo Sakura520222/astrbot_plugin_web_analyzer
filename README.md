@@ -73,6 +73,17 @@ AstrBot网页分析插件，能够自动识别用户发送的网页链接，智�
 
 [![Star History Chart](https://api.star-history.com/svg?repos=Sakura520222/astrbot_plugin_web_analyzer&type=Date)](https://star-history.com/#Sakura520222/astrbot_plugin_web_analyzer&Date)
 
+## 文档
+
+详细文档请查看 [Wiki](wiki/Home.md)：
+
+- [快速开始](wiki/QuickStart.md) - 安装和基本使用指南
+- [命令参考](wiki/Commands.md) - 详细的命令说明
+- [配置指南](wiki/Configuration.md) - 所有配置项的详细说明
+- [技术实现](wiki/TechnicalImplementation.md) - 技术细节和架构
+- [常见问题](wiki/FAQ.md) - 常见问题和解决方案
+- [开发指南](wiki/Development.md) - 开发相关的信息
+
 ## 安装方法
 
 1. 将插件目录复制到AstrBot的插件目录：
