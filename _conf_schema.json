@@ -340,7 +340,7 @@
       "extract_types": {
         "description": "提取内容类型",
         "type": "text",
-        "hint": "要提取的特定内容类型，每行一个，支持：title, content, images, links, tables, lists, code",
+        "hint": "要提取的特定内容类型，每行一个，支持：title, content, images, links, tables, lists, code, meta, videos, audios, quotes, headings, paragraphs, buttons, forms",
         "default": "title\ncontent"
       }
     }
@@ -444,6 +444,33 @@
         "type": "text",
         "hint": "自定义命令别名，每行一个，格式为：原命令=别名1,别名2，例如：网页分析=web_analyze,analyze_web",
         "default": ""
+      }
+    }
+  },
+  "template_settings": {
+    "description": "自定义模板设置",
+    "type": "object",
+    "hint": "分析结果模板配置选项",
+    "items": {
+      "enable_custom_template": {
+        "description": "启用自定义模板",
+        "type": "bool",
+        "hint": "是否启用自定义分析结果模板",
+        "default": false
+      },
+      "template_content": {
+        "description": "自定义模板内容",
+        "type": "text",
+        "hint": "自定义分析结果模板，支持变量：{title}, {url}, {content}, {summary}, {analysis_result}, {screenshot}, {content_type}, {stats}, {date}, {time}",
+        "default": "# 网页分析结果\n\n## 基本信息\n- 标题: {title}\n- 链接: {url}\n- 内容类型: {content_type}\n- 分析时间: {date} {time}\n\n## 内容摘要\n{summary}\n\n## 详细分析\n{analysis_result}\n\n## 内容统计\n{stats}"
+      },
+      "template_format": {
+        "description": "模板格式",
+        "type": "string",
+        "hint": "选择模板的输出格式",
+        "default": "markdown",
+        "_special": "select",
+        "options": ["markdown", "plain", "html"]
       }
     }
   },

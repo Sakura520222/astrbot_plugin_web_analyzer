@@ -99,8 +99,17 @@ class WebAnalyzerUtils:
             "images",
             "links",
             "meta",
+            "code",
             "code_blocks",
             "tables",
+            "lists",
+            "videos",
+            "audios",
+            "quotes",
+            "headings",
+            "paragraphs",
+            "buttons",
+            "forms",
         ]
         return [
             extract_type

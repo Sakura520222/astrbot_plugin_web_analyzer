@@ -916,6 +916,13 @@ class WebAnalyzer:
         - 列表（lists）
         - 代码块（code）
         - 元信息（meta）
+        - 视频链接（videos）
+        - 音频链接（audios）
+        - 引用块（quotes）
+        - 标题列表（headings）
+        - 段落（paragraphs）
+        - 按钮（buttons）
+        - 表单（forms）
 
         Args:
             html: 网页的HTML文本内容
@@ -972,7 +979,8 @@ class WebAnalyzer:
                     if src:
                         # 处理相对路径，转换为绝对URL
                         full_url = urljoin(url, src)
-                        images.append(full_url)
+                        alt_text = img.get("alt", "").strip()
+                        images.append({"url": full_url, "alt": alt_text})
                 extracted_content["images"] = images[:10]  # 限制最多10张图片
 
             # 提取超链接，最多提取20个
@@ -1047,13 +1055,34 @@ class WebAnalyzer:
                 for code in soup.find_all(["pre", "code"]):  # 同时处理pre和code标签
                     code_text = code.get_text().strip()
                     if code_text and len(code_text) > 10:  # 跳过短代码块
+                        # 获取语言类型
+                        language = ""
+                        if code.parent.name == "pre":
+                            # 检查pre标签是否有语言类名
+                            for cls in code.parent.get("class", []):
+                                if cls.startswith("language-"):
+                                    language = cls[9:]
+                                    break
+                                if cls.startswith("lang-"):
+                                    language = cls[5:]
+                                    break
+                        elif code.get("class"):
+                            # 检查code标签是否有语言类名
+                            for cls in code.get("class", []):
+                                if cls.startswith("language-"):
+                                    language = cls[9:]
+                                    break
+                                if cls.startswith("lang-"):
+                                    language = cls[5:]
+                                    break
+                        
                         # 限制单个代码块长度
                         truncated_code = (
                             code_text[:1000] + "..."
                             if len(code_text) > 1000
                             else code_text
                         )
-                        code_blocks.append(truncated_code)
+                        code_blocks.append({"code": truncated_code, "language": language})
                 extracted_content["code_blocks"] = code_blocks[:5]  # 限制最多5个代码块
 
             # 提取元信息
@@ -1083,7 +1112,151 @@ class WebAnalyzer:
                 if publish_time:
                     meta_info["publish_time"] = publish_time.get("content", "").strip()
 
+                # 提取网站名称
+                site_name = soup.find("meta", attrs={"property": "og:site_name"})
+                if site_name:
+                    meta_info["site_name"] = site_name.get("content", "").strip()
+
+                # 提取og:title
+                og_title = soup.find("meta", attrs={"property": "og:title"})
+                if og_title:
+                    meta_info["og_title"] = og_title.get("content", "").strip()
+
+                # 提取og:description
+                og_description = soup.find("meta", attrs={"property": "og:description"})
+                if og_description:
+                    meta_info["og_description"] = og_description.get("content", "").strip()
+
                 extracted_content["meta"] = meta_info
+
+            # 提取视频链接，最多提取5个
+            if "videos" in extract_types:
+                videos = []
+                # 查找video标签
+                for video in soup.find_all("video"):
+                    src = video.get("src")
+                    if src:
+                        full_url = urljoin(url, src)
+                        videos.append({"url": full_url, "type": "video"})
+                # 查找iframe标签（可能包含视频）
+                for iframe in soup.find_all("iframe"):
+                    src = iframe.get("src")
+                    if src:
+                        full_url = urljoin(url, src)
+                        videos.append({"url": full_url, "type": "iframe"})
+                extracted_content["videos"] = videos[:5]  # 限制最多5个视频
+
+            # 提取音频链接，最多提取5个
+            if "audios" in extract_types:
+                audios = []
+                # 查找audio标签
+                for audio in soup.find_all("audio"):
+                    src = audio.get("src")
+                    if src:
+                        full_url = urljoin(url, src)
+                        audios.append(full_url)
+                # 查找embed标签（可能包含音频）
+                for embed in soup.find_all("embed"):
+                    src = embed.get("src")
+                    if src and (src.endswith(".mp3") or src.endswith(".wav") or src.endswith(".ogg")):
+                        full_url = urljoin(url, src)
+                        audios.append(full_url)
+                extracted_content["audios"] = audios[:5]  # 限制最多5个音频
+
+            # 提取引用块，最多提取10个
+            if "quotes" in extract_types:
+                quotes = []
+                # 查找blockquote标签
+                for blockquote in soup.find_all("blockquote"):
+                    quote_text = blockquote.get_text().strip()
+                    if quote_text:
+                        # 查找引用的作者
+                        cite = blockquote.find("cite")
+                        author = cite.get_text().strip() if cite else ""
+                        quotes.append({"text": quote_text, "author": author})
+                extracted_content["quotes"] = quotes[:10]  # 限制最多10个引用块
+
+            # 提取标题列表
+            if "headings" in extract_types:
+                headings = []
+                # 查找所有h1-h6标签
+                for level in range(1, 7):
+                    for heading in soup.find_all(f"h{level}"):
+                        headings.append({
+                            "level": level,
+                            "text": heading.get_text().strip(),
+                            "id": heading.get("id", "")
+                        })
+                extracted_content["headings"] = headings
+
+            # 提取段落，最多提取20个
+            if "paragraphs" in extract_types:
+                paragraphs = []
+                for p in soup.find_all("p"):
+                    text = p.get_text().strip()
+                    if text:
+                        paragraphs.append(text)
+                extracted_content["paragraphs"] = paragraphs[:20]  # 限制最多20个段落
+
+            # 提取按钮，最多提取10个
+            if "buttons" in extract_types:
+                buttons = []
+                for button in soup.find_all("button"):
+                    text = button.get_text().strip()
+                    onclick = button.get("onclick", "").strip()
+                    buttons.append({
+                        "text": text,
+                        "onclick": onclick,
+                        "type": button.get("type", "button")
+                    })
+                extracted_content["buttons"] = buttons[:10]  # 限制最多10个按钮
+
+            # 提取表单，最多提取5个
+            if "forms" in extract_types:
+                forms = []
+                for form in soup.find_all("form"):
+                    form_data = {
+                        "action": form.get("action", ""),
+                        "method": form.get("method", "get"),
+                        "inputs": [],
+                        "buttons": []
+                    }
+                    # 提取表单输入
+                    for input_elem in form.find_all("input"):
+                        form_data["inputs"].append({
+                            "type": input_elem.get("type", "text"),
+                            "name": input_elem.get("name", ""),
+                            "value": input_elem.get("value", "")
+                        })
+                    # 提取表单文本域
+                    for textarea in form.find_all("textarea"):
+                        form_data["inputs"].append({
+                            "type": "textarea",
+                            "name": textarea.get("name", ""),
+                            "value": textarea.get_text().strip()
+                        })
+                    # 提取表单选择
+                    for select in form.find_all("select"):
+                        options = []
+                        for option in select.find_all("option"):
+                            options.append({
+                                "value": option.get("value", ""),
+                                "text": option.get_text().strip(),
+                                "selected": bool(option.get("selected"))
+                            })
+                        form_data["inputs"].append({
+                            "type": "select",
+                            "name": select.get("name", ""),
+                            "options": options
+                        })
+                    # 提取表单按钮
+                    for button in form.find_all("button"):
+                        form_data["buttons"].append({
+                            "text": button.get_text().strip(),
+                            "type": button.get("type", "submit")
+                        })
+                    forms.append(form_data)
+                extracted_content["forms"] = forms[:5]  # 限制最多5个表单
 
             return extracted_content
         except Exception as e:

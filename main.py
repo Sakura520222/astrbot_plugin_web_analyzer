@@ -181,7 +181,7 @@ ERROR_MESSAGES: dict[str, dict[str, Any]] = {
     "astrbot_plugin_web_analyzer",
     "Sakura520222",
     "自动识别网页链接，智能抓取解析内容，集成大语言模型进行深度分析和总结，支持网页截图、缓存机制和多种管理命令",
-    "1.3.9",
+    "1.4.0",
     "https://github.com/Sakura520222/astrbot_plugin_web_analyzer",
 )
 class WebAnalyzerPlugin(Star):
@@ -205,6 +205,7 @@ class WebAnalyzerPlugin(Star):
         self._load_recall_settings()
         self._load_command_settings()
         self._load_resource_settings()
+        self._load_template_settings()
 
         # URL处理标志集合：用于避免重复处理同一URL
         self.processing_urls = set()
@@ -299,10 +300,20 @@ class WebAnalyzerPlugin(Star):
         self._load_analysis_mode_settings(analysis_settings)
         self._load_result_style_settings(analysis_settings)
         self._load_content_type_settings(analysis_settings)
-        self._load_template_settings(analysis_settings)
+        # 直接在当前方法中实现结果模板设置的加载，避免方法调用问题
+        valid_templates = ["default", "detailed", "compact", "markdown", "simple"]
+        self.result_template = analysis_settings.get("result_template", "default")
+        if self.result_template not in valid_templates:
+            logger.warning(
+                f"无效的结果模板: {self.result_template}，将使用默认值 default"
+            )
+            self.result_template = "default"
         self._load_collapse_settings(analysis_settings)
         self._load_url_recognition_settings(analysis_settings)
         self._load_llm_decision_settings(analysis_settings)
+        
+        # 加载自定义模板设置
+        self._load_template_settings()
 
     def _load_analysis_mode_settings(self, analysis_settings: dict) -> None:
         """加载分析模式设置"""
@@ -334,15 +345,7 @@ class WebAnalyzerPlugin(Star):
             )
             self.send_content_type = "both"
 
-    def _load_template_settings(self, analysis_settings: dict) -> None:
-        """加载结果模板设置"""
-        valid_templates = ["default", "detailed", "compact", "markdown", "simple"]
-        self.result_template = analysis_settings.get("result_template", "default")
-        if self.result_template not in valid_templates:
-            logger.warning(
-                f"无效的结果模板: {self.result_template}，将使用默认值 default"
-            )
-            self.result_template = "default"
+
 
     def _load_collapse_settings(self, analysis_settings: dict) -> None:
         """加载结果折叠设置"""
@@ -597,6 +600,24 @@ class WebAnalyzerPlugin(Star):
         self.memory_threshold = max(
             0.0, min(100.0, resource_settings.get("memory_threshold", 80.0))
         )
+    
+    def _load_template_settings(self):
+        """加载和验证模板设置"""
+        template_settings = self.config.get("template_settings", {})
+        # 是否启用自定义模板
+        self.enable_custom_template = bool(
+            template_settings.get("enable_custom_template", False)
+        )
+        # 自定义模板内容
+        self.template_content = template_settings.get(
+            "template_content", "# 网页分析结果\n\n## 基本信息\n- 标题: {title}\n- 链接: {url}\n- 内容类型: {content_type}\n- 分析时间: {date} {time}\n\n## 内容摘要\n{summary}\n\n## 详细分析\n{analysis_result}\n\n## 内容统计\n{stats}"
+        )
+        # 模板格式
+        valid_formats = ["markdown", "plain", "html"]
+        self.template_format = template_settings.get("template_format", "markdown")
+        if self.template_format not in valid_formats:
+            logger.warning(f"无效的模板格式: {self.template_format}，将使用默认格式 markdown")
+            self.template_format = "markdown"
 
     def _init_cache_manager(self):
         """初始化缓存管理器"""
@@ -1101,7 +1122,7 @@ class WebAnalyzerPlugin(Star):
             screenshot = await self._generate_screenshot(analyzer, url, analysis_result)
 
             # 7. 应用结果设置
-            final_result = self._apply_result_settings(analysis_result, url)
+            final_result = self._apply_result_settings(analysis_result, url, content_data)
 
             # 8. 准备结果数据
             result_data = {
@@ -1221,8 +1242,13 @@ class WebAnalyzerPlugin(Star):
                     specific_content_str += (
                         f"\n📷 图片链接 ({len(specific_content['images'])}):\n"
                     )
-                    for img_url in specific_content["images"]:
-                        specific_content_str += f"- {img_url}\n"
+                    for img in specific_content["images"]:
+                        img_url = img.get('url', '')
+                        alt_text = img.get('alt', '')
+                        if alt_text:
+                            specific_content_str += f"- {img_url} (alt: {alt_text})\n"
+                        else:
+                            specific_content_str += f"- {img_url}\n"
 
                 # 添加相关链接（如果有，最多显示5个）
                 if "links" in specific_content and specific_content["links"]:
@@ -1232,6 +1258,52 @@ class WebAnalyzerPlugin(Star):
                     for link in specific_content["links"][:5]:
                         specific_content_str += f"- [{link['text']}]({link['url']})\n"
 
+                # 添加视频链接（如果有）
+                if "videos" in specific_content and specific_content["videos"]:
+                    specific_content_str += (
+                        f"\n🎬 视频链接 ({len(specific_content['videos'])}):\n"
+                    )
+                    for video in specific_content["videos"]:
+                        video_url = video.get('url', '')
+                        video_type = video.get('type', 'video')
+                        specific_content_str += f"- {video_url} (type: {video_type})\n"
+
+                # 添加音频链接（如果有）
+                if "audios" in specific_content and specific_content["audios"]:
+                    specific_content_str += (
+                        f"\n🎵 音频链接 ({len(specific_content['audios'])}):\n"
+                    )
+                    for audio in specific_content["audios"]:
+                        specific_content_str += f"- {audio}\n"
+
+                # 添加引用块（如果有，最多显示3个）
+                if "quotes" in specific_content and specific_content["quotes"]:
+                    specific_content_str += (
+                        f"\n💬 引用块 ({len(specific_content['quotes'])}):\n"
+                    )
+                    for quote in specific_content["quotes"][:3]:
+                        quote_text = quote.get('text', '')
+                        author = quote.get('author', '')
+                        if author:
+                            specific_content_str += f"> {quote_text} — {author}\n\n"
+                        else:
+                            specific_content_str += f"> {quote_text}\n\n"
+
+                # 添加标题列表（如果有）
+                if "headings" in specific_content and specific_content["headings"]:
+                    specific_content_str += (
+                        f"\n📑 标题列表 ({len(specific_content['headings'])}):\n"
+                    )
+                    for heading in specific_content["headings"]:
+                        level = heading.get('level', 1)
+                        text = heading.get('text', '')
+                        heading_id = heading.get('id', '')
+                        indent = "  " * (level - 1)
+                        if heading_id:
+                            specific_content_str += f"{indent}#{level} {text} (id: {heading_id})\n"
+                        else:
+                            specific_content_str += f"{indent}#{level} {text}\n"
+
                 # 添加代码块（如果有，最多显示2个）
                 if (
                     "code_blocks" in specific_content
@@ -1240,19 +1312,94 @@ class WebAnalyzerPlugin(Star):
                     specific_content_str += (
                         f"\n💻 代码块 ({len(specific_content['code_blocks'])}):\n"
                     )
-                    for i, code in enumerate(specific_content["code_blocks"][:2]):
-                        specific_content_str += f"```\n{code}\n```\n"
+                    for i, code_block in enumerate(specific_content["code_blocks"][:2]):
+                        code = code_block.get('code', '')
+                        language = code_block.get('language', '')
+                        specific_content_str += f"``` {language}\n{code}\n```\n"
+
+                # 添加表格（如果有，最多显示2个）
+                if "tables" in specific_content and specific_content["tables"]:
+                    specific_content_str += (
+                        f"\n📊 表格 ({len(specific_content['tables'])}):\n"
+                    )
+                    for i, table in enumerate(specific_content["tables"][:2]):
+                        headers = table.get('headers', [])
+                        rows = table.get('rows', [])
+                        specific_content_str += f"\n表格 {i+1}:\n"
+                        # 添加表头
+                        if headers:
+                            specific_content_str += f"| {' | '.join(headers)} |\n"
+                            specific_content_str += f"| {' | '.join(['---' for _ in headers])} |\n"
+                        # 添加行
+                        for row in rows:
+                            specific_content_str += f"| {' | '.join(row)} |\n"
+
+                # 添加列表（如果有，最多显示2个）
+                if "lists" in specific_content and specific_content["lists"]:
+                    specific_content_str += (
+                        f"\n📋 列表 ({len(specific_content['lists'])}):\n"
+                    )
+                    for i, list_item in enumerate(specific_content["lists"][:2]):
+                        list_type = list_item.get('type', 'ul')
+                        items = list_item.get('items', [])
+                        specific_content_str += f"\n列表 {i+1} ({list_type}):\n"
+                        for item in items:
+                            if list_type == 'ol':
+                                specific_content_str += f"1. {item}\n"
+                            else:
+                                specific_content_str += f"- {item}\n"
 
                 # 添加元信息（如果有）
-            if "meta" in specific_content and specific_content["meta"]:
-                meta_info = specific_content["meta"]
-                specific_content_str += "\n📋 元信息:\n"
-                for key, value in meta_info.items():
-                    if value:
-                        specific_content_str += f"- {key}: {value}\n"
+                if "meta" in specific_content and specific_content["meta"]:
+                    meta_info = specific_content["meta"]
+                    specific_content_str += "\n📋 元信息:\n"
+                    for key, value in meta_info.items():
+                        if value:
+                            specific_content_str += f"- {key}: {value}\n"
 
-            # 将特定内容添加到分析结果中
-            analysis_result += specific_content_str
+                # 添加按钮（如果有，最多显示5个）
+                if "buttons" in specific_content and specific_content["buttons"]:
+                    specific_content_str += (
+                        f"\n🔘 按钮 ({len(specific_content['buttons'])}):\n"
+                    )
+                    for button in specific_content["buttons"][:5]:
+                        text = button.get('text', '')
+                        button_type = button.get('type', 'button')
+                        onclick = button.get('onclick', '')
+                        if onclick:
+                            specific_content_str += f"- {text} (type: {button_type}, onclick: {onclick})\n"
+                        else:
+                            specific_content_str += f"- {text} (type: {button_type})\n"
+
+                # 添加表单（如果有，最多显示2个）
+                if "forms" in specific_content and specific_content["forms"]:
+                    specific_content_str += (
+                        f"\n📝 表单 ({len(specific_content['forms'])}):\n"
+                    )
+                    for i, form in enumerate(specific_content["forms"][:2]):
+                        action = form.get('action', '')
+                        method = form.get('method', 'get')
+                        inputs = form.get('inputs', [])
+                        buttons = form.get('buttons', [])
+                        specific_content_str += f"\n表单 {i+1}:\n"
+                        specific_content_str += f"- 提交地址: {action}\n"
+                        specific_content_str += f"- 请求方法: {method}\n"
+                        if inputs:
+                            specific_content_str += "- 输入字段:\n"
+                            for input_elem in inputs:
+                                input_type = input_elem.get('type', 'text')
+                                name = input_elem.get('name', '')
+                                value = input_elem.get('value', '')
+                                specific_content_str += f"  * {name} ({input_type}): {value}\n"
+                        if buttons:
+                            specific_content_str += "- 按钮:\n"
+                            for button in buttons:
+                                text = button.get('text', '')
+                                button_type = button.get('type', 'submit')
+                                specific_content_str += f"  * {text} ({button_type})\n"
+
+                # 将特定内容添加到分析结果中
+                analysis_result += specific_content_str
             return analysis_result
         except Exception as e:
             # 特定内容提取失败时，记录警告但不影响主分析结果
@@ -1362,12 +1509,80 @@ class WebAnalyzerPlugin(Star):
             return f"{collapsed_content}\n\n[展开全文]\n\n{remaining_content}"
         return result
 
-    def _apply_result_settings(self, result: str, url: str) -> str:
+    def _render_custom_template(self, content_data: dict, analysis_result: str, url: str) -> str:
+        """使用自定义模板渲染分析结果
+
+        Args:
+            content_data: 包含标题、内容等信息的字典
+            analysis_result: 当前的分析结果
+            url: 网页URL
+
+        Returns:
+            使用自定义模板渲染后的结果
+        """
+        from datetime import datetime
+        
+        # 获取当前日期和时间
+        now = datetime.now()
+        date_str = now.strftime("%Y-%m-%d")
+        time_str = now.strftime("%H:%M:%S")
+        
+        # 计算内容统计信息
+        content = content_data.get("content", "")
+        content_stats = self._calculate_content_statistics(content)
+        
+        # 构建统计信息字符串
+        stats_str = """
+- 字符数: {char_count:,}
+- 词数: {word_count:,}
+- 段落数: {paragraph_count}
+"""
+        paragraph_count = len([p.strip() for p in content.split("\n") if p.strip()])
+        stats = stats_str.format(
+            char_count=content_stats["char_count"],
+            word_count=content_stats["word_count"],
+            paragraph_count=paragraph_count
+        )
+        
+        # 提取摘要（前150个字符）
+        summary = content[:150] + "..." if len(content) > 150 else content
+        
+        # 内容类型
+        content_type = self._detect_content_type(content)
+        
+        # 替换模板变量
+        template_vars = {
+            "title": content_data.get("title", "无标题"),
+            "url": url,
+            "content": content,
+            "summary": summary,
+            "analysis_result": analysis_result,
+            "screenshot": "[截图]" if self.enable_screenshot else "",
+            "content_type": content_type,
+            "stats": stats,
+            "date": date_str,
+            "time": time_str
+        }
+        
+        # 渲染模板
+        rendered_template = self.template_content
+        for var_name, var_value in template_vars.items():
+            rendered_template = rendered_template.replace(f"{{{var_name}}}", str(var_value))
+        
+        return rendered_template
+    
+    def _apply_result_settings(self, result: str, url: str, content_data: dict = None) -> str:
         """应用所有结果设置（模板渲染和折叠）"""
         # 首先应用模板渲染
-        rendered_result = self._render_result_template(
-            result, url, self.result_template
-        )
+        rendered_result = ""
+        if self.enable_custom_template and content_data:
+            # 使用自定义模板
+            rendered_result = self._render_custom_template(content_data, result, url)
+        else:
+            # 使用默认模板
+            rendered_result = self._render_result_template(
+                result, url, self.result_template
+            )
         # 然后应用结果折叠
         final_result = self._collapse_result(rendered_result)
         return final_result
