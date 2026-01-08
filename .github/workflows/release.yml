@@ -43,7 +43,7 @@ jobs:
           
           # Use a simple and reliable method to extract changelog
           # Find the line number of the current version
-          VERSION_LINE=$(grep -n "^## \[$VERSION\]" CHANGELOG.md | cut -d':' -f1)
+          VERSION_LINE=$(grep -n "\[${VERSION}\]" CHANGELOG.md | cut -d':' -f1)
           
           if [ -z "$VERSION_LINE" ]; then
              echo "DEBUG: Version $VERSION not found in changelog"
@@ -51,14 +51,14 @@ jobs:
            else
              echo "DEBUG: Found version $VERSION at line $VERSION_LINE"
              # Find the next version line to determine where to stop
-             NEXT_VERSION_LINE=$(tail -n +$((VERSION_LINE + 1)) CHANGELOG.md | grep -n "^## \[" | head -1 | cut -d':' -f1)
+             NEXT_VERSION_LINE=$(tail -n +$((VERSION_LINE + 1)) CHANGELOG.md | grep -n "## \[" | head -1 | cut -d':' -f1)
              if [ -z "$NEXT_VERSION_LINE" ]; then
-               # If no next version found, extract 10 lines from the current version
-               CHANGELOG_CONTENT=$(sed -n "$((VERSION_LINE + 1)),$((VERSION_LINE + 10))p" CHANGELOG.md | grep -v "^## \[" | sed '/^$/d')
+               # If no next version found, extract from current version to end of file
+               CHANGELOG_CONTENT=$(tail -n +$((VERSION_LINE + 1)) CHANGELOG.md | sed '/^## \[/Q' | sed '/^$/d')
              else
                # Calculate the end line for current version content
-               END_LINE=$((VERSION_LINE + NEXT_VERSION_LINE))
-               CHANGELOG_CONTENT=$(sed -n "$((VERSION_LINE + 1)),$((END_LINE - 1))p" CHANGELOG.md | grep -v "^## \[" | sed '/^$/d')
+               END_LINE=$((VERSION_LINE + NEXT_VERSION_LINE - 1))
+               CHANGELOG_CONTENT=$(sed -n "$((VERSION_LINE + 1)),${END_LINE}p" CHANGELOG.md | sed '/^$/d')
              fi
            fi
           
