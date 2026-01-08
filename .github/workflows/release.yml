@@ -32,21 +32,32 @@ jobs:
 
       - name: Extract changelog for current version
         id: extract_changelog
-        uses: TriPSs/conventional-changelog-action@v5
-        with:
-          version: ${{ steps.get_current_version.outputs.VERSION }}
-          changelog_file: CHANGELOG.md
-          output_format: json
-
-      - name: Format changelog
-        id: format_changelog
         run: |
-          # Parse the JSON output from conventional-changelog-action
-          CHANGELOG_CONTENT=$(echo '${{ steps.extract_changelog.outputs.changelog }}' | jq -r '.notes')
+          # Extract changelog using a simple approach
+          VERSION="${{ steps.get_current_version.outputs.VERSION }}"
+          
+          # Find the start line of the current version
+          START_LINE=$(grep -n "## \[$VERSION\]" CHANGELOG.md | cut -d':' -f1)
+          
+          # Find the next version line after the current version
+          NEXT_VERSION_LINE=$(tail -n +$START_LINE CHANGELOG.md | grep -n "## \[v" | head -2 | tail -1 | cut -d':' -f1)
+          
+          if [ -n "$NEXT_VERSION_LINE" ]; then
+            # Calculate the end line (subtract 1 to exclude the next version header)
+            END_LINE=$((START_LINE + NEXT_VERSION_LINE - 2))
+            # Extract the changelog content
+            CHANGELOG_CONTENT=$(sed -n "$((START_LINE + 1)),$END_LINE p" CHANGELOG.md)
+          else
+            # If this is the latest version, extract until the end of file
+            CHANGELOG_CONTENT=$(sed -n "$((START_LINE + 1)),$ p" CHANGELOG.md)
+          fi
+          
+          # Trim whitespace and remove empty lines at the beginning/end
+          CHANGELOG_CONTENT=$(echo "$CHANGELOG_CONTENT" | sed '/^$/d' | sed '/^$/d')
           
           # If changelog is empty, provide a default message
           if [ -z "$CHANGELOG_CONTENT" ]; then
-            CHANGELOG_CONTENT="No changelog found for version ${{ steps.get_current_version.outputs.VERSION }}"
+            CHANGELOG_CONTENT="No changelog found for version $VERSION"
           fi
           
           echo "CHANGELOG<<EOF" >> $GITHUB_OUTPUT
