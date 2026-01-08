@@ -33,27 +33,14 @@ jobs:
       - name: Extract changelog for current version
         id: extract_changelog
         run: |
-          # Extract changelog using a simple approach
+          # Extract changelog using sed - a simple and reliable approach
           VERSION="${{ steps.get_current_version.outputs.VERSION }}"
           
-          # Find the start line of the current version
-          START_LINE=$(grep -n "## \[$VERSION\]" CHANGELOG.md | cut -d':' -f1)
-          
-          # Find the next version line after the current version
-          NEXT_VERSION_LINE=$(tail -n +$START_LINE CHANGELOG.md | grep -n "## \[v" | head -2 | tail -1 | cut -d':' -f1)
-          
-          if [ -n "$NEXT_VERSION_LINE" ]; then
-            # Calculate the end line (subtract 1 to exclude the next version header)
-            END_LINE=$((START_LINE + NEXT_VERSION_LINE - 2))
-            # Extract the changelog content
-            CHANGELOG_CONTENT=$(sed -n "$((START_LINE + 1)),$END_LINE p" CHANGELOG.md)
-          else
-            # If this is the latest version, extract until the end of file
-            CHANGELOG_CONTENT=$(sed -n "$((START_LINE + 1)),$ p" CHANGELOG.md)
-          fi
+          # Use sed to extract content between current version and next version
+          CHANGELOG_CONTENT=$(sed -n "/^## \[$VERSION\]/,/^## \[v/p" CHANGELOG.md | head -n -1 || echo "No changelog found for version $VERSION")
           
           # Trim whitespace and remove empty lines at the beginning/end
-          CHANGELOG_CONTENT=$(echo "$CHANGELOG_CONTENT" | sed '/^$/d' | sed '/^$/d')
+          CHANGELOG_CONTENT=$(echo "$CHANGELOG_CONTENT" | sed '/^$/d' | tail -n +2 | sed '/^$/d')
           
           # If changelog is empty, provide a default message
           if [ -z "$CHANGELOG_CONTENT" ]; then
