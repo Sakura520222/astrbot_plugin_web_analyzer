@@ -124,8 +124,7 @@ jobs:
           echo "打包完成，文件大小: $(du -h $ZIP_FILE | cut -f1)"
           echo "ZIP_FILE=$ZIP_FILE" >> $GITHUB_OUTPUT
 
-      - name: Create release
-        if: steps.check_tag.outputs.EXISTS == 'false'
+      - name: Create or update release
         id: create_release
         uses: softprops/action-gh-release@v2
         with:
@@ -137,5 +136,6 @@ jobs:
           draft: false
           prerelease: false
           generate_release_notes: false
+          overwrite: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
