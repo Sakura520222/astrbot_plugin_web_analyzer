@@ -72,7 +72,7 @@ jobs:
           tag_name: ${{ steps.get_current_version.outputs.VERSION }}
           name: Release ${{ steps.get_current_version.outputs.VERSION }}
           body: |
-            ${{ steps.format_changelog.outputs.CHANGELOG }}
+            ${{ steps.extract_changelog.outputs.CHANGELOG }}
           draft: false
           prerelease: false
           generate_release_notes: false
