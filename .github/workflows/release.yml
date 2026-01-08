@@ -32,15 +32,25 @@ jobs:
 
       - name: Extract changelog for current version
         id: extract_changelog
+        uses: TriPSs/conventional-changelog-action@v5
+        with:
+          version: ${{ steps.get_current_version.outputs.VERSION }}
+          changelog_file: CHANGELOG.md
+          output_format: json
+
+      - name: Format changelog
+        id: format_changelog
         run: |
-          VERSION=$(echo ${{ steps.get_current_version.outputs.VERSION }} | sed 's/^v//')
-          awk -v ver="$VERSION" '\
-            /^## \[v'"$VERSION"'\]/ {flag=1; next} \
-            /^## \[v/ {if(flag) exit} \
-            flag {print} \
-          ' CHANGELOG.md > current_changelog.md
+          # Parse the JSON output from conventional-changelog-action
+          CHANGELOG_CONTENT=$(echo '${{ steps.extract_changelog.outputs.changelog }}' | jq -r '.notes')
+          
+          # If changelog is empty, provide a default message
+          if [ -z "$CHANGELOG_CONTENT" ]; then
+            CHANGELOG_CONTENT="No changelog found for version ${{ steps.get_current_version.outputs.VERSION }}"
+          fi
+          
           echo "CHANGELOG<<EOF" >> $GITHUB_OUTPUT
-          cat current_changelog.md >> $GITHUB_OUTPUT
+          echo "$CHANGELOG_CONTENT" >> $GITHUB_OUTPUT
           echo "EOF" >> $GITHUB_OUTPUT
 
       - name: Create release
@@ -51,7 +61,7 @@ jobs:
           tag_name: ${{ steps.get_current_version.outputs.VERSION }}
           name: Release ${{ steps.get_current_version.outputs.VERSION }}
           body: |
-            ${{ steps.extract_changelog.outputs.CHANGELOG }}
+            ${{ steps.format_changelog.outputs.CHANGELOG }}
           draft: false
           prerelease: false
           generate_release_notes: false

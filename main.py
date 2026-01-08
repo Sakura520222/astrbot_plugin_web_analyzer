@@ -181,7 +181,7 @@ ERROR_MESSAGES: dict[str, dict[str, Any]] = {
     "astrbot_plugin_web_analyzer",
     "Sakura520222",
     "自动识别网页链接，智能抓取解析内容，集成大语言模型进行深度分析和总结，支持网页截图、缓存机制和多种管理命令",
-    "1.4.0",
+    "1.4.1",
     "https://github.com/Sakura520222/astrbot_plugin_web_analyzer",
 )
 class WebAnalyzerPlugin(Star):
@@ -3615,12 +3615,96 @@ class WebAnalyzerPlugin(Star):
                 # 使用Nodes包装所有节点，合并成一个合并转发消息
                 merge_forward_message = Nodes(nodes)
 
-                # 发送合并转发消息
-                yield event.chain_result([merge_forward_message])
+                # 检查合并转发消息大小，主动限制
+                total_length = 0
+                for node in nodes:
+                    if hasattr(node, 'content'):
+                        for component in node.content:
+                            if hasattr(component, 'text') and component.text:
+                                total_length += len(component.text)
+                
+                # 如果消息过长，直接降级发送
+                if total_length > 10000:
+                    logger.warning(f"合并转发消息过长({total_length}字符)，自动降级为普通消息发送")
+                    downgraded = True
+                    
+                    # 降级为普通消息发送
+                    for i, result_data in enumerate(analysis_results, 1):
+                        url = result_data["url"]
+                        analysis_result = result_data["result"]
+                        screenshot = result_data.get("screenshot")
+                        
+                        # 发送分析结果
+                        yield event.chain_result([Plain(f"第{i}个网页分析结果 - {url}\n\n{analysis_result}")])
+                        
+                        # 发送截图
+                        if screenshot and self.send_content_type != "analysis_only":
+                            try:
+                                # 根据截图格式设置文件后缀
+                                suffix = f".{self.screenshot_format}" if self.screenshot_format else ".jpg"
+                                # 创建临时文件保存截图
+                                with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as temp_file:
+                                    temp_file.write(screenshot)
+                                    temp_file_path = temp_file.name
+                                
+                                # 发送截图
+                                image_component = Image.fromFileSystem(temp_file_path)
+                                yield event.chain_result([image_component])
+                                
+                                # 删除临时文件
+                                os.unlink(temp_file_path)
+                            except Exception as e:
+                                logger.error(f"发送截图失败: {e}")
+                                # 确保临时文件被删除
+                                if "temp_file_path" in locals() and os.path.exists(temp_file_path):
+                                    os.unlink(temp_file_path)
+                else:
+                    # 消息大小正常，尝试发送合并转发
+                    downgraded = False
+                    try:
+                        yield event.chain_result([merge_forward_message])
+                    except Exception as e:
+                        logger.error(f"发送合并转发消息失败: {e}")
+                        logger.info(f"降级为普通消息发送，共{len(analysis_results)}个分析结果")
+                        
+                        # 标记为已降级
+                        downgraded = True
+                        
+                        # 降级为普通消息发送
+                        for i, result_data in enumerate(analysis_results, 1):
+                            url = result_data["url"]
+                            analysis_result = result_data["result"]
+                            screenshot = result_data.get("screenshot")
+                            
+                            # 发送分析结果
+                            yield event.chain_result([Plain(f"第{i}个网页分析结果 - {url}\n\n{analysis_result}")])
+                            
+                            # 发送截图
+                            if screenshot and self.send_content_type != "analysis_only":
+                                try:
+                                    # 根据截图格式设置文件后缀
+                                    suffix = f".{self.screenshot_format}" if self.screenshot_format else ".jpg"
+                                    # 创建临时文件保存截图
+                                    with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as temp_file:
+                                        temp_file.write(screenshot)
+                                        temp_file_path = temp_file.name
+                                    
+                                    # 发送截图
+                                    image_component = Image.fromFileSystem(temp_file_path)
+                                    yield event.chain_result([image_component])
+                                    
+                                    # 删除临时文件
+                                    os.unlink(temp_file_path)
+                                except Exception as e:
+                                    logger.error(f"发送截图失败: {e}")
+                                    # 确保临时文件被删除
+                                    if "temp_file_path" in locals() and os.path.exists(temp_file_path):
+                                        os.unlink(temp_file_path)
 
-                # 如果未启用合并转发包含截图功能，且需要发送截图，则逐个发送截图
+                # 如果未启用合并转发包含截图功能，且需要发送截图，且未降级发送，则逐个发送截图
                 if (
-                    not self.merge_forward_enabled.get("include_screenshot", False)
+                    not downgraded
+                    and not self.merge_forward_enabled.get("include_screenshot", False)
                     and self.send_content_type != "analysis_only"
                 ):
                     for result_data in analysis_results:
