@@ -41,49 +41,36 @@ jobs:
           echo "DEBUG: Available versions in CHANGELOG.md:"
           grep -n "## \[" CHANGELOG.md
           
-          # Method 1: Use a reliable extraction method with proper newline handling
-          CHANGELOG_CONTENT=""
+          # Use a simple and reliable method to extract changelog
+          # Find the line number of the current version
+          VERSION_LINE=$(grep -n "^## \[$VERSION\]" CHANGELOG.md | cut -d':' -f1)
           
-          # Create a temporary file to store the extracted content
-          TMP_FILE=$(mktemp)
-          
-          # Extract content using sed - this is the most reliable method
-          # Extract from current version to next version, then remove headers
-          sed -n "/^## \[$VERSION\]/,/^## \[v[0-9]/p" CHANGELOG.md | head -n -1 | tail -n +2 > "$TMP_FILE"
-          
-          # Read the cleaned content from the temporary file
-          CHANGELOG_CONTENT=$(cat "$TMP_FILE" | sed '/^$/d' | sed '/^$/d')
+          if [ -z "$VERSION_LINE" ]; then
+             echo "DEBUG: Version $VERSION not found in changelog"
+             CHANGELOG_CONTENT="No changelog found for version $VERSION"
+           else
+             echo "DEBUG: Found version $VERSION at line $VERSION_LINE"
+             # Find the next version line to determine where to stop
+             NEXT_VERSION_LINE=$(tail -n +$((VERSION_LINE + 1)) CHANGELOG.md | grep -n "^## \[" | head -1 | cut -d':' -f1)
+             if [ -z "$NEXT_VERSION_LINE" ]; then
+               # If no next version found, extract 10 lines from the current version
+               CHANGELOG_CONTENT=$(sed -n "$((VERSION_LINE + 1)),$((VERSION_LINE + 10))p" CHANGELOG.md | grep -v "^## \[" | sed '/^$/d')
+             else
+               # Calculate the end line for current version content
+               END_LINE=$((VERSION_LINE + NEXT_VERSION_LINE))
+               CHANGELOG_CONTENT=$(sed -n "$((VERSION_LINE + 1)),$((END_LINE - 1))p" CHANGELOG.md | grep -v "^## \[" | sed '/^$/d')
+             fi
+           fi
           
           # Debug output
           echo "DEBUG: Extracted content length: ${#CHANGELOG_CONTENT}"
           echo "DEBUG: First 100 chars: ${CHANGELOG_CONTENT:0:100}..."
           
-          # If changelog is still empty, try alternative method
-          if [ -z "$CHANGELOG_CONTENT" ]; then
-            echo "DEBUG: Primary sed method failed, trying grep..."
-            # Alternative method: use grep with context (200 lines to be safe)
-            CHANGELOG_CONTENT=$(grep -A 200 "## \[$VERSION\]" CHANGELOG.md | grep -v "## \[$VERSION\]" | awk '/^## \[v/{exit} {print}' | sed '/^$/d')
-          fi
-          
-          # Final check - use a simple approach as fallback
-          if [ -z "$CHANGELOG_CONTENT" ]; then
-            echo "DEBUG: All methods failed, trying simple fallback..."
-            # Fallback: find the line number and extract manually
-            START_LINE=$(grep -n "## \[$VERSION\]" CHANGELOG.md | cut -d':' -f1)
-            if [ -n "$START_LINE" ]; then
-              # Extract 20 lines after the version header
-              CHANGELOG_CONTENT=$(sed -n "$((START_LINE + 1)),$((START_LINE + 20))p" CHANGELOG.md | grep -v "## \[v" | sed '/^$/d')
-            fi
-          fi
-          
           # If still empty, use default message
           if [ -z "$CHANGELOG_CONTENT" ]; then
             CHANGELOG_CONTENT="No changelog found for version $VERSION"
-            echo "DEBUG: All methods failed, using default message"
+            echo "DEBUG: All extraction methods failed, using default message"
           fi
-          
-          # Clean up temporary file
-          rm -f "$TMP_FILE"
           
           echo "CHANGELOG<<EOF" >> $GITHUB_OUTPUT
           echo "$CHANGELOG_CONTENT" >> $GITHUB_OUTPUT
