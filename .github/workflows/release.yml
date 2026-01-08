@@ -49,7 +49,7 @@ jobs:
           
           # Extract content using sed - this is the most reliable method
           # Extract from current version to next version, then remove headers
-          sed -n "/^## \[$VERSION\]/,/^## \[v/p" CHANGELOG.md | head -n -1 | tail -n +2 > "$TMP_FILE"
+          sed -n "/^## \[$VERSION\]/,/^## \[v[0-9]/p" CHANGELOG.md | head -n -1 | tail -n +2 > "$TMP_FILE"
           
           # Read the cleaned content from the temporary file
           CHANGELOG_CONTENT=$(cat "$TMP_FILE" | sed '/^$/d' | sed '/^$/d')
