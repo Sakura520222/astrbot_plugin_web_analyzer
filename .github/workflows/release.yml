@@ -19,8 +19,10 @@ jobs:
         id: get_current_version
         run: |
           # 使用 awk 提取版本号，支持 version: 后的任意空格
-          VERSION=$(grep -E '^\s*version:' metadata.yaml | awk '{print $2}')
-          echo "当前版本: $VERSION"
+          # 使用 tr 去除换行符和回车符
+          VERSION=$(grep -E '^\s*version:' metadata.yaml | awk '{print $2}' | tr -d '\r\n')
+          echo "当前版本: '$VERSION'"
+          echo "版本长度: ${#VERSION}"
           echo "VERSION=v$VERSION" >> $GITHUB_OUTPUT
 
       - name: Check if tag already exists
@@ -39,7 +41,9 @@ jobs:
         run: |
           # 提取更新日志，保留空行以保持可读性
           VERSION="${{ steps.get_current_version.outputs.VERSION }}"
-          echo "正在提取版本 $VERSION 的更新日志..."
+          # 修剪可能的换行符和回车符
+          VERSION=$(echo "$VERSION" | tr -d '\r\n')
+          echo "正在提取版本 '$VERSION' 的更新日志..."
           
           # 调试信息：打印当前目录和文件列表
           echo "当前工作目录: $(pwd)"
