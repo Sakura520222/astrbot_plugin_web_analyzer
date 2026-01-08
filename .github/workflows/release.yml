@@ -18,63 +18,81 @@ jobs:
       - name: Get current version from metadata
         id: get_current_version
         run: |
-          VERSION=$(grep -E '^version:' metadata.yaml | cut -d' ' -f2)
+          # 使用 awk 提取版本号，支持 version: 后的任意空格
+          VERSION=$(grep -E '^\s*version:' metadata.yaml | awk '{print $2}')
+          echo "当前版本: $VERSION"
           echo "VERSION=v$VERSION" >> $GITHUB_OUTPUT
 
       - name: Check if tag already exists
         id: check_tag
         run: |
           if git rev-parse "${{ steps.get_current_version.outputs.VERSION }}" >/dev/null 2>&1; then
+            echo "标签 ${{ steps.get_current_version.outputs.VERSION }} 已存在"
             echo "EXISTS=true" >> $GITHUB_OUTPUT
           else
+            echo "标签 ${{ steps.get_current_version.outputs.VERSION }} 不存在，将创建新发布"
             echo "EXISTS=false" >> $GITHUB_OUTPUT
           fi
 
       - name: Extract changelog for current version
         id: extract_changelog
         run: |
-          # Extract changelog with debugging
+          # 提取更新日志，保留空行以保持可读性
           VERSION="${{ steps.get_current_version.outputs.VERSION }}"
-          echo "DEBUG: Extracting changelog for version $VERSION"
+          echo "正在提取版本 $VERSION 的更新日志..."
           
-          # List available versions for debugging
-          echo "DEBUG: Available versions in CHANGELOG.md:"
+          # 列出 CHANGELOG.md 中所有版本，用于调试
+          echo "CHANGELOG.md 中的版本列表："
           grep -n "## \[" CHANGELOG.md
           
-          # Use a simple and reliable method to extract changelog
-          # Find the line number of the current version
+          # 查找当前版本的行号
           VERSION_LINE=$(grep -n "\[${VERSION}\]" CHANGELOG.md | cut -d':' -f1)
           
           if [ -z "$VERSION_LINE" ]; then
-             echo "DEBUG: Version $VERSION not found in changelog"
-             CHANGELOG_CONTENT="No changelog found for version $VERSION"
-           else
-             echo "DEBUG: Found version $VERSION at line $VERSION_LINE"
-             # Find the next version line to determine where to stop
-             NEXT_VERSION_LINE=$(tail -n +$((VERSION_LINE + 1)) CHANGELOG.md | grep -n "## \[" | head -1 | cut -d':' -f1)
-             if [ -z "$NEXT_VERSION_LINE" ]; then
-               # If no next version found, extract from current version to end of file
-               CHANGELOG_CONTENT=$(tail -n +$((VERSION_LINE + 1)) CHANGELOG.md | sed '/^## \[/Q' | sed '/^$/d')
-             else
-               # Calculate the end line for current version content
-               END_LINE=$((VERSION_LINE + NEXT_VERSION_LINE - 1))
-               CHANGELOG_CONTENT=$(sed -n "$((VERSION_LINE + 1)),${END_LINE}p" CHANGELOG.md | sed '/^$/d')
+             echo "警告：在 CHANGELOG.md 中未找到版本 $VERSION"
+             CHANGELOG_CONTENT="未找到版本 $VERSION 的更新日志"
+          else
+             echo "找到版本 $VERSION 在第 $VERSION_LINE 行"
+             # 从当前版本下一行开始，直到下一个版本标题或文件结尾
+             # 使用 sed 提取内容，保留空行
+             CHANGELOG_CONTENT=$(tail -n +$((VERSION_LINE + 1)) CHANGELOG.md | sed '/^## \[/Q')
+             # 如果内容为空，则使用默认消息
+             if [ -z "$CHANGELOG_CONTENT" ]; then
+                 CHANGELOG_CONTENT="此版本没有详细的更新日志内容。"
              fi
-           fi
-          
-          # Debug output
-          echo "DEBUG: Extracted content length: ${#CHANGELOG_CONTENT}"
-          echo "DEBUG: First 100 chars: ${CHANGELOG_CONTENT:0:100}..."
-          
-          # If still empty, use default message
-          if [ -z "$CHANGELOG_CONTENT" ]; then
-            CHANGELOG_CONTENT="No changelog found for version $VERSION"
-            echo "DEBUG: All extraction methods failed, using default message"
           fi
           
+          echo "提取的更新日志内容长度: ${#CHANGELOG_CONTENT}"
           echo "CHANGELOG<<EOF" >> $GITHUB_OUTPUT
           echo "$CHANGELOG_CONTENT" >> $GITHUB_OUTPUT
           echo "EOF" >> $GITHUB_OUTPUT
+
+      - name: Package plugin files
+        id: package
+        run: |
+          # 创建插件打包文件
+          PLUGIN_NAME="astrbot_plugin_web_analyzer"
+          ZIP_FILE="${PLUGIN_NAME}.zip"
+          
+          # 列出要包含的文件
+          echo "打包插件文件到 $ZIP_FILE ..."
+          zip -r "$ZIP_FILE" \
+            main.py \
+            metadata.yaml \
+            requirements.txt \
+            analyzer.py \
+            cache.py \
+            utils.py \
+            _conf_schema.json \
+            logo.png \
+            README.md \
+            LICENSE \
+            CHANGELOG.md \
+            wiki/ \
+            .github/workflows/release.yml
+          
+          echo "打包完成，文件大小: $(du -h $ZIP_FILE | cut -f1)"
+          echo "ZIP_FILE=$ZIP_FILE" >> $GITHUB_OUTPUT
 
       - name: Create release
         if: steps.check_tag.outputs.EXISTS == 'false'
@@ -85,6 +103,7 @@ jobs:
           name: Release ${{ steps.get_current_version.outputs.VERSION }}
           body: |
             ${{ steps.extract_changelog.outputs.CHANGELOG }}
+          files: ${{ steps.package.outputs.ZIP_FILE }}
           draft: false
           prerelease: false
           generate_release_notes: false
