@@ -1,0 +1,12 @@
+.trae/
+开发文档.md
+generate_logo.py
+__pycache__/
+QQ消息撤回文档.md
+消息撤回使用文档.md
+消息撤回recall_utils.py
+test/
+recall_utils.py
+/data/
+error.log
+Astrbot插件开发文档.md
