@@ -77,37 +77,62 @@ class CacheManager:
             preload_enabled: 是否启用缓存预加载
             preload_count: 预加载的缓存数量
         """
-        # 设置缓存目录
-        self.cache_dir = cache_dir
-        if not self.cache_dir:
-            # 默认缓存目录
-            self.cache_dir = os.path.join(os.path.dirname(__file__), "data", "cache")
+        # 初始化缓存目录
+        self.cache_dir = self._initialize_cache_dir(cache_dir)
 
-        # 确保缓存目录存在
-        os.makedirs(self.cache_dir, exist_ok=True)
-
+        # 初始化缓存配置参数
         self.max_size = max_size
         self.expire_time = expire_time * 60  # 转换为秒
         self.preload_enabled = preload_enabled
         self.preload_count = preload_count
 
-        # 内存缓存 - 使用LRU策略，记录缓存项的使用时间
-        self.memory_cache: dict[str, dict[str, Any]] = {}
-        # 记录每个缓存项的最后使用时间，用于LRU策略
-        self.cache_last_used: dict[str, float] = {}
-        # 内容哈希到URL的映射，用于基于内容哈希的缓存
-        self.content_hash_map: dict[str, str] = {}
-        # 预加载的URL列表
-        self.preload_urls: set[str] = set()
-        # 热点URL列表，用于优先预加载
-        self.hot_urls: set[str] = set()
+        # 初始化内存缓存数据结构
+        self._initialize_cache_structures()
 
         # 加载磁盘缓存到内存
         self._load_cache_from_disk()
 
-        # 执行缓存预加载
+        # 执行缓存预加载（如果启用）
         if self.preload_enabled:
             self._preload_cache()
+
+    def _initialize_cache_dir(self, cache_dir: str | None) -> str:
+        """初始化缓存目录
+
+        Args:
+            cache_dir: 用户指定的缓存目录，如果为None则使用默认目录
+
+        Returns:
+            最终使用的缓存目录路径
+        """
+        if not cache_dir:
+            # 使用默认缓存目录
+            cache_dir = os.path.join(os.path.dirname(__file__), "data", "cache")
+
+        # 确保缓存目录存在
+        os.makedirs(cache_dir, exist_ok=True)
+
+        return cache_dir
+
+    def _initialize_cache_structures(self):
+        """初始化所有缓存数据结构
+
+        创建并初始化用于管理缓存的各类数据结构
+        """
+        # 内存缓存 - 使用LRU策略，记录缓存项的使用时间
+        self.memory_cache: dict[str, dict[str, Any]] = {}
+
+        # 记录每个缓存项的最后使用时间，用于LRU策略
+        self.cache_last_used: dict[str, float] = {}
+
+        # 内容哈希到URL的映射，用于基于内容哈希的缓存
+        self.content_hash_map: dict[str, str] = {}
+
+        # 预加载的URL列表
+        self.preload_urls: set[str] = set()
+
+        # 热点URL列表，用于优先预加载
+        self.hot_urls: set[str] = set()
 
     def _get_cache_file_path(self, url: str, file_type: str = "json") -> str:
         """根据URL生成唯一的缓存文件路径
@@ -477,18 +502,35 @@ class CacheManager:
         """
         current_time = time.time()
 
-        if url in self.memory_cache:
-            cache_data = self.memory_cache[url]
-            # 检查缓存是否过期
-            if current_time - cache_data.get("timestamp", 0) < self.expire_time:
-                # 更新缓存项的最后使用时间，实现LRU策略
-                self.cache_last_used[url] = current_time
-                return cache_data.get("result")
-            else:
-                # 缓存过期，删除
-                self.delete(url)
+        # 检查URL是否在内存缓存中
+        if url not in self.memory_cache:
+            return None
 
-        return None
+        cache_data = self.memory_cache[url]
+
+        # 检查缓存是否过期
+        if self._is_cache_expired(cache_data, current_time):
+            # 缓存过期，删除
+            self.delete(url)
+            return None
+
+        # 更新缓存项的最后使用时间，实现LRU策略
+        self.cache_last_used[url] = current_time
+
+        return cache_data.get("result")
+
+    def _is_cache_expired(self, cache_data: dict[str, Any], current_time: float) -> bool:
+        """检查缓存是否过期
+
+        Args:
+            cache_data: 缓存数据
+            current_time: 当前时间戳
+
+        Returns:
+            True表示缓存已过期，False表示缓存有效
+        """
+        cache_age = current_time - cache_data.get("timestamp", 0)
+        return cache_age >= self.expire_time
 
     def set(self, url: str, result: dict[str, Any]):
         """设置指定URL的缓存结果
@@ -508,18 +550,48 @@ class CacheManager:
         """
         current_time = time.time()
 
-        # 创建缓存数据
-        cache_data = {"url": url, "timestamp": current_time, "result": result}
+        # 创建缓存数据结构
+        cache_data = self._create_cache_data(url, result, current_time)
 
-        # 添加到内存缓存，并记录使用时间
-        self.memory_cache[url] = cache_data
-        self.cache_last_used[url] = current_time
+        # 添加到内存缓存
+        self._add_to_memory_cache(url, cache_data, current_time)
 
-        # 保存到磁盘
+        # 持久化到磁盘
         self._save_cache_to_disk(url, cache_data)
 
         # 检查缓存大小，超过最大限制则根据LRU策略清理
         self._cleanup()
+
+    def _create_cache_data(self, url: str, result: dict[str, Any], timestamp: float) -> dict[str, Any]:
+        """创建缓存数据结构
+
+        Args:
+            url: 网页URL
+            result: 分析结果
+            timestamp: 时间戳
+
+        Returns:
+            完整的缓存数据字典
+        """
+        return {
+            "url": url,
+            "timestamp": timestamp,
+            "result": result
+        }
+
+    def _add_to_memory_cache(self, url: str, cache_data: dict[str, Any], timestamp: float):
+        """添加缓存到内存
+
+        Args:
+            url: 网页URL
+            cache_data: 缓存数据
+            timestamp: 时间戳
+        """
+        # 添加到内存缓存
+        self.memory_cache[url] = cache_data
+
+        # 记录使用时间
+        self.cache_last_used[url] = timestamp
 
     def delete(self, url: str):
         """删除指定URL的缓存
