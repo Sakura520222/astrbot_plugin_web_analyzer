@@ -37,12 +37,23 @@ class WebAnalyzerUtils:
 
         Returns:
             解析后的域名列表，已清理无效内容
+
+        Example:
+            >>> domain_text = "example.com\\ntest.com\\n\\n*.google.com"
+            >>> WebAnalyzerUtils.parse_domain_list(domain_text)
+            ['example.com', 'test.com', '*.google.com']
         """
+        # 处理空输入
         if not domain_text:
             return []
+
+        # 分割文本并过滤空行，同时去除每个域名的首尾空白
         domains = [
-            domain.strip() for domain in domain_text.split("\n") if domain.strip()
+            domain.strip()
+            for domain in domain_text.split("\n")
+            if domain.strip()  # 过滤空字符串
         ]
+
         return domains
 
     @staticmethod
@@ -166,27 +177,68 @@ class WebAnalyzerUtils:
 
         Returns:
             True表示允许访问，False表示禁止访问
+
+        Example:
+            >>> url = "https://example.com/page"
+            >>> allowed = ["example.com", "test.com"]
+            >>> blocked = ["spam.com"]
+            >>> WebAnalyzerUtils.is_domain_allowed(url, allowed, blocked)
+            True
         """
         try:
+            # 解析URL获取域名
             parsed = urlparse(url)
             domain = parsed.netloc.lower()
 
-            # 首先检查是否在禁止列表中
-            if blocked_domains:
-                for blocked_domain in blocked_domains:
-                    if blocked_domain.lower() in domain:
-                        return False
-
-            # 然后检查是否在允许列表中（如果允许列表不为空）
-            if allowed_domains:
-                for allowed_domain in allowed_domains:
-                    if allowed_domain.lower() in domain:
-                        return True
+            # 优先级1: 检查是否在禁止列表中
+            if WebAnalyzerUtils._is_domain_blocked(domain, blocked_domains):
                 return False
 
+            # 优先级2: 检查是否在允许列表中
+            if allowed_domains:
+                return WebAnalyzerUtils._is_domain_allowed_in_list(domain, allowed_domains)
+
+            # 优先级3: 允许列表为空，允许所有未被禁止的域名
             return True
+
         except Exception:
+            # URL解析失败，默认拒绝访问
             return False
+
+    @staticmethod
+    def _is_domain_blocked(domain: str, blocked_domains: list[str]) -> bool:
+        """检查域名是否被阻止
+
+        Args:
+            domain: 要检查的域名（小写）
+            blocked_domains: 禁止的域名列表
+
+        Returns:
+            True表示被阻止，False表示未被阻止
+        """
+        if not blocked_domains:
+            return False
+
+        return any(
+            blocked_domain.lower() in domain
+            for blocked_domain in blocked_domains
+        )
+
+    @staticmethod
+    def _is_domain_allowed_in_list(domain: str, allowed_domains: list[str]) -> bool:
+        """检查域名是否在允许列表中
+
+        Args:
+            domain: 要检查的域名（小写）
+            allowed_domains: 允许的域名列表
+
+        Returns:
+            True表示在允许列表中，False表示不在
+        """
+        return any(
+            allowed_domain.lower() in domain
+            for allowed_domain in allowed_domains
+        )
 
     @staticmethod
     def get_url_priority(url: str) -> int:

@@ -503,7 +503,19 @@ class WebAnalyzer:
         Raises:
             NetworkError: 当网络请求失败时抛出
         """
-        headers = {
+        # 构造HTTP请求头，模拟真实浏览器行为
+        headers = self._build_http_headers()
+
+        # 执行带重试机制的HTTP请求
+        return await self._fetch_with_retry(url, headers)
+
+    def _build_http_headers(self) -> dict:
+        """构造HTTP请求头
+
+        Returns:
+            包含完整请求头的字典
+        """
+        return {
             "User-Agent": self.user_agent,
             "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
             "Accept-Language": "zh-CN,zh;q=0.8,zh-TW;q=0.7,zh-HK;q=0.5,en-US;q=0.3,en;q=0.2",
@@ -513,6 +525,21 @@ class WebAnalyzer:
             "DNT": "1",
             "Sec-GPC": "1",
         }
+
+    async def _fetch_with_retry(self, url: str, headers: dict) -> str:
+        """执行带重试机制的HTTP请求
+
+        Args:
+            url: 目标URL
+            headers: HTTP请求头
+
+        Returns:
+            网页HTML内容
+
+        Raises:
+            NetworkError: 当所有重试都失败时抛出
+        """
+        import asyncio
 
         # 实现重试机制，最多尝试 retry_count + 1 次
         for attempt in range(self.retry_count + 1):
@@ -532,8 +559,6 @@ class WebAnalyzer:
                     logger.warning(
                         f"抓取网页失败，将重试: {url}, 错误: {e} (尝试 {attempt + 1}/{self.retry_count + 1})"
                     )
-                    import asyncio
-
                     await asyncio.sleep(self.retry_delay)
                 else:
                     # 重试次数用完，抛出网络错误
@@ -564,6 +589,7 @@ class WebAnalyzer:
             ParsingError: 当HTML解析失败时抛出
         """
         try:
+            # 使用BeautifulSoup解析HTML
             soup = BeautifulSoup(html, "lxml")
 
             # 提取网页标题
@@ -580,6 +606,21 @@ class WebAnalyzer:
             logger.error(f"解析网页内容失败: {e}")
             raise ParsingError(f"解析网页内容失败: {url}, 错误: {str(e)}") from e
 
+    def _get_content_selectors(self) -> list[str]:
+        """获取内容选择器列表（优先级从高到低）
+
+        Returns:
+            CSS选择器列表，按优先级排序
+        """
+        return [
+            "article",  # 语义化文章标签
+            "main",  # 语义化主内容标签
+            ".article-content",  # 常见文章内容类名
+            ".post-content",  # 常见博客内容类名
+            ".content",  # 通用内容类名
+            "body",  # 兜底：使用整个body
+        ]
+
     def _extract_title(self, soup: BeautifulSoup) -> str:
         """从BeautifulSoup对象中提取网页标题
 
@@ -595,40 +636,66 @@ class WebAnalyzer:
     def _extract_main_content(self, soup: BeautifulSoup) -> str:
         """从BeautifulSoup对象中提取主要内容
 
+        使用多策略内容提取算法:
+        1. 优先选择语义化标签(article, main)
+        2. 选择常见的内容类名
+        3. 最后使用整个body作为兜底
+
         Args:
             soup: BeautifulSoup对象
 
         Returns:
             提取的主要内容文本
         """
-        # 尝试提取文章内容（优先选择article、main等语义化标签）
-        content_selectors = [
-            "article",  # 语义化文章标签
-            "main",  # 语义化主内容标签
-            ".article-content",  # 常见文章内容类名
-            ".post-content",  # 常见博客内容类名
-            ".content",  # 通用内容类名
-            "body",  # 兜底：使用整个body
-        ]
+        # 获取内容选择器列表
+        content_selectors = self._get_content_selectors()
 
+        # 尝试从各个选择器中提取内容，选择最长的作为结果
+        content_text = self._try_extract_from_selectors(soup, content_selectors)
+
+        # 如果没找到合适的内容，使用body作为最后的兜底方案
+        if not content_text:
+            content_text = self._extract_from_body(soup)
+
+        return content_text
+
+    def _try_extract_from_selectors(self, soup: BeautifulSoup, selectors: list[str]) -> str:
+        """尝试从多个选择器中提取内容
+
+        Args:
+            soup: BeautifulSoup对象
+            selectors: CSS选择器列表
+
+        Returns:
+            提取的最长内容文本
+        """
         content_text = ""
-        for selector in content_selectors:
+        for selector in selectors:
             element = soup.select_one(selector)
             if element:
                 # 清理内容，移除脚本和样式标签
                 cleaned_element = self._clean_content_element(element)
                 text = cleaned_element.get_text(separator="\n", strip=True)
+                # 选择最长的内容作为结果
                 if len(text) > len(content_text):
                     content_text = text
 
-        # 如果没找到合适的内容，使用body作为最后的兜底方案
-        if not content_text:
-            body = soup.find("body")
-            if body:
-                cleaned_body = self._clean_content_element(body)
-                content_text = cleaned_body.get_text(separator="\n", strip=True)
-
         return content_text
+
+    def _extract_from_body(self, soup: BeautifulSoup) -> str:
+        """从body标签中提取内容（兜底方案）
+
+        Args:
+            soup: BeautifulSoup对象
+
+        Returns:
+            提取的内容文本
+        """
+        body = soup.find("body")
+        if body:
+            cleaned_body = self._clean_content_element(body)
+            return cleaned_body.get_text(separator="\n", strip=True)
+        return ""
 
     def _clean_content_element(self, element: BeautifulSoup) -> BeautifulSoup:
         """清理内容元素，移除脚本和样式标签
@@ -719,188 +786,315 @@ class WebAnalyzer:
             ScreenshotError: 当截图失败时抛出
         """
         try:
-            import os
-            import subprocess
-            import sys
+            # 确保浏览器已安装
+            await self._ensure_browser_installed()
 
-            from playwright.async_api import async_playwright
+            # 清理浏览器实例池
+            await self._cleanup_browser_pool()
 
-            # 只在第一次执行时检查浏览器安装
-            if not hasattr(self, "_playwright_browser_checked"):
-                logger.info("正在检查浏览器...")
-                # 检查浏览器是否已安装
-                browser_path = os.path.join(
-                    os.path.expanduser("~"), ".cache", "ms-playwright", "chromium"
-                )
-                if os.path.exists(browser_path):
-                    logger.info("浏览器已安装，跳过安装步骤")
-                else:
-                    # 安装浏览器
-                    logger.info("正在安装浏览器...")
-                    result = subprocess.run(
-                        [sys.executable, "-m", "playwright", "install", "chromium"],
-                        capture_output=True,
-                        text=True,
-                    )
-
-                    if result.returncode != 0:
-                        logger.error(f"浏览器安装失败: {result.stderr}")
-                        raise ScreenshotError(
-                            f"浏览器安装失败: {result.stderr}"
-                        ) from None
-                    logger.info("浏览器安装成功")
-
-            # 标记已检查浏览器
-            self._playwright_browser_checked = True
-
-            logger.info("正在尝试截图...")
-            screenshot_bytes = None
-            playwright_instance = None
+            # 获取或创建浏览器实例
+            browser, playwright_instance = await self._get_or_create_browser()
 
             try:
-                # 执行浏览器实例池清理
-                await self._cleanup_browser_pool()
+                # 执行截图操作
+                screenshot_bytes = await self._perform_screenshot(
+                    browser=browser,
+                    url=url,
+                    width=width,
+                    height=height,
+                    quality=quality,
+                    full_page=full_page,
+                    wait_time=wait_time,
+                    format=format,
+                )
 
-                browser = None
+                # 处理浏览器实例（放回池中或保存）
+                await self._handle_browser_after_use(browser, playwright_instance)
 
-                # 尝试从浏览器实例池获取浏览器实例
-                async with WebAnalyzer._browser_lock:
-                    # 遍历池中的实例，寻找有效实例
-                    while WebAnalyzer._browser_pool and not browser:
-                        candidate_browser = WebAnalyzer._browser_pool.pop(0)
-                        try:
-                            if candidate_browser.is_connected():
-                                browser = candidate_browser
-                                logger.debug("从浏览器实例池获取有效浏览器实例")
-                            else:
-                                logger.warn("跳过已断开连接的浏览器实例")
-                                await candidate_browser.close()
-                        except Exception as e:
-                            logger.error(
-                                f"检查浏览器实例连接状态失败: {e}, 将跳过该实例"
-                            )
-                            try:
-                                await candidate_browser.close()
-                            except Exception:
-                                pass
+                return screenshot_bytes
 
-                if not browser:
-                    # 没有可用的浏览器实例，创建新的
-                    logger.debug("创建新的浏览器实例")
-                    # 尝试启动playwright并截图
-                    playwright_instance = await async_playwright().start()
-                    # 启动浏览器（无头模式，不显示GUI）
-                    browser = await playwright_instance.chromium.launch(
-                        headless=True,
-                        # 增加浏览器启动超时时间到60秒
-                        timeout=20000,
-                        # 添加额外的启动参数，提高兼容性和稳定性
-                        args=[
-                            "--no-sandbox",  # 禁用沙箱，提高兼容性
-                            "--disable-setuid-sandbox",  # 禁用setuid沙箱
-                            "--disable-dev-shm-usage",  # 禁用/dev/shm使用
-                            "--disable-gpu",  # 禁用GPU加速
-                            # 移除固定端口，让playwright自动分配可用端口
-                        ],
-                    )
+            except Exception as screenshot_error:
+                # 截图失败时的错误处理
+                screenshot_bytes = await self._handle_screenshot_error(
+                    browser=browser,
+                    playwright_instance=playwright_instance,
+                    screenshot_error=screenshot_error,
+                    url=url,
+                    width=width,
+                    height=height,
+                    quality=quality,
+                    full_page=full_page,
+                    wait_time=wait_time,
+                    format=format,
+                )
+                return screenshot_bytes
 
-                try:
-                    # 创建新的页面，设置视口和User-Agent
-                    page = await browser.new_page(
-                        viewport={"width": width, "height": height},
-                        user_agent=self.user_agent,
-                    )
-
-                    # 导航到目标URL，使用更宽松的等待条件
-                    await page.goto(url, wait_until="domcontentloaded", timeout=60000)
-
-                    # 等待指定时间，确保页面完全加载（尤其是动态内容）
-                    await page.wait_for_timeout(wait_time)
-
-                    # 捕获截图
-                    screenshot_bytes = await page.screenshot(
-                        full_page=full_page,  # 是否截取整个页面
-                        quality=quality,  # 截图质量
-                        type=format,  # 截图格式
-                    )
-                    logger.info("截图成功")
-
-                    # 关闭页面，但保留浏览器实例用于后续复用
-                    await page.close()
-
-                    # 如果是新创建的浏览器实例，不关闭，而是将其保存到self.browser以便后续复用
-                    if not playwright_instance:
-                        # 从池中获取的浏览器实例，使用后放回池中
-                        async with WebAnalyzer._browser_lock:
-                            # 更新最后使用时间
-                            WebAnalyzer._browser_last_used[id(browser)] = time.time()
-                            # 将浏览器实例放回池中
-                            WebAnalyzer._browser_pool.append(browser)
-                            logger.debug(
-                                f"浏览器实例已放回池中，当前池大小: {len(WebAnalyzer._browser_pool)}"
-                            )
-                    else:
-                        # 新创建的浏览器实例，保存到self.browser
-                        self.browser = browser
-
-                    return screenshot_bytes
-                except Exception as new_page_error:
-                    # 当从池中获取的浏览器实例无效时，捕获异常并处理
-                    if not playwright_instance:
-                        # 从池中获取的浏览器实例，说明实例已失效，从池中移除并创建新实例
-                        logger.error(
-                            f"从池中获取的浏览器实例无效，重新创建浏览器实例: {new_page_error}"
-                        )
-                        # 关闭无效的浏览器实例
-                        try:
-                            await browser.close()
-                        except Exception:
-                            pass
-
-                        # 创建新的浏览器实例
-                        if not playwright_instance:
-                            playwright_instance = await async_playwright().start()
-                        browser = await playwright_instance.chromium.launch(
-                            headless=True,
-                            timeout=20000,
-                            args=[
-                                "--no-sandbox",
-                                "--disable-setuid-sandbox",
-                                "--disable-dev-shm-usage",
-                                "--disable-gpu",
-                            ],
-                        )
-
-                        # 使用新创建的浏览器实例重新尝试截图
-                        page = await browser.new_page(
-                            viewport={"width": width, "height": height},
-                            user_agent=self.user_agent,
-                        )
-                        await page.goto(
-                            url, wait_until="domcontentloaded", timeout=60000
-                        )
-                        await page.wait_for_timeout(wait_time)
-                        screenshot_bytes = await page.screenshot(
-                            full_page=full_page,
-                            quality=quality,
-                            type=format,
-                        )
-                        await page.close()
-                        logger.info("使用新浏览器实例截图成功")
-
-                        # 保存新创建的浏览器实例
-                        self.browser = browser
-                        return screenshot_bytes
-                    else:
-                        # 新创建的浏览器实例，直接抛出异常
-                        raise
             finally:
-                # 如果有直接创建的playwright实例，确保关闭
+                # 确保playwright实例被关闭
                 if playwright_instance:
                     await playwright_instance.stop()
+
         except Exception as e:
             logger.error(f"捕获网页截图失败: {url}, 错误: {e}")
             raise ScreenshotError(f"捕获网页截图失败: {url}, 错误: {str(e)}") from e
+
+    async def _ensure_browser_installed(self):
+        """确保Playwright浏览器已安装
+
+        检查Chromium浏览器是否已安装，如果未安装则自动安装。
+        使用类属性标记避免重复检查。
+        """
+        if hasattr(self, "_playwright_browser_checked"):
+            return
+
+        import os
+        import subprocess
+        import sys
+
+        logger.info("正在检查浏览器...")
+
+        browser_path = os.path.join(
+            os.path.expanduser("~"), ".cache", "ms-playwright", "chromium"
+        )
+
+        if os.path.exists(browser_path):
+            logger.info("浏览器已安装，跳过安装步骤")
+        else:
+            logger.info("正在安装浏览器...")
+            result = subprocess.run(
+                [sys.executable, "-m", "playwright", "install", "chromium"],
+                capture_output=True,
+                text=True,
+            )
+
+            if result.returncode != 0:
+                logger.error(f"浏览器安装失败: {result.stderr}")
+                raise ScreenshotError(f"浏览器安装失败: {result.stderr}") from None
+
+            logger.info("浏览器安装成功")
+
+        # 标记已检查浏览器，避免重复检查
+        self._playwright_browser_checked = True
+
+    async def _get_or_create_browser(self) -> tuple:
+        """从池中获取或创建新的浏览器实例
+
+        Returns:
+            tuple: (browser实例, playwright实例)
+            playwright_instance为None表示从池中获取的浏览器
+        """
+        browser = await self._try_get_browser_from_pool()
+
+        if browser:
+            return browser, None
+
+        # 创建新的浏览器实例
+        return await self._create_new_browser()
+
+    async def _try_get_browser_from_pool(self):
+        """尝试从浏览器实例池获取有效的浏览器实例
+
+        Returns:
+            有效的浏览器实例，如果没有可用实例则返回None
+        """
+        from playwright.async_api import async_playwright
+
+        async with WebAnalyzer._browser_lock:
+            while WebAnalyzer._browser_pool:
+                candidate_browser = WebAnalyzer._browser_pool.pop(0)
+                try:
+                    if candidate_browser.is_connected():
+                        logger.debug("从浏览器实例池获取有效浏览器实例")
+                        return candidate_browser
+                    else:
+                        logger.warning("跳过已断开连接的浏览器实例")
+                        await candidate_browser.close()
+                except Exception as e:
+                    logger.error(f"检查浏览器实例连接状态失败: {e}, 将跳过该实例")
+                    try:
+                        await candidate_browser.close()
+                    except Exception:
+                        pass
+
+        return None
+
+    async def _create_new_browser(self) -> tuple:
+        """创建新的浏览器实例
+
+        Returns:
+            tuple: (browser实例, playwright实例)
+        """
+        from playwright.async_api import async_playwright
+
+        logger.debug("创建新的浏览器实例")
+        playwright_instance = await async_playwright().start()
+
+        browser = await playwright_instance.chromium.launch(
+            headless=True,
+            timeout=20000,
+            args=[
+                "--no-sandbox",
+                "--disable-setuid-sandbox",
+                "--disable-dev-shm-usage",
+                "--disable-gpu",
+            ],
+        )
+
+        return browser, playwright_instance
+
+    async def _perform_screenshot(
+        self,
+        browser,
+        url: str,
+        width: int,
+        height: int,
+        quality: int,
+        full_page: bool,
+        wait_time: int,
+        format: str,
+    ) -> bytes:
+        """执行实际的截图操作
+
+        Args:
+            browser: 浏览器实例
+            url: 目标URL
+            width: 视口宽度
+            height: 视口高度
+            quality: 截图质量
+            full_page: 是否全页截图
+            wait_time: 等待时间（毫秒）
+            format: 截图格式
+
+        Returns:
+            截图的二进制数据
+        """
+        # 创建新页面
+        page = await browser.new_page(
+            viewport={"width": width, "height": height},
+            user_agent=self.user_agent,
+        )
+
+        try:
+            # 导航到目标URL
+            await page.goto(url, wait_until="domcontentloaded", timeout=60000)
+
+            # 等待页面加载完成
+            await page.wait_for_timeout(wait_time)
+
+            # 捕获截图
+            screenshot_bytes = await page.screenshot(
+                full_page=full_page,
+                quality=quality,
+                type=format,
+            )
+
+            logger.info("截图成功")
+            return screenshot_bytes
+
+        finally:
+            await page.close()
+
+    async def _handle_browser_after_use(self, browser, playwright_instance):
+        """处理使用后的浏览器实例
+
+        Args:
+            browser: 浏览器实例
+            playwright_instance: playwright实例（如果为None表示从池中获取的浏览器）
+        """
+        if playwright_instance is None:
+            # 从池中获取的浏览器实例，放回池中
+            async with WebAnalyzer._browser_lock:
+                WebAnalyzer._browser_last_used[id(browser)] = time.time()
+                WebAnalyzer._browser_pool.append(browser)
+                logger.debug(
+                    f"浏览器实例已放回池中，当前池大小: {len(WebAnalyzer._browser_pool)}"
+                )
+        else:
+            # 新创建的浏览器实例，保存到self.browser
+            self.browser = browser
+
+    async def _handle_screenshot_error(
+        self,
+        browser,
+        playwright_instance,
+        screenshot_error: Exception,
+        url: str,
+        width: int,
+        height: int,
+        quality: int,
+        full_page: bool,
+        wait_time: int,
+        format: str,
+    ) -> bytes:
+        """处理截图过程中的错误
+
+        Args:
+            browser: 发生错误的浏览器实例
+            playwright_instance: playwright实例
+            screenshot_error: 截图错误
+            url: 目标URL
+            width: 视口宽度
+            height: 视口高度
+            quality: 截图质量
+            full_page: 是否全页截图
+            wait_time: 等待时间
+            format: 截图格式
+
+        Returns:
+            截图的二进制数据
+
+        Raises:
+            Exception: 如果错误处理失败，则重新抛出异常
+        """
+        if playwright_instance is not None:
+            # 新创建的浏览器实例出错，直接抛出异常
+            raise screenshot_error
+
+        # 从池中获取的浏览器实例无效，尝试创建新实例
+        logger.error(f"从池中获取的浏览器实例无效，重新创建浏览器实例: {screenshot_error}")
+
+        try:
+            await browser.close()
+        except Exception:
+            pass
+
+        # 创建新的浏览器实例并重试
+        from playwright.async_api import async_playwright
+
+        new_playwright_instance = await async_playwright().start()
+        new_browser = await new_playwright_instance.chromium.launch(
+            headless=True,
+            timeout=20000,
+            args=[
+                "--no-sandbox",
+                "--disable-setuid-sandbox",
+                "--disable-dev-shm-usage",
+                "--disable-gpu",
+            ],
+        )
+
+        try:
+            # 使用新浏览器实例重试截图
+            screenshot_bytes = await self._perform_screenshot(
+                browser=new_browser,
+                url=url,
+                width=width,
+                height=height,
+                quality=quality,
+                full_page=full_page,
+                wait_time=wait_time,
+                format=format,
+            )
+
+            logger.info("使用新浏览器实例截图成功")
+
+            # 保存新创建的浏览器实例
+            self.browser = new_browser
+
+            return screenshot_bytes
+
+        finally:
+            await new_playwright_instance.stop()
 
     def extract_specific_content(
         self, html: str, url: str, extract_types: list[str]
