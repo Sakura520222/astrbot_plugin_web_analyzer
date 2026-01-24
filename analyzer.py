@@ -768,16 +768,16 @@ class WebAnalyzer:
         - 自定义分辨率和质量
         - 全屏截图或可视区域截图
         - 自定义等待时间，确保页面加载完成
-        - 支持JPEG和PNG格式
+        - 支持JPEG、PNG格式
 
         Args:
             url: 要截图的网页URL
-            quality: 截图质量，范围1-100
+            quality: 截图质量，范围1-100（仅适用于JPEG格式）
             width: 截图宽度（像素）
             height: 截图高度（像素）
             full_page: 是否截取整个页面，False仅截取可视区域
             wait_time: 页面加载后等待的时间（毫秒），确保动态内容加载
-            format: 截图格式，支持"jpeg"和"png"
+            format: 截图格式，支持"jpeg"、"png"
 
         Returns:
             截图的二进制数据
@@ -981,12 +981,18 @@ class WebAnalyzer:
             # 等待页面加载完成
             await page.wait_for_timeout(wait_time)
 
+            # 构建截图参数
+            screenshot_params = {
+                "full_page": full_page,
+                "type": format,
+            }
+
+            # quality 参数只适用于 jpeg 格式
+            if format.lower() == "jpeg":
+                screenshot_params["quality"] = quality
+
             # 捕获截图
-            screenshot_bytes = await page.screenshot(
-                full_page=full_page,
-                quality=quality,
-                type=format,
-            )
+            screenshot_bytes = await page.screenshot(**screenshot_params)
 
             logger.info("截图成功")
             return screenshot_bytes
