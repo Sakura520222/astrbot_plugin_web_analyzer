@@ -118,6 +118,8 @@ jobs:
             README.md \
             LICENSE \
             CHANGELOG.md \
+            REFACTORING.md \
+            core/ \
             wiki/ \
             .github/workflows/release.yml
           
