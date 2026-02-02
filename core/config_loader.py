@@ -17,9 +17,9 @@ if str(parent_dir) not in sys.path:
 from astrbot.api import logger
 from astrbot.api.star import Context
 
-from cache import CacheManager
-from analyzer import WebAnalyzer
-from utils import WebAnalyzerUtils
+from core.cache import CacheManager
+from core.analyzer import WebAnalyzer
+from core.utils import WebAnalyzerUtils
 
 
 class ConfigLoader:
@@ -329,12 +329,38 @@ class ConfigLoader:
         group_blacklist_text = group_settings.get("group_blacklist", "")
         config_dict["group_blacklist"] = ConfigLoader._parse_group_list(group_blacklist_text)
 
+        # 加载合并转发设置
         merge_forward_config = config.get("merge_forward_settings", {})
-        config_dict["merge_forward_enabled"] = {
-            "group": bool(merge_forward_config.get("group", False)),
-            "private": bool(merge_forward_config.get("private", False)),
-            "include_screenshot": bool(merge_forward_config.get("include_screenshot", False)),
-        }
+        
+        # 尝试从不同的格式中获取配置
+        # 优先检查是否有直接的 group/private 字段（新格式）
+        if "group" in merge_forward_config:
+            config_dict["merge_forward_group"] = bool(merge_forward_config.get("group", False))
+            config_dict["merge_forward_private"] = bool(merge_forward_config.get("private", False))
+            config_dict["merge_forward_include_screenshot"] = bool(
+                merge_forward_config.get("include_screenshot", False)
+            )
+        # 检查是否有 merge_forward_enabled 字段（旧格式）
+        elif "merge_forward_enabled" in merge_forward_config:
+            old_config = merge_forward_config.get("merge_forward_enabled", {})
+            # 如果旧配置是字典
+            if isinstance(old_config, dict):
+                config_dict["merge_forward_group"] = bool(old_config.get("group", False))
+                config_dict["merge_forward_private"] = bool(old_config.get("private", False))
+                config_dict["merge_forward_include_screenshot"] = bool(
+                    old_config.get("include_screenshot", False)
+                )
+                logger.info("检测到旧格式的合并转发配置，已自动转换为新格式")
+            else:
+                # 如果是其他类型，使用默认值
+                config_dict["merge_forward_group"] = False
+                config_dict["merge_forward_private"] = False
+                config_dict["merge_forward_include_screenshot"] = False
+        else:
+            # 使用默认值
+            config_dict["merge_forward_group"] = False
+            config_dict["merge_forward_private"] = False
+            config_dict["merge_forward_include_screenshot"] = False
 
         return config_dict
 

@@ -20,10 +20,11 @@ from astrbot.api import logger
 from astrbot.api.event import AstrMessageEvent
 from astrbot.api.message_components import Image, Node, Nodes, Plain
 
-from analyzer import WebAnalyzer
-from cache import CacheManager
+from core.analyzer import WebAnalyzer
+from core.cache import CacheManager
 from core.constants import ErrorType
 from core.error_handler import ErrorHandler
+from core.utils import WebAnalyzerUtils
 
 
 class MessageHandler:
@@ -37,6 +38,9 @@ class MessageHandler:
         enable_screenshot: bool = True,
         send_content_type: str = "both",
         screenshot_format: str = "jpeg",
+        merge_forward_group: bool = False,
+        merge_forward_private: bool = False,
+        merge_forward_include_screenshot: bool = False,
     ):
         """初始化消息处理器
 
@@ -47,6 +51,9 @@ class MessageHandler:
             enable_screenshot: 是否启用截图
             send_content_type: 发送内容类型
             screenshot_format: 截图格式
+            merge_forward_group: 群聊启用合并转发
+            merge_forward_private: 私聊启用合并转发
+            merge_forward_include_screenshot: 合并转发包含截图
         """
         self.analyzer = analyzer
         self.cache_manager = cache_manager
@@ -54,6 +61,9 @@ class MessageHandler:
         self.enable_screenshot = enable_screenshot
         self.send_content_type = send_content_type
         self.screenshot_format = screenshot_format
+        self.merge_forward_group = merge_forward_group
+        self.merge_forward_private = merge_forward_private
+        self.merge_forward_include_screenshot = merge_forward_include_screenshot
 
     def check_cache(self, url: str) -> dict | None:
         """检查指定 URL 的缓存是否存在且有效
@@ -68,7 +78,47 @@ class MessageHandler:
             return None
 
         normalized_url = self.analyzer.normalize_url(url)
-        return self.cache_manager.get(normalized_url)
+        cached_result = self.cache_manager.get(normalized_url)
+        
+        # 缓存管理器返回的是内层的 result 字典，格式为：
+        # {
+        #   "url": "https://...",
+        #   "result": "分析结果文本",
+        #   "has_screenshot": true/false,
+        #   "screenshot": bytes (如果已加载到内存)
+        # }
+        if cached_result and isinstance(cached_result, dict):
+            # 获取分析结果文本
+            result_text = cached_result.get("result", "")
+            if isinstance(result_text, dict):
+                result_text = result_text.get("analysis", str(result_text))
+            
+            # 处理截图数据
+            screenshot = None
+            if cached_result.get("has_screenshot", False):
+                # 有截图标记，尝试获取截图数据
+                screenshot = cached_result.get("screenshot")
+                
+                # 如果内存中没有实际的截图数据（bytes），从磁盘加载
+                if not isinstance(screenshot, bytes):
+                    screenshot = self._load_screenshot_from_cache(normalized_url)
+                    if screenshot:
+                        logger.info(f"从磁盘加载缓存截图成功: {normalized_url}, 大小: {len(screenshot)} 字节")
+                    else:
+                        logger.warning(f"缓存标记有截图，但磁盘文件不存在: {normalized_url}")
+                else:
+                    logger.info(f"使用内存中的缓存截图: {normalized_url}, 大小: {len(screenshot)} 字节")
+            else:
+                logger.info(f"缓存中无截图标记: {normalized_url}")
+            
+            # 返回标准格式
+            return {
+                "url": url,
+                "result": result_text,
+                "screenshot": screenshot
+            }
+        
+        return cached_result
 
     def update_cache(self, url: str, result: dict, content: str = None):
         """更新指定 URL 的缓存
@@ -342,35 +392,262 @@ class MessageHandler:
             return
 
         try:
-            for i, result_data in enumerate(analysis_results, 1):
-                screenshot = result_data.get("screenshot")
-                analysis_result = result_data.get("result")
+            # 判断是否使用合并转发
+            is_group_message = self._is_group_message(event)
+            use_merge_forward = (is_group_message and self.merge_forward_group) or (
+                not is_group_message and self.merge_forward_private
+            )
 
-                # 发送分析结果文本
-                if self.send_content_type != "screenshot_only" and analysis_result:
-                    if len(analysis_results) == 1:
-                        result_text = f"网页分析结果：\n{analysis_result}"
-                    else:
-                        result_text = f"第{i}/{len(analysis_results)}个网页分析结果：\n{analysis_result}"
-                    yield event.plain_result(result_text)
+            if use_merge_forward:
+                # 使用合并转发方式发送
+                async for result in self._send_with_merge_forward(
+                    event, analysis_results, is_group_message
+                ):
+                    yield result
+            else:
+                # 使用原有的逐条发送方式
+                async for result in self._send_individually(event, analysis_results):
+                    yield result
 
-                # 发送截图
-                if screenshot and self.send_content_type != "analysis_only":
-                    try:
-                        suffix = f".{self.screenshot_format}" if self.screenshot_format else ".jpg"
-                        with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as temp_file:
-                            temp_file.write(screenshot)
-                            temp_file_path = temp_file.name
-
-                        image_component = Image.fromFileSystem(temp_file_path)
-                        yield event.chain_result([image_component])
-                        logger.info("发送分析结果和截图")
-
-                        os.unlink(temp_file_path)
-                    except Exception as e:
-                        logger.error(f"发送截图失败: {e}")
-                        if "temp_file_path" in locals() and os.path.exists(temp_file_path):
-                            os.unlink(temp_file_path)
         except Exception as e:
             logger.error(f"发送分析结果失败: {e}")
             yield event.plain_result(f"❌ 发送分析结果失败: {str(e)}")
+
+    def _is_group_message(self, event: AstrMessageEvent) -> bool:
+        """判断消息是否为群聊消息
+
+        Args:
+            event: 消息事件对象
+
+        Returns:
+            是否为群聊消息
+        """
+        # 方法1：检查 unified_msg_origin
+        if hasattr(event, "unified_msg_origin"):
+            umo = event.unified_msg_origin
+            if hasattr(umo, "group_id") and umo.group_id:
+                return True
+
+        # 方法2：检查 group_id 属性
+        if hasattr(event, "group_id") and event.group_id:
+            return True
+
+        # 方法3：检查 is_private_chat 方法
+        if hasattr(event, "is_private_chat"):
+            try:
+                is_private = event.is_private_chat()
+                return not is_private
+            except Exception:
+                pass
+
+        return False
+
+    async def _send_with_merge_forward(
+        self, event: AstrMessageEvent, analysis_results: list, is_group: bool
+    ):
+        """使用合并转发方式发送分析结果
+
+        Args:
+            event: 消息事件对象
+            analysis_results: 分析结果列表
+            is_group: 是否为群聊消息
+
+        Yields:
+            消息结果
+        """
+        nodes = []
+        sender_id = self._get_sender_id(event)
+        screenshots_to_send = []  # 收集需要单独发送的截图
+
+        for i, result_data in enumerate(analysis_results, 1):
+            screenshot = result_data.get("screenshot")
+            analysis_result = result_data.get("result")
+            url = result_data.get("url", "")
+
+            # 构建节点内容列表
+            node_content = []
+
+            # 添加文本内容
+            if self.send_content_type != "screenshot_only" and analysis_result:
+                if len(analysis_results) == 1:
+                    result_text = f"网页分析结果：\n{analysis_result}"
+                else:
+                    result_text = f"第{i}/{len(analysis_results)}个网页分析结果\n\n{analysis_result}"
+                node_content.append(Plain(result_text))
+
+            # 处理截图
+            has_screenshot = False
+            if self.send_content_type != "analysis_only":
+                # 检查是否有实际的截图数据（从缓存或新生成的）
+                if isinstance(screenshot, bytes) and len(screenshot) > 0:
+                    has_screenshot = True
+                    logger.info(f"检测到实际截图数据，大小: {len(screenshot)} 字节")
+                else:
+                    logger.info(f"无截图数据 - screenshot类型: {type(screenshot)}, 大小: {len(screenshot) if screenshot else 0}")
+
+            # 根据配置决定如何处理截图
+            if self.merge_forward_include_screenshot and has_screenshot and screenshot:
+                # 将截图添加到合并转发中
+                try:
+                    # 使用项目目录下的临时文件，而不是系统临时目录
+                    import uuid
+                    temp_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data", "temp")
+                    os.makedirs(temp_dir, exist_ok=True)
+                    
+                    suffix = f".{self.screenshot_format}" if self.screenshot_format else ".jpg"
+                    temp_filename = f"{uuid.uuid4()}{suffix}"
+                    temp_file_path = os.path.join(temp_dir, temp_filename)
+                    
+                    # 写入临时文件
+                    with open(temp_file_path, "wb") as f:
+                        f.write(screenshot)
+                    
+                    image_component = Image.fromFileSystem(temp_file_path)
+                    node_content.append(image_component)
+                    
+                    logger.info(f"创建临时截图文件: {temp_file_path}, 大小: {len(screenshot)} 字节")
+                except Exception as e:
+                    logger.error(f"添加截图到合并转发失败: {e}")
+            elif not self.merge_forward_include_screenshot and has_screenshot and screenshot:
+                # 收集截图，稍后单独发送
+                screenshots_to_send.append(screenshot)
+
+            # 创建节点
+            if node_content:
+                node = Node(
+                    uin=sender_id,
+                    name=f"网页分析 {i}",
+                    content=node_content,
+                )
+                nodes.append(node)
+
+        # 发送合并转发消息
+        if nodes:
+            try:
+                merge_forward_message = Nodes(nodes)
+                yield event.chain_result([merge_forward_message])
+                logger.info(f"使用合并转发发送了 {len(nodes)} 个分析结果")
+            except Exception as e:
+                logger.error(f"发送合并转发消息失败: {e}")
+                # 如果合并转发失败，回退到逐条发送
+                logger.info("合并转发失败，回退到逐条发送方式")
+                async for result in self._send_individually(event, analysis_results):
+                    yield result
+                return
+
+        # 如果配置了不包含截图在合并转发中，则单独发送截图
+        if screenshots_to_send:
+            logger.info(f"单独发送 {len(screenshots_to_send)} 个截图")
+            for screenshot in screenshots_to_send:
+                try:
+                    suffix = f".{self.screenshot_format}" if self.screenshot_format else ".jpg"
+                    with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as temp_file:
+                        temp_file.write(screenshot)
+                        temp_file_path = temp_file.name
+
+                    image_component = Image.fromFileSystem(temp_file_path)
+                    yield event.chain_result([image_component])
+                    logger.info("发送截图成功")
+
+                    os.unlink(temp_file_path)
+                except Exception as e:
+                    logger.error(f"发送截图失败: {e}")
+                    if "temp_file_path" in locals() and os.path.exists(temp_file_path):
+                        os.unlink(temp_file_path)
+
+    def _get_sender_id(self, event: AstrMessageEvent) -> int:
+        """获取发送者ID
+
+        Args:
+            event: 消息事件对象
+
+        Returns:
+            发送者ID
+        """
+        # 方法1：使用 get_sender_id
+        if hasattr(event, "get_sender_id"):
+            try:
+                return event.get_sender_id()
+            except Exception:
+                pass
+
+        # 方法2：从 unified_msg_origin 获取
+        if hasattr(event, "unified_msg_origin"):
+            umo = event.unified_msg_origin
+            if hasattr(umo, "user_id"):
+                return umo.user_id
+
+        # 方法3：从 sender_id 属性获取
+        if hasattr(event, "sender_id"):
+            return event.sender_id
+
+        # 默认返回0（机器人自己的ID）
+        return 0
+
+    def _load_screenshot_from_cache(self, url: str) -> bytes | None:
+        """从缓存加载截图数据
+
+        Args:
+            url: 网页URL
+
+        Returns:
+            截图二进制数据，如果不存在则返回None
+        """
+        try:
+            # 获取缓存目录
+            cache_dir = self.cache_manager.cache_dir
+            import hashlib
+            
+            # 计算截图文件路径
+            url_hash = hashlib.md5(url.encode("utf-8")).hexdigest()
+            screenshot_path = os.path.join(cache_dir, f"{url_hash}_screenshot.bin")
+            
+            # 检查文件是否存在
+            if os.path.exists(screenshot_path):
+                with open(screenshot_path, "rb") as f:
+                    return f.read()
+            
+            return None
+        except Exception as e:
+            logger.error(f"从缓存加载截图失败: {url}, 错误: {e}")
+            return None
+
+    async def _send_individually(self, event: AstrMessageEvent, analysis_results: list):
+        """逐条发送分析结果
+
+        Args:
+            event: 消息事件对象
+            analysis_results: 分析结果列表
+
+        Yields:
+            消息结果
+        """
+        for i, result_data in enumerate(analysis_results, 1):
+            screenshot = result_data.get("screenshot")
+            analysis_result = result_data.get("result")
+
+            # 发送分析结果文本
+            if self.send_content_type != "screenshot_only" and analysis_result:
+                if len(analysis_results) == 1:
+                    result_text = f"网页分析结果：\n{analysis_result}"
+                else:
+                    result_text = f"第{i}/{len(analysis_results)}个网页分析结果：\n{analysis_result}"
+                yield event.plain_result(result_text)
+
+            # 发送截图
+            if screenshot and self.send_content_type != "analysis_only":
+                try:
+                    suffix = f".{self.screenshot_format}" if self.screenshot_format else ".jpg"
+                    with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as temp_file:
+                        temp_file.write(screenshot)
+                        temp_file_path = temp_file.name
+
+                    image_component = Image.fromFileSystem(temp_file_path)
+                    yield event.chain_result([image_component])
+                    logger.info("发送分析结果和截图")
+
+                    os.unlink(temp_file_path)
+                except Exception as e:
+                    logger.error(f"发送截图失败: {e}")
+                    if "temp_file_path" in locals() and os.path.exists(temp_file_path):
+                        os.unlink(temp_file_path)

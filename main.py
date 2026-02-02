@@ -22,9 +22,9 @@ from astrbot.api import AstrBotConfig, logger
 from astrbot.api.event import AstrMessageEvent, filter
 from astrbot.api.star import Context, Star, register
 
-from analyzer import WebAnalyzer
-from cache import CacheManager
-from utils import WebAnalyzerUtils
+from core.analyzer import WebAnalyzer
+from core.cache import CacheManager
+from core.utils import WebAnalyzerUtils
 
 # 导入核心模块
 from core.constants import ErrorType
@@ -39,7 +39,7 @@ from core.message_handler import MessageHandler
     "astrbot_plugin_web_analyzer",
     "Sakura520222",
     "自动识别网页链接，智能抓取解析内容，集成大语言模型进行深度分析和总结，支持网页截图、缓存机制和多种管理命令",
-    "1.4.4",
+    "1.4.5",
     "https://github.com/Sakura520222/astrbot_plugin_web_analyzer",
 )
 class WebAnalyzerPlugin(Star):
@@ -120,6 +120,9 @@ class WebAnalyzerPlugin(Star):
             enable_screenshot=self.enable_screenshot,
             send_content_type=self.send_content_type,
             screenshot_format=self.screenshot_format,
+            merge_forward_group=self.merge_forward_group,
+            merge_forward_private=self.merge_forward_private,
+            merge_forward_include_screenshot=self.merge_forward_include_screenshot,
         )
 
     def _is_group_blacklisted(self, group_id: str) -> bool:
