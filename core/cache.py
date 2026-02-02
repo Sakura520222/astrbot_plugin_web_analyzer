@@ -106,8 +106,10 @@ class CacheManager:
             最终使用的缓存目录路径
         """
         if not cache_dir:
-            # 使用默认缓存目录
-            cache_dir = os.path.join(os.path.dirname(__file__), "data", "cache")
+            # 使用默认缓存目录（项目根目录下的 data/cache）
+            # 获取项目根目录（core 的父目录）
+            project_root = os.path.dirname(os.path.dirname(__file__))
+            cache_dir = os.path.join(project_root, "data", "cache")
 
         # 确保缓存目录存在
         os.makedirs(cache_dir, exist_ok=True)
@@ -381,8 +383,8 @@ class CacheManager:
         if os.path.exists(screenshot_path):
             with open(screenshot_path, "rb") as sf:
                 result["screenshot"] = sf.read()
-            # 移除标记，因为现在已经有了实际的截图数据
-            result.pop("has_screenshot", None)
+            # 保留标记，以便后续检查
+            # 不移除 has_screenshot，这样即使重启后也能正确识别有截图
         return result
 
     def _cleanup_corrupted_cache(self, file_path: str):
