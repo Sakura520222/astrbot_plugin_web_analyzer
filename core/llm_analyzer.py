@@ -21,6 +21,7 @@ class LLMAnalyzer:
         custom_prompt: str = "",
         max_summary_length: int = 2000,
         enable_emoji: bool = True,
+        llm_enabled: bool = True,
     ):
         """初始化 LLM 分析器
 
@@ -30,12 +31,14 @@ class LLMAnalyzer:
             custom_prompt: 自定义提示词
             max_summary_length: 最大摘要长度
             enable_emoji: 是否启用 emoji
+            llm_enabled: LLM 是否启用
         """
         self.context = context
         self.llm_provider = llm_provider
         self.custom_prompt = custom_prompt
         self.max_summary_length = max_summary_length
         self.enable_emoji = enable_emoji
+        self.llm_enabled = llm_enabled
 
     def check_llm_availability(self) -> bool:
         """检查 LLM 是否可用和启用
@@ -229,14 +232,13 @@ class LLMAnalyzer:
         return formatted_result
 
     async def analyze_with_llm(
-        self, event: AstrMessageEvent, content_data: dict, llm_enabled: bool = True
+        self, event: AstrMessageEvent, content_data: dict
     ) -> str:
         """调用大语言模型(LLM)进行智能内容分析和总结
 
         Args:
             event: 消息事件对象
             content_data: 内容数据字典
-            llm_enabled: LLM 是否启用
 
         Returns:
             分析结果字符串
@@ -246,7 +248,7 @@ class LLMAnalyzer:
             url = content_data["url"]
 
             # 检查 LLM 是否可用和启用
-            if not llm_enabled or not hasattr(self.context, "llm_generate"):
+            if not self.check_llm_availability():
                 logger.info("LLM 未启用或不可用")
                 return None
 
