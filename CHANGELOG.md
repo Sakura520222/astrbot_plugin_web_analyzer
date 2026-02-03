@@ -1,5 +1,23 @@
 # 更新日志
 
+### [v1.4.7] - 2026-02-03
+
+#### 🐛 Bug修复
+- **修复screenshot_only模式** - screenshot_only模式现在直接发送截图，完全绕过合并转发逻辑
+- **修复both模式** - both模式下合并转发只包含文字，截图独立发送
+- **修复analysis_only模式** - analysis_only模式下正确只发送文字，不发送截图
+- **修复LLMAnalyzer.llm_enabled属性缺失** - 添加llm_enabled属性到LLMAnalyzer类
+- **修复analyze_with_llm方法参数** - 修正方法参数顺序和类型注解
+- **修复web_mode配置保存** - 添加配置保存逻辑，确保模式切换持久化
+- **恢复analyze_webpage_with_decision_tool方法** - 恢复LLM自主决策工具方法
+
+#### 🎯 代码质量提升
+- **添加_send_screenshots_only方法** - 专门处理screenshot_only模式的发送逻辑
+- **优化截图发送逻辑** - 明确不同模式下的截图发送行为
+- **完善错误处理** - 改进异常处理和日志记录
+
+---
+
 ### [v1.4.6] - 2026-02-03
 
 #### ✨ 功能增强

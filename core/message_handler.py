@@ -453,9 +453,19 @@ class MessageHandler:
         # 检查是否所有结果都是错误结果
         all_errors = True
         for result in analysis_results:
+            # 在 screenshot_only 模式下，只要 has_screenshot=True 就认为成功
+            if self.send_content_type == "screenshot_only":
+                if result.get("has_screenshot", False):
+                    all_errors = False
+                    break
+                # 没有截图标记，继续检查下一个
+                continue
+            
+            # 其他模式：检查是否有截图
             if result.get("screenshot"):
                 all_errors = False
                 break
+            # 检查分析结果文本是否包含错误信息
             result_text = result.get("result", "")
             if not any(keyword in result_text for keyword in ["失败", "错误", "无法", "❌"]):
                 all_errors = False
@@ -466,6 +476,13 @@ class MessageHandler:
             return
 
         try:
+            # screenshot_only 模式：直接发送截图，不使用合并转发
+            if self.send_content_type == "screenshot_only":
+                logger.info("screenshot_only 模式：直接发送截图")
+                async for result in self._send_screenshots_only(event, analysis_results):
+                    yield result
+                return
+            
             # 判断是否使用合并转发
             is_group_message = self._is_group_message(event)
             use_merge_forward = (is_group_message and self.merge_forward_group) or (
@@ -646,9 +663,21 @@ class MessageHandler:
                     result_text = f"第{i}/{len(analysis_results)}个网页分析结果\n\n{analysis_result}"
                 content_list.append(Plain(result_text))
 
-            # 根据配置决定如何处理截图
-            if self.merge_forward_include_screenshot and has_screenshot:
-                # 将截图合并到同一个 Node 中
+            # 根据配置决定是否在合并转发中包含截图
+            # 逻辑：
+            # 1. 如果 merge_forward_include_screenshot=True，总是将截图合并到节点中
+            # 2. 如果 merge_forward_include_screenshot=False：
+            #    - screenshot_only 模式：必须包含截图（因为没有文字）
+            #    - both 模式：不包含截图（会独立发送）
+            #    - analysis_only 模式：不包含截图（本来就不需要）
+            should_include_screenshot_in_node = (
+                has_screenshot and (
+                    self.merge_forward_include_screenshot or 
+                    (not self.merge_forward_include_screenshot and self.send_content_type == "screenshot_only")
+                )
+            )
+
+            if should_include_screenshot_in_node:
                 try:
                     image_component = Image.fromFileSystem(temp_path)
                     content_list.append(image_component)
@@ -656,7 +685,7 @@ class MessageHandler:
                 except Exception as e:
                     logger.error(f"添加截图到节点失败: {e}")
 
-            # 创建包含文字和截图的单一 Node
+            # 创建节点
             if content_list:
                 node = Node(
                     uin=sender_id,
@@ -673,12 +702,22 @@ class MessageHandler:
                 logger.info(f"使用合并转发发送了 {len(nodes)} 个节点")
                 
                 # 如果未启用 merge_forward_include_screenshot，独立发送截图
+                # 逻辑：
+                # - screenshot_only：截图已合并到节点中，不独立发送
+                # - both：截图未合并到节点中，独立发送
+                # - analysis_only：不需要截图
                 logger.info(f"merge_forward_include_screenshot 配置: {self.merge_forward_include_screenshot}")
                 if not self.merge_forward_include_screenshot:
-                    logger.info(f"准备独立发送截图，共 {len(temp_paths)} 个")
-                    for i, temp_path in enumerate(temp_paths, 1):
-                        # 优先使用 temp_path 判断是否有截图
-                        if temp_path is not None and self.send_content_type != "analysis_only":
+                    for i, (temp_path, result_data) in enumerate(zip(temp_paths, analysis_results), 1):
+                        # 判断是否需要独立发送截图
+                        has_screenshot = result_data.get("has_screenshot", False)
+                        should_send_screenshot = (
+                            has_screenshot and 
+                            temp_path is not None and 
+                            self.send_content_type == "both"  # only both mode sends screenshot independently
+                        )
+                        
+                        if should_send_screenshot:
                             try:
                                 image_component = Image.fromFileSystem(temp_path)
                                 yield event.chain_result([image_component])
@@ -750,6 +789,30 @@ class MessageHandler:
         except Exception as e:
             logger.error(f"从缓存加载截图失败: {url}, 错误: {e}")
             return None
+
+    async def _send_screenshots_only(self, event: AstrMessageEvent, analysis_results: list):
+        """只发送截图，不发送文字（screenshot_only 模式专用）
+
+        Args:
+            event: 消息事件对象
+            analysis_results: 分析结果列表
+
+        Yields:
+            消息结果
+        """
+        # 准备所有截图的临时文件路径
+        temp_paths = await self._prepare_screenshots_for_send(analysis_results)
+        
+        for i, (result_data, temp_path) in enumerate(zip(analysis_results, temp_paths), 1):
+            has_screenshot = result_data.get("has_screenshot", False)
+            
+            if has_screenshot and temp_path:
+                try:
+                    image_component = Image.fromFileSystem(temp_path)
+                    yield event.chain_result([image_component])
+                    logger.info(f"screenshot_only 模式发送截图 {i}/{len(analysis_results)}: {temp_path}")
+                except Exception as e:
+                    logger.error(f"screenshot_only 模式发送截图 {i} 失败: {e}")
 
     async def _send_individually(self, event: AstrMessageEvent, analysis_results: list):
         """逐条发送分析结果
