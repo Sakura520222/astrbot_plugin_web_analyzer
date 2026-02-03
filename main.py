@@ -1,4 +1,4 @@
-# -*- coding: utf-8 -*-
+
 """
 AstrBot 网页分析插件 - 重构版本
 
@@ -79,7 +79,7 @@ class WebAnalyzerPlugin(Star):
         # 初始化缓存管理器
         self.cache_manager = CacheManager(
             max_size=self.max_cache_size,
-            expire_time=self.cache_expire_time,
+            expire_time=self.cache_expire_time_min,
             preload_enabled=self.cache_preload_enabled,
             preload_count=self.cache_preload_count,
         )
@@ -87,13 +87,13 @@ class WebAnalyzerPlugin(Star):
         # 初始化网页分析器
         self.analyzer = WebAnalyzer(
             max_content_length=self.max_content_length,
-            timeout=self.timeout,
+            timeout=self.request_timeout_s,
             user_agent=self.user_agent,
             proxy=self.proxy,
             retry_count=self.retry_count,
-            retry_delay=self.retry_delay,
+            retry_delay=self.retry_delay_s,
             enable_memory_monitor=self.enable_memory_monitor,
-            memory_threshold=self.memory_threshold,
+            memory_threshold=self.memory_threshold_percent,
             enable_unified_domain=self.enable_unified_domain,
         )
 
@@ -120,9 +120,17 @@ class WebAnalyzerPlugin(Star):
             enable_screenshot=self.enable_screenshot,
             send_content_type=self.send_content_type,
             screenshot_format=self.screenshot_format,
+            screenshot_quality=self.screenshot_quality,
+            screenshot_width=self.screenshot_width,
+            screenshot_height=self.screenshot_height,
+            screenshot_full_page=self.screenshot_full_page,
+            screenshot_wait_ms=self.screenshot_wait_ms,
+            enable_crop=self.enable_crop,
+            crop_area=self.crop_area,
             merge_forward_group=self.merge_forward_group,
             merge_forward_private=self.merge_forward_private,
             merge_forward_include_screenshot=self.merge_forward_include_screenshot,
+            max_concurrency=self.max_concurrency,
         )
 
     def _is_group_blacklisted(self, group_id: str) -> bool:
@@ -413,7 +421,7 @@ class WebAnalyzerPlugin(Star):
         # 撤回处理消息
         if self.enable_recall and processing_message_id and bot:
             await self._recall_processing_message(
-                event, processing_message_id, bot, self.recall_time
+                event, processing_message_id, bot, self.recall_time_s
             )
 
     async def _send_processing_message(self, event: AstrMessageEvent, message: str):
@@ -491,12 +499,12 @@ class WebAnalyzerPlugin(Star):
                 # 定时撤回模式
                 if self.recall_type == "time_based":
                     logger.info(
-                        f"创建定时撤回任务，message_id: {message_id}，延迟: {self.recall_time}秒"
+                        f"创建定时撤回任务，message_id: {message_id}，延迟: {self.recall_time_s}秒"
                     )
 
                     async def _recall_task():
                         try:
-                            await asyncio.sleep(self.recall_time)
+                            await asyncio.sleep(self.recall_time_s)
                             await bot.delete_msg(message_id=message_id)
                             logger.info(f"已定时撤回消息: {message_id}")
                         except Exception as e:
@@ -628,15 +636,14 @@ class WebAnalyzerPlugin(Star):
 
 **基本设置**
 - 最大内容长度: {self.max_content_length} 字符
-- 请求超时时间: {self.timeout} 秒
+- 请求超时时间: {self.request_timeout_s} 秒
 - LLM智能分析: {"✅ 已启用" if self.llm_enabled else "❌ 已禁用"}
 - 分析模式: {self.analysis_mode}
 - 自动分析链接: {"✅ 已启用" if self.auto_analyze else "❌ 已禁用"}
 
 **并发处理设置**
 - 最大并发数: {self.max_concurrency}
-- 动态并发控制: {"✅ 已启用" if self.dynamic_concurrency else "❌ 已禁用"}
-- 优先级调度: {"✅ 已启用" if self.enable_priority_scheduling else "❌ 已禁用"}
+- LLM自主决策: {"✅ 已启用" if self.enable_llm_decision else "❌ 已禁用"}
 
 **域名控制**
 - 允许域名: {len(self.allowed_domains)} 个
@@ -658,7 +665,7 @@ class WebAnalyzerPlugin(Star):
 
 **缓存设置**
 - 启用结果缓存: {"✅ 已启用" if self.enable_cache else "❌ 已禁用"}
-- 缓存过期时间: {self.cache_expire_time} 分钟
+- 缓存过期时间: {self.cache_expire_time_min} 分钟
 - 最大缓存数量: {self.max_cache_size} 个
 
 *提示: 如需修改配置，请在AstrBot管理面板中编辑插件配置*"""
@@ -786,7 +793,7 @@ class WebAnalyzerPlugin(Star):
             cache_info += f"- 缓存总数: {cache_stats['total']} 个\n"
             cache_info += f"- 有效缓存: {cache_stats['valid']} 个\n"
             cache_info += f"- 过期缓存: {cache_stats['expired']} 个\n"
-            cache_info += f"- 缓存过期时间: {self.cache_expire_time} 分钟\n"
+            cache_info += f"- 缓存过期时间: {self.cache_expire_time_min} 分钟\n"
             cache_info += f"- 最大缓存数量: {self.max_cache_size} 个\n"
             cache_info += (
                 f"- 缓存功能: {'✅ 已启用' if self.enable_cache else '❌ 已禁用'}\n"
