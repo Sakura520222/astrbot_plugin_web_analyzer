@@ -1,108 +1,179 @@
 {
-  "network_settings": {
-    "description": "网络请求设置",
+  "基础设置": {
+    "description": "基础配置选项，包括网络、域名、缓存和资源管理",
     "type": "object",
-    "hint": "网页请求相关配置选项",
+    "hint": "插件的底层基础设施配置",
     "items": {
-      "max_content_length": {
-        "description": "最大网页内容长度",
-        "type": "int",
-        "hint": "限制抓取的网页内容字符数，避免处理过大的网页",
-        "default": 10000
+      "网络设置": {
+        "description": "网络请求相关配置",
+        "type": "object",
+        "hint": "控制网页抓取的网络行为",
+        "items": {
+          "max_content_length": {
+            "description": "最大网页内容长度",
+            "type": "int",
+            "hint": "限制抓取的网页内容字符数，避免处理过大的网页",
+            "default": 10000,
+            "minimum": 1000,
+            "maximum": 1000000
+          },
+          "request_timeout_s": {
+            "description": "请求超时时间(秒)",
+            "type": "int",
+            "hint": "网页请求的超时时间，超过该时间将放弃抓取",
+            "default": 30,
+            "minimum": 5,
+            "maximum": 300
+          },
+          "retry_count": {
+            "description": "请求重试次数",
+            "type": "int",
+            "hint": "网页请求失败后的重试次数",
+            "default": 3,
+            "minimum": 0,
+            "maximum": 10
+          },
+          "retry_delay_s": {
+            "description": "请求重试间隔(秒)",
+            "type": "int",
+            "hint": "网页请求失败后，重试前的等待时间",
+            "default": 2,
+            "minimum": 0,
+            "maximum": 10
+          },
+          "user_agent": {
+            "description": "自定义User-Agent",
+            "type": "string",
+            "hint": "自定义请求头中的User-Agent，用于绕过某些网站的访问限制",
+            "default": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+          },
+          "proxy": {
+            "description": "HTTP代理配置",
+            "type": "string",
+            "hint": "HTTP代理地址，格式为http://username:password@host:port，留空表示不使用代理",
+            "default": ""
+          },
+          "max_concurrency": {
+            "description": "最大并发数",
+            "type": "int",
+            "hint": "同时处理的最大URL数量，控制资源消耗和请求速率",
+            "default": 5,
+            "minimum": 1,
+            "maximum": 20
+          }
+        }
       },
-      "request_timeout": {
-        "description": "请求超时时间(秒)",
-        "type": "int",
-        "hint": "网页请求的超时时间，超过该时间将放弃抓取",
-        "default": 30
+      "域名管理": {
+        "description": "域名访问控制配置",
+        "type": "object",
+        "hint": "控制允许和禁止分析的域名",
+        "items": {
+          "enable_unified_domain": {
+            "description": "启用域名统一处理",
+            "type": "bool",
+            "hint": "是否将google.com和www.google.com等变体视为同一域名，避免重复分析",
+            "default": false
+          },
+          "allowed_domains": {
+            "description": "允许的域名列表",
+            "type": "text",
+            "hint": "只分析指定域名的网页，每行一个域名（留空表示允许所有域名）",
+            "default": ""
+          },
+          "blocked_domains": {
+            "description": "禁止的域名列表",
+            "type": "text",
+            "hint": "不分析指定域名的网页，每行一个域名",
+            "default": ""
+          }
+        }
       },
-      "retry_count": {
-        "description": "请求重试次数",
-        "type": "int",
-        "hint": "网页请求失败后的重试次数",
-        "default": 3
+      "缓存设置": {
+        "description": "分析结果缓存配置",
+        "type": "object",
+        "hint": "通过缓存避免重复分析同一网页",
+        "items": {
+          "enable_cache": {
+            "description": "启用结果缓存",
+            "type": "bool",
+            "hint": "是否启用分析结果缓存，避免重复分析同一网页",
+            "default": true
+          },
+          "cache_expire_time_min": {
+            "description": "缓存过期时间(分钟)",
+            "type": "int",
+            "hint": "缓存结果的过期时间，单位：分钟",
+            "default": 1440,
+            "minimum": 5,
+            "maximum": 10080
+          },
+          "max_cache_size": {
+            "description": "最大缓存数量",
+            "type": "int",
+            "hint": "最大缓存的分析结果数量",
+            "default": 100,
+            "minimum": 10,
+            "maximum": 1000
+          },
+          "cache_preload_enabled": {
+            "description": "启用缓存预加载",
+            "type": "bool",
+            "hint": "是否启用缓存预加载功能",
+            "default": false
+          },
+          "cache_preload_count": {
+            "description": "预加载缓存数量",
+            "type": "int",
+            "hint": "预加载的缓存数量",
+            "default": 20,
+            "minimum": 0,
+            "maximum": 100
+          }
+        }
       },
-      "retry_delay": {
-        "description": "请求重试间隔(秒)",
-        "type": "int",
-        "hint": "网页请求失败后，重试前的等待时间",
-        "default": 2
-      },
-      "user_agent": {
-        "description": "自定义User-Agent",
-        "type": "string",
-        "hint": "自定义请求头中的User-Agent，用于绕过某些网站的访问限制",
-        "default": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
-      },
-      "proxy": {
-        "description": "HTTP代理配置",
-        "type": "string",
-        "hint": "HTTP代理地址，格式为http://username:password@host:port，留空表示不使用代理",
-        "default": ""
-      },
-      "max_concurrency": {
-        "description": "最大并发数",
-        "type": "int",
-        "hint": "同时处理的最大URL数量",
-        "default": 5
-      },
-      "dynamic_concurrency": {
-        "description": "动态并发控制",
-        "type": "bool",
-        "hint": "是否根据URL数量动态调整并发数",
-        "default": true
-      },
-      "enable_priority_scheduling": {
-        "description": "启用优先级调度",
-        "type": "bool",
-        "hint": "是否根据URL优先级进行调度处理",
-        "default": false
-      },
-      "enable_unified_domain": {
-        "description": "启用域名统一处理",
-        "type": "bool",
-        "hint": "是否将google.com和www.google.com等变体视为同一域名，避免重复分析",
-        "default": true
+      "资源管理": {
+        "description": "系统资源管理配置",
+        "type": "object",
+        "hint": "监控和管理插件资源使用",
+        "items": {
+          "enable_memory_monitor": {
+            "description": "启用内存监控",
+            "type": "bool",
+            "hint": "是否启用内存监控功能",
+            "default": false
+          },
+          "memory_threshold_percent": {
+            "description": "内存使用阈值(%)",
+            "type": "float",
+            "hint": "内存使用超过此阈值时自动释放资源（0-100，百分比）",
+            "default": 80.0,
+            "minimum": 0.0,
+            "maximum": 100.0
+          }
+        }
       }
     }
   },
-  "domain_settings": {
-    "description": "域名管理设置",
+  "分析设置": {
+    "description": "网页分析核心配置",
     "type": "object",
-    "hint": "控制允许和禁止分析的域名",
-    "items": {
-      "allowed_domains": {
-        "description": "允许的域名列表",
-        "type": "text",
-        "hint": "只分析指定域名的网页，每行一个域名（留空表示允许所有域名）",
-        "default": ""
-      },
-      "blocked_domains": {
-        "description": "禁止的域名列表",
-        "type": "text",
-        "hint": "不分析指定域名的网页，每行一个域名",
-        "default": ""
-      }
-    }
-  },
-  "analysis_settings": {
-    "description": "分析设置",
-    "type": "object",
-    "hint": "网页分析相关配置选项",
+    "hint": "控制网页内容提取和分析的行为",
     "items": {
       "analysis_mode": {
         "description": "分析模式",
         "type": "string",
-        "hint": "选择分析模式：auto(自动分析检测到的链接)、manual(仅手动命令分析)、hybrid(混合模式，仅管理员可切换)、LLMTOOL(使用LLM智能决定是否触发解析)",
+        "hint": "auto-自动分析检测到的链接；manual-仅手动命令分析；hybrid-混合模式(仅管理员)；LLMTOOL-使用LLM智能决定是否解析",
         "default": "auto",
         "_special": "select",
         "options": ["auto", "manual", "hybrid", "LLMTOOL"]
       },
-      "auto_analyze": {
-        "description": "自动分析检测到的链接",
-        "type": "bool",
-        "hint": "是否自动分析消息中检测到的网页链接（已废弃，请使用analysis_mode配置）",
-        "default": true
+      "max_summary_length": {
+        "description": "最大摘要长度",
+        "type": "int",
+        "hint": "限制分析摘要的最大字符数",
+        "default": 2000,
+        "minimum": 500,
+        "maximum": 10000
       },
       "enable_emoji": {
         "description": "启用emoji图标",
@@ -116,127 +187,208 @@
         "hint": "在分析结果中显示字符数、段落数等统计信息",
         "default": true
       },
-      "max_summary_length": {
-        "description": "最大摘要长度",
-        "type": "int",
-        "hint": "限制分析摘要的最大字符数",
-        "default": 2000
-      },
+      "内容提取": {
+        "description": "特定内容提取配置",
+        "type": "object",
+        "hint": "控制从网页中提取哪些特定类型的内容",
+        "items": {
+          "enable_specific_extraction": {
+            "description": "启用特定内容提取",
+            "type": "bool",
+            "hint": "是否启用特定类型内容提取功能",
+            "default": false
+          },
+          "extract_types": {
+            "description": "提取内容类型",
+            "type": "text",
+            "hint": "要提取的特定内容类型，每行一个。支持：title, content, images, links, tables, lists, code, meta, videos, audios, quotes, headings, paragraphs, buttons, forms",
+            "default": "title\ncontent"
+          }
+        }
+      }
+    }
+  },
+  "展示设置": {
+    "description": "分析结果展示配置",
+    "type": "object",
+    "hint": "控制分析结果的输出格式和展示方式",
+    "items": {
       "send_content_type": {
         "description": "发送内容类型",
         "type": "string",
-        "hint": "允许自定义发送的内容类型：both（分析结果+截图）、analysis_only（仅分析结果）、screenshot_only（仅截图）",
+        "hint": "both-分析结果+截图；analysis_only-仅分析结果；screenshot_only-仅截图",
         "default": "both",
         "_special": "select",
         "options": ["both", "analysis_only", "screenshot_only"]
       },
       "result_template": {
-        "description": "结果展示模板",
+        "description": "预设结果模板",
         "type": "string",
-        "hint": "选择分析结果的展示模板，支持：default, detailed, compact, markdown, simple",
+        "hint": "选择预设的分析结果展示模板。选择'custom'时使用下方的自定义模板内容",
         "default": "default",
         "_special": "select",
-        "options": ["default", "detailed", "compact", "markdown", "simple"]
+        "options": ["default", "detailed", "compact", "markdown", "simple", "custom"]
       },
-      "enable_collapsible": {
-        "description": "启用结果折叠功能",
-        "type": "bool",
-        "hint": "是否启用长结果的折叠功能",
-        "default": false
+      "结果折叠": {
+        "description": "长结果折叠配置",
+        "type": "object",
+        "hint": "当分析结果过长时自动折叠",
+        "items": {
+          "enable_collapsible": {
+            "description": "启用结果折叠",
+            "type": "bool",
+            "hint": "是否启用长结果的折叠功能",
+            "default": false
+          },
+          "collapse_threshold": {
+            "description": "折叠阈值(字符)",
+            "type": "int",
+            "hint": "超过多少字符的结果会被折叠",
+            "default": 1500,
+            "minimum": 500,
+            "maximum": 5000
+          }
+        }
       },
-      "collapse_threshold": {
-        "description": "结果折叠阈值",
-        "type": "int",
-        "hint": "超过多少字符的结果会被折叠",
-        "default": 1500
+      "自定义模板": {
+        "description": "自定义结果模板配置",
+        "type": "object",
+        "hint": "当预设模板不满足需求时，可以自定义模板",
+        "items": {
+          "enable_custom_template": {
+            "description": "启用自定义模板",
+            "type": "bool",
+            "hint": "是否启用自定义分析结果模板（启用后预设模板将失效）",
+            "default": false
+          },
+          "template_content": {
+            "description": "自定义模板内容",
+            "type": "text",
+            "hint": "自定义分析结果模板，支持变量：{title}, {url}, {content}, {summary}, {analysis_result}, {screenshot}, {content_type}, {stats}, {date}, {time}",
+            "default": "# 网页分析结果\n\n## 基本信息\n- 标题: {title}\n- 链接: {url}\n- 内容类型: {content_type}\n- 分析时间: {date} {time}\n\n## 内容摘要\n{summary}\n\n## 详细分析\n{analysis_result}\n\n## 内容统计\n{stats}"
+          },
+          "template_format": {
+            "description": "模板输出格式",
+            "type": "string",
+            "hint": "选择模板的输出格式",
+            "default": "markdown",
+            "_special": "select",
+            "options": ["markdown", "plain", "html"]
+          }
+        }
       },
-      "enable_no_protocol_url": {
-        "description": "识别无协议头URL",
-        "type": "bool",
-        "hint": "是否识别不包含协议头(http://或https://)的URL，例如：www.example.com",
-        "default": false
+      "URL识别": {
+        "description": "URL识别和解析配置",
+        "type": "object",
+        "hint": "控制如何识别和处理URL",
+        "items": {
+          "enable_no_protocol_url": {
+            "description": "识别无协议头URL",
+            "type": "bool",
+            "hint": "是否识别不包含协议头(http://或https://)的URL，例如：www.example.com",
+            "default": false
+          },
+          "default_protocol": {
+            "description": "默认协议",
+            "type": "string",
+            "hint": "无协议头URL使用的默认协议",
+            "default": "https",
+            "_special": "select",
+            "options": ["http", "https"]
+          }
+        }
       },
-      "default_protocol": {
-        "description": "默认协议",
-        "type": "string",
-        "hint": "无协议头URL使用的默认协议，支持：http、https",
-        "default": "https",
-        "_special": "select",
-        "options": ["http", "https"]
-      },
-      "enable_llm_decision": {
-        "description": "启用LLM自主决策",
-        "type": "bool",
-        "hint": "是否允许LLM自主决定是发送分析结果还是截图",
-        "default": false
+      "网页截图": {
+        "description": "网页截图配置",
+        "type": "object",
+        "hint": "控制网页截图的生成和样式",
+        "items": {
+          "enable_screenshot": {
+            "description": "启用网页截图",
+            "type": "bool",
+            "hint": "在分析结果中包含网页截图",
+            "default": true
+          },
+          "screenshot_quality": {
+            "description": "截图质量(0-100)",
+            "type": "int",
+            "hint": "网页截图的质量，数值越高质量越好",
+            "default": 80,
+            "minimum": 10,
+            "maximum": 100
+          },
+          "截图尺寸": {
+            "description": "截图尺寸配置",
+            "type": "object",
+            "hint": "设置截图的分辨率",
+            "items": {
+              "screenshot_width": {
+                "description": "截图宽度(像素)",
+                "type": "int",
+                "hint": "网页截图的宽度像素",
+                "default": 1280,
+                "minimum": 320,
+                "maximum": 4096
+              },
+              "screenshot_height": {
+                "description": "截图高度(像素)",
+                "type": "int",
+                "hint": "网页截图的高度像素",
+                "default": 720,
+                "minimum": 240,
+                "maximum": 4096
+              }
+            }
+          },
+          "screenshot_full_page": {
+            "description": "截取整页",
+            "type": "bool",
+            "hint": "是否截取整个网页，而不仅仅是可见部分",
+            "default": false
+          },
+          "screenshot_wait_ms": {
+            "description": "截图等待时间(毫秒)",
+            "type": "int",
+            "hint": "截图前等待页面加载的时间，单位：毫秒",
+            "default": 2000,
+            "minimum": 0,
+            "maximum": 10000
+          },
+          "screenshot_format": {
+            "description": "截图格式",
+            "type": "string",
+            "hint": "网页截图的格式",
+            "default": "jpeg",
+            "_special": "select",
+            "options": ["jpeg", "png"]
+          },
+          "裁剪设置": {
+            "description": "截图裁剪配置",
+            "type": "object",
+            "hint": "启用后可以只截取网页的特定区域",
+            "items": {
+              "enable_crop": {
+                "description": "启用截图裁剪",
+                "type": "bool",
+                "hint": "是否启用截图裁剪功能",
+                "default": false
+              },
+              "crop_area": {
+                "description": "裁剪区域",
+                "type": "string",
+                "hint": "裁剪区域，格式为[left, top, right, bottom]，例如：[0, 0, 1280, 720]",
+                "default": "[0, 0, 1280, 720]"
+              }
+            }
+          }
+        }
       }
     }
   },
-  "screenshot_settings": {
-    "description": "截图设置",
+  "智能分析": {
+    "description": "大语言模型和AI功能配置",
     "type": "object",
-    "hint": "网页截图相关配置选项",
-    "items": {
-      "enable_screenshot": {
-        "description": "启用网页截图",
-        "type": "bool",
-        "hint": "在分析结果中包含网页截图",
-        "default": true
-      },
-      "screenshot_quality": {
-        "description": "截图质量",
-        "type": "int",
-        "hint": "网页截图的质量（0-100）",
-        "default": 80
-      },
-      "screenshot_width": {
-        "description": "截图宽度",
-        "type": "int",
-        "hint": "网页截图的宽度像素",
-        "default": 1280
-      },
-      "screenshot_height": {
-        "description": "截图高度",
-        "type": "int",
-        "hint": "网页截图的高度像素",
-        "default": 720
-      },
-      "screenshot_full_page": {
-        "description": "截取整页",
-        "type": "bool",
-        "hint": "是否截取整个网页，而不仅仅是可见部分",
-        "default": false
-      },
-      "screenshot_wait_time": {
-        "description": "截图等待时间",
-        "type": "int",
-        "hint": "截图前等待页面加载的时间（毫秒）",
-        "default": 2000
-      },
-      "screenshot_format": {
-        "description": "截图格式",
-        "type": "string",
-        "hint": "网页截图的格式，支持jpeg和png",
-        "default": "jpeg"
-      },
-      "enable_crop": {
-        "description": "启用截图裁剪",
-        "type": "bool",
-        "hint": "是否启用截图裁剪功能",
-        "default": false
-      },
-      "crop_area": {
-        "description": "裁剪区域",
-        "type": "string",
-        "hint": "裁剪区域，格式为 [left, top, right, bottom]，例如：[0, 0, 1280, 720]",
-        "default": "[0, 0, 1280, 720]"
-      }
-    }
-  },
-  "llm_settings": {
-    "description": "LLM设置",
-    "type": "object",
-    "hint": "大语言模型相关配置选项",
+    "hint": "配置LLM智能分析和翻译功能",
     "items": {
       "llm_enabled": {
         "description": "启用LLM智能分析",
@@ -250,247 +402,128 @@
         "hint": "选择用于网页分析的LLM提供商",
         "_special": "select_provider"
       },
+      "enable_llm_decision": {
+        "description": "启用LLM自主决策",
+        "type": "bool",
+        "hint": "是否允许LLM自主决定是发送分析结果还是截图",
+        "default": false
+      },
       "custom_prompt": {
         "description": "自定义分析提示词",
         "type": "text",
         "hint": "自定义LLM分析提示词模板，可使用变量：{title}、{url}、{content}、{max_length}",
         "default": ""
+      },
+      "翻译功能": {
+        "description": "网页内容翻译配置",
+        "type": "object",
+        "hint": "使用LLM或API翻译网页内容",
+        "items": {
+          "enable_translation": {
+            "description": "启用网页翻译",
+            "type": "bool",
+            "hint": "是否启用网页内容翻译功能",
+            "default": false
+          },
+          "target_language": {
+            "description": "目标语言",
+            "type": "string",
+            "hint": "翻译的目标语言代码，如zh、en、ja等",
+            "default": "zh"
+          },
+          "translation_provider": {
+            "description": "翻译提供商",
+            "type": "string",
+            "hint": "选择用于翻译的提供商，支持LLM内置翻译或外部API",
+            "default": "llm"
+          },
+          "custom_translation_prompt": {
+            "description": "自定义翻译提示词",
+            "type": "text",
+            "hint": "自定义LLM翻译提示词模板，可使用变量：{content}、{target_language}",
+            "default": ""
+          }
+        }
       }
     }
   },
-  "translation_settings": {
-    "description": "翻译设置",
+  "消息管理": {
+    "description": "消息发送和管理配置",
     "type": "object",
-    "hint": "网页内容翻译配置选项",
+    "hint": "控制消息的发送方式和撤回行为",
     "items": {
-      "enable_translation": {
-        "description": "启用网页翻译",
-        "type": "bool",
-        "hint": "是否启用网页内容翻译功能",
-        "default": false
+      "合并转发": {
+        "description": "消息合并转发配置",
+        "type": "object",
+        "hint": "将分析结果和截图合并转发到一条消息中",
+        "items": {
+          "group": {
+            "description": "群聊启用合并转发",
+            "type": "bool",
+            "hint": "是否在群聊中启用合并转发功能",
+            "default": false
+          },
+          "private": {
+            "description": "私聊启用合并转发",
+            "type": "bool",
+            "hint": "是否在私聊中启用合并转发功能",
+            "default": false
+          },
+          "include_screenshot": {
+            "description": "合并转发包含截图",
+            "type": "bool",
+            "hint": "是否将截图合并到转发消息中，而不是单独发送",
+            "default": false
+          }
+        }
       },
-      "target_language": {
-        "description": "目标语言",
-        "type": "string",
-        "hint": "翻译的目标语言，如zh、en、ja等",
-        "default": "zh"
+      "群聊设置": {
+        "description": "群聊相关配置",
+        "type": "object",
+        "hint": "控制群聊中的插件行为",
+        "items": {
+          "group_blacklist": {
+            "description": "群聊黑名单",
+            "type": "text",
+            "hint": "在这些群聊中禁用自动分析功能，每行一个群号",
+            "default": ""
+          }
+        }
       },
-      "translation_provider": {
-        "description": "翻译提供商",
-        "type": "string",
-        "hint": "选择用于翻译的提供商，支持LLM内置翻译或外部API",
-        "default": "llm"
-      },
-      "custom_translation_prompt": {
-        "description": "自定义翻译提示词",
-        "type": "text",
-        "hint": "自定义LLM翻译提示词模板，可使用变量：{content}、{target_language}",
-        "default": ""
-      }
-    }
-  },
-  "cache_settings": {
-    "description": "缓存设置",
-    "type": "object",
-    "hint": "分析结果缓存配置选项",
-    "items": {
-      "enable_cache": {
-        "description": "启用结果缓存",
-        "type": "bool",
-        "hint": "是否启用分析结果缓存，避免重复分析同一网页",
-        "default": true
-      },
-      "cache_expire_time": {
-        "description": "缓存过期时间",
-        "type": "int",
-        "hint": "缓存结果的过期时间（分钟）",
-        "default": 1440
-      },
-      "max_cache_size": {
-        "description": "最大缓存数量",
-        "type": "int",
-        "hint": "最大缓存的分析结果数量",
-        "default": 100
-      },
-      "cache_preload_enabled": {
-        "description": "启用缓存预加载",
-        "type": "bool",
-        "hint": "是否启用缓存预加载功能",
-        "default": false
-      },
-      "cache_preload_count": {
-        "description": "预加载缓存数量",
-        "type": "int",
-        "hint": "预加载的缓存数量",
-        "default": 20
-      }
-    }
-  },
-  "content_extraction_settings": {
-    "description": "内容提取设置",
-    "type": "object",
-    "hint": "特定类型内容提取配置选项",
-    "items": {
-      "enable_specific_extraction": {
-        "description": "启用特定内容提取",
-        "type": "bool",
-        "hint": "是否启用特定类型内容提取功能",
-        "default": false
-      },
-      "extract_types": {
-        "description": "提取内容类型",
-        "type": "text",
-        "hint": "要提取的特定内容类型，每行一个，支持：title, content, images, links, tables, lists, code, meta, videos, audios, quotes, headings, paragraphs, buttons, forms",
-        "default": "title\ncontent"
-      }
-    }
-  },
-  "merge_forward_settings": {
-    "description": "合并转发设置",
-    "type": "object",
-    "hint": "消息合并转发相关配置选项",
-    "items": {
-      "group": {
-        "description": "群聊启用合并转发",
-        "type": "bool",
-        "hint": "是否在群聊中启用合并转发功能",
-        "default": false
-      },
-      "private": {
-        "description": "私聊启用合并转发",
-        "type": "bool",
-        "hint": "是否在私聊中启用合并转发功能",
-        "default": false
-      },
-      "include_screenshot": {
-        "description": "合并转发包含截图",
-        "type": "bool",
-        "hint": "是否将截图合并到转发消息中，而不是单独发送",
-        "default": false
-      }
-    }
-  },
-  "group_settings": {
-    "description": "群聊设置",
-    "type": "object",
-    "hint": "群聊相关配置选项",
-    "items": {
-      "group_blacklist": {
-        "description": "群聊黑名单",
-        "type": "text",
-        "hint": "在这些群聊中禁用自动分析功能，每行一个群号",
-        "default": ""
-      }
-    }
-  },
-  "recall_settings": {
-    "description": "消息撤回设置",
-    "type": "object",
-    "hint": "控制正在分析提醒消息的自动撤回",
-    "items": {
-      "enable_recall": {
-        "description": "启用自动撤回",
-        "type": "bool",
-        "hint": "是否自动撤回正在分析的提醒消息",
-        "default": true
-      },
-      "recall_type": {
-        "description": "撤回类型",
-        "type": "string",
-        "hint": "撤回类型：time_based(定时撤回)或smart(智能撤回)",
-        "default": "smart",
-        "_special": "select",
-        "options": ["time_based", "smart"]
-      },
-      "recall_time": {
-        "description": "撤回延迟时间",
-        "type": "int",
-        "hint": "定时撤回：消息发送后多少秒自动撤回；智能撤回：最长等待时间",
-        "default": 5
-      },
-      "smart_recall_enabled": {
-        "description": "启用智能撤回",
-        "type": "bool",
-        "hint": "是否启用智能撤回，当分析完成后立即撤回提醒消息",
-        "default": true
-      }
-    }
-  },
-  "command_settings": {
-    "description": "命令设置",
-    "type": "object",
-    "hint": "命令系统相关配置选项",
-    "items": {
-      "enable_completion": {
-        "description": "启用命令补全",
-        "type": "bool",
-        "hint": "是否启用命令补全功能",
-        "default": true
-      },
-      "enable_help": {
-        "description": "启用命令帮助",
-        "type": "bool",
-        "hint": "是否启用命令帮助功能",
-        "default": true
-      },
-      "enable_param_hints": {
-        "description": "启用参数提示",
-        "type": "bool",
-        "hint": "是否启用命令参数提示功能",
-        "default": true
-      },
-      "custom_aliases": {
-        "description": "自定义命令别名",
-        "type": "text",
-        "hint": "自定义命令别名，每行一个，格式为：原命令=别名1,别名2，例如：网页分析=web_analyze,analyze_web",
-        "default": ""
-      }
-    }
-  },
-  "template_settings": {
-    "description": "自定义模板设置",
-    "type": "object",
-    "hint": "分析结果模板配置选项",
-    "items": {
-      "enable_custom_template": {
-        "description": "启用自定义模板",
-        "type": "bool",
-        "hint": "是否启用自定义分析结果模板",
-        "default": false
-      },
-      "template_content": {
-        "description": "自定义模板内容",
-        "type": "text",
-        "hint": "自定义分析结果模板，支持变量：{title}, {url}, {content}, {summary}, {analysis_result}, {screenshot}, {content_type}, {stats}, {date}, {time}",
-        "default": "# 网页分析结果\n\n## 基本信息\n- 标题: {title}\n- 链接: {url}\n- 内容类型: {content_type}\n- 分析时间: {date} {time}\n\n## 内容摘要\n{summary}\n\n## 详细分析\n{analysis_result}\n\n## 内容统计\n{stats}"
-      },
-      "template_format": {
-        "description": "模板格式",
-        "type": "string",
-        "hint": "选择模板的输出格式",
-        "default": "markdown",
-        "_special": "select",
-        "options": ["markdown", "plain", "html"]
-      }
-    }
-  },
-
-  "resource_settings": {
-    "description": "资源管理设置",
-    "type": "object",
-    "hint": "资源管理相关配置选项",
-    "items": {
-      "enable_memory_monitor": {
-        "description": "启用内存监控",
-        "type": "bool",
-        "hint": "是否启用内存监控功能",
-        "default": true
-      },
-      "memory_threshold": {
-        "description": "内存使用阈值",
-        "type": "float",
-        "hint": "内存使用超过此阈值时自动释放资源（0-100，百分比）",
-        "default": 80.0
+      "消息撤回": {
+        "description": "自动撤回提醒消息",
+        "type": "object",
+        "hint": "控制正在分析提醒消息的自动撤回",
+        "items": {
+          "enable_recall": {
+            "description": "启用自动撤回",
+            "type": "bool",
+            "hint": "是否自动撤回正在分析的提醒消息",
+            "default": true
+          },
+          "recall_type": {
+            "description": "撤回类型",
+            "type": "string",
+            "hint": "time_based-定时撤回；smart-智能撤回(分析完成后立即撤回)",
+            "default": "smart",
+            "_special": "select",
+            "options": ["time_based", "smart"]
+          },
+          "recall_time_s": {
+            "description": "撤回延迟时间(秒)",
+            "type": "int",
+            "hint": "定时撤回：消息发送后多少秒自动撤回；智能撤回：最长等待时间",
+            "default": 10,
+            "minimum": 0,
+            "maximum": 120
+          },
+          "smart_recall_enabled": {
+            "description": "启用智能撤回",
+            "type": "bool",
+            "hint": "是否启用智能撤回，当分析完成后立即撤回提醒消息",
+            "default": true
+          }
+        }
       }
     }
   }

@@ -1,8 +1,8 @@
-# -*- coding: utf-8 -*-
 """
 配置加载模块
 
 负责加载、验证和初始化所有配置项。
+支持新旧配置格式的兼容性映射。
 """
 
 from typing import Any
@@ -25,6 +25,112 @@ from core.utils import WebAnalyzerUtils
 class ConfigLoader:
     """配置加载器类"""
 
+    # 旧配置键名到新配置键名的映射表
+    OLD_TO_NEW_MAPPING = {
+        # 网络设置
+        "request_timeout": "request_timeout_s",
+        "retry_delay": "retry_delay_s",
+        "cache_expire_time": "cache_expire_time_min",
+        "memory_threshold": "memory_threshold_percent",
+        "screenshot_wait_time": "screenshot_wait_ms",
+        "recall_time": "recall_time_s",
+        # 合并转发旧格式（v1.4.5之前）
+        "merge_forward_enabled": "_merge_forward_legacy",
+    }
+
+    # 需要特殊处理的嵌套配置路径
+    NESTED_CONFIG_PATHS = {
+        "网络设置": {
+            "max_content_length": "max_content_length",
+            "request_timeout_s": "request_timeout_s",
+            "retry_count": "retry_count",
+            "retry_delay_s": "retry_delay_s",
+            "user_agent": "user_agent",
+            "proxy": "proxy",
+            "max_concurrency": "max_concurrency",
+        },
+        "域名管理": {
+            "enable_unified_domain": "enable_unified_domain",
+            "allowed_domains": "allowed_domains",
+            "blocked_domains": "blocked_domains",
+        },
+        "缓存设置": {
+            "enable_cache": "enable_cache",
+            "cache_expire_time_min": "cache_expire_time_min",
+            "max_cache_size": "max_cache_size",
+            "cache_preload_enabled": "cache_preload_enabled",
+            "cache_preload_count": "cache_preload_count",
+        },
+        "资源管理": {
+            "enable_memory_monitor": "enable_memory_monitor",
+            "memory_threshold_percent": "memory_threshold_percent",
+        },
+        "分析设置": {
+            "analysis_mode": "analysis_mode",
+            "max_summary_length": "max_summary_length",
+            "enable_emoji": "enable_emoji",
+            "enable_statistics": "enable_statistics",
+        },
+        "内容提取": {
+            "enable_specific_extraction": "enable_specific_extraction",
+            "extract_types": "extract_types",
+        },
+        "展示设置": {
+            "send_content_type": "send_content_type",
+            "result_template": "result_template",
+        },
+        "结果折叠": {
+            "enable_collapsible": "enable_collapsible",
+            "collapse_threshold": "collapse_threshold",
+        },
+        "自定义模板": {
+            "enable_custom_template": "enable_custom_template",
+            "template_content": "template_content",
+            "template_format": "template_format",
+        },
+        "URL识别": {
+            "enable_no_protocol_url": "enable_no_protocol_url",
+            "default_protocol": "default_protocol",
+        },
+        "网页截图": {
+            "enable_screenshot": "enable_screenshot",
+            "screenshot_quality": "screenshot_quality",
+            "screenshot_width": "screenshot_width",
+            "screenshot_height": "screenshot_height",
+            "screenshot_full_page": "screenshot_full_page",
+            "screenshot_wait_ms": "screenshot_wait_ms",
+            "screenshot_format": "screenshot_format",
+            "enable_crop": "enable_crop",
+            "crop_area": "crop_area",
+        },
+        "智能分析": {
+            "llm_enabled": "llm_enabled",
+            "llm_provider": "llm_provider",
+            "enable_llm_decision": "enable_llm_decision",
+            "custom_prompt": "custom_prompt",
+        },
+        "翻译功能": {
+            "enable_translation": "enable_translation",
+            "target_language": "target_language",
+            "translation_provider": "translation_provider",
+            "custom_translation_prompt": "custom_translation_prompt",
+        },
+        "合并转发": {
+            "group": "merge_forward_group",
+            "private": "merge_forward_private",
+            "include_screenshot": "merge_forward_include_screenshot",
+        },
+        "群聊设置": {
+            "group_blacklist": "group_blacklist",
+        },
+        "消息撤回": {
+            "enable_recall": "enable_recall",
+            "recall_type": "recall_type",
+            "recall_time_s": "recall_time_s",
+            "smart_recall_enabled": "smart_recall_enabled",
+        },
+    }
+
     @staticmethod
     def load_all_config(config: Any, context: Context) -> dict:
         """加载所有配置项
@@ -36,89 +142,517 @@ class ConfigLoader:
         Returns:
             包含所有配置项的字典
         """
+        # 先进行兼容性转换
+        config = ConfigLoader._apply_compatibility_mapping(config)
+
         config_dict = {}
 
-        # 网络设置
-        config_dict.update(ConfigLoader._load_network_settings(config))
-
-        # 域名设置
-        config_dict.update(ConfigLoader._load_domain_settings(config))
-
-        # 分析设置
+        # 加载各类配置
+        config_dict.update(ConfigLoader._load_basic_settings(config))
         config_dict.update(ConfigLoader._load_analysis_settings(config))
-
-        # 截图设置
-        config_dict.update(ConfigLoader._load_screenshot_settings(config))
-
-        # LLM设置
+        config_dict.update(ConfigLoader._load_display_settings(config))
         config_dict.update(ConfigLoader._load_llm_settings(config))
-
-        # 群组设置
-        config_dict.update(ConfigLoader._load_group_settings(config))
-
-        # 翻译设置
-        config_dict.update(ConfigLoader._load_translation_settings(config))
-
-        # 缓存设置
-        config_dict.update(ConfigLoader._load_cache_settings(config))
-
-        # 内容提取设置
-        config_dict.update(ConfigLoader._load_content_extraction_settings(config))
-
-        # 撤回设置
-        config_dict.update(ConfigLoader._load_recall_settings(config))
-
-        # 命令设置
-        config_dict.update(ConfigLoader._load_command_settings(config))
-
-        # 资源设置
-        config_dict.update(ConfigLoader._load_resource_settings(config))
-
-        # 模板设置
-        config_dict.update(ConfigLoader._load_template_settings(config))
+        config_dict.update(ConfigLoader._load_message_settings(config))
 
         return config_dict
 
     @staticmethod
-    def _load_network_settings(config: Any) -> dict:
-        """加载和验证网络设置"""
-        network_settings = config.get("network_settings", {})
+    def _apply_compatibility_mapping(config: Any) -> dict:
+        """应用兼容性映射，将旧配置转换为新格式
+
+        Args:
+            config: 原始配置对象
+
+        Returns:
+            转换后的配置字典
+        """
+        # 将config对象转换为字典（如果不是字典的话）
+        if not isinstance(config, dict):
+            config_dict = {}
+            # 尝试获取所有配置键
+            try:
+                for key in dir(config):
+                    if not key.startswith('_'):
+                        try:
+                            config_dict[key] = getattr(config, key)
+                        except Exception:
+                            pass
+            except Exception as e:
+                logger.warning(f"配置对象转换失败: {e}")
+                return {}
+        else:
+            config_dict = config.copy()
+
+        # 检测是否为新格式配置（包含"基础设置"等顶级键）
+        is_new_format = any(
+            key in config_dict
+            for key in ["基础设置", "分析设置", "展示设置", "智能分析", "消息管理"]
+        )
+
+        if is_new_format:
+            # 新格式配置，直接返回
+            return config_dict
+
+        # 旧格式配置，需要转换
+        logger.info("检测到旧格式配置，正在自动转换为新格式...")
+        new_config = {}
+
+        # 映射网络设置
+        network_settings = {}
+        old_network = config_dict.get("network_settings", {})
+        network_settings["max_content_length"] = old_network.get("max_content_length", 10000)
+        network_settings["request_timeout_s"] = old_network.get("request_timeout", 30)
+        network_settings["retry_count"] = old_network.get("retry_count", 3)
+        network_settings["retry_delay_s"] = old_network.get("retry_delay", 2)
+        network_settings["user_agent"] = old_network.get("user_agent", "Mozilla/5.0")
+        network_settings["proxy"] = old_network.get("proxy", "")
+        network_settings["max_concurrency"] = old_network.get("max_concurrency", 5)
+
+        # 映射域名设置
+        domain_settings = {}
+        old_domain = config_dict.get("domain_settings", {})
+        domain_settings["enable_unified_domain"] = old_domain.get("enable_unified_domain", True)
+        domain_settings["allowed_domains"] = old_domain.get("allowed_domains", "")
+        domain_settings["blocked_domains"] = old_domain.get("blocked_domains", "")
+
+        # 映射缓存设置
+        cache_settings = {}
+        old_cache = config_dict.get("cache_settings", {})
+        cache_settings["enable_cache"] = old_cache.get("enable_cache", True)
+        cache_settings["cache_expire_time_min"] = old_cache.get("cache_expire_time", 1440)
+        cache_settings["max_cache_size"] = old_cache.get("max_cache_size", 100)
+        cache_settings["cache_preload_enabled"] = old_cache.get("cache_preload_enabled", False)
+        cache_settings["cache_preload_count"] = old_cache.get("cache_preload_count", 20)
+
+        # 映射资源设置
+        resource_settings = {}
+        old_resource = config_dict.get("resource_settings", {})
+        resource_settings["enable_memory_monitor"] = old_resource.get("enable_memory_monitor", True)
+        resource_settings["memory_threshold_percent"] = old_resource.get("memory_threshold", 80.0)
+
+        # 构建基础设置
+        new_config["基础设置"] = {
+            "网络设置": network_settings,
+            "域名管理": domain_settings,
+            "缓存设置": cache_settings,
+            "资源管理": resource_settings,
+        }
+
+        # 映射分析设置
+        analysis_settings = {}
+        old_analysis = config_dict.get("analysis_settings", {})
+        analysis_settings["analysis_mode"] = old_analysis.get("analysis_mode", "auto")
+        analysis_settings["max_summary_length"] = old_analysis.get("max_summary_length", 2000)
+        analysis_settings["enable_emoji"] = old_analysis.get("enable_emoji", True)
+        analysis_settings["enable_statistics"] = old_analysis.get("enable_statistics", True)
+
+        # 内容提取设置
+        content_extraction = {}
+        old_extraction = config_dict.get("content_extraction_settings", {})
+        content_extraction["enable_specific_extraction"] = old_extraction.get(
+            "enable_specific_extraction", False
+        )
+        content_extraction["extract_types"] = old_extraction.get("extract_types", "title\ncontent")
+
+        new_config["分析设置"] = {
+            **analysis_settings,
+            "内容提取": content_extraction,
+        }
+
+        # 映射展示设置
+        display_settings = {}
+        old_analysis = config_dict.get("analysis_settings", {})
+        display_settings["send_content_type"] = old_analysis.get("send_content_type", "both")
+        display_settings["result_template"] = old_analysis.get("result_template", "default")
+
+        # 结果折叠
+        collapsible = {}
+        collapsible["enable_collapsible"] = old_analysis.get("enable_collapsible", False)
+        collapsible["collapse_threshold"] = old_analysis.get("collapse_threshold", 1500)
+
+        # 自定义模板
+        old_template = config_dict.get("template_settings", {})
+        custom_template = {}
+        custom_template["enable_custom_template"] = old_template.get("enable_custom_template", False)
+        custom_template["template_content"] = old_template.get("template_content", "")
+        custom_template["template_format"] = old_template.get("template_format", "markdown")
+
+        # URL识别
+        url_recognition = {}
+        url_recognition["enable_no_protocol_url"] = old_analysis.get("enable_no_protocol_url", False)
+        url_recognition["default_protocol"] = old_analysis.get("default_protocol", "https")
+
+        # 网页截图
+        old_screenshot = config_dict.get("screenshot_settings", {})
+        screenshot = {}
+        screenshot["enable_screenshot"] = old_screenshot.get("enable_screenshot", True)
+        screenshot["screenshot_quality"] = old_screenshot.get("screenshot_quality", 80)
+        screenshot["screenshot_width"] = old_screenshot.get("screenshot_width", 1280)
+        screenshot["screenshot_height"] = old_screenshot.get("screenshot_height", 720)
+        screenshot["screenshot_full_page"] = old_screenshot.get("screenshot_full_page", False)
+        screenshot["screenshot_wait_ms"] = old_screenshot.get("screenshot_wait_time", 2000)
+        screenshot["screenshot_format"] = old_screenshot.get("screenshot_format", "jpeg")
+        screenshot["enable_crop"] = old_screenshot.get("enable_crop", False)
+        screenshot["crop_area"] = old_screenshot.get("crop_area", "[0, 0, 1280, 720]")
+
+        new_config["展示设置"] = {
+            **display_settings,
+            "结果折叠": collapsible,
+            "自定义模板": custom_template,
+            "URL识别": url_recognition,
+            "网页截图": screenshot,
+        }
+
+        # 映射智能分析
+        old_llm = config_dict.get("llm_settings", {})
+        llm_settings = {}
+        llm_settings["llm_enabled"] = old_llm.get("llm_enabled", True)
+        llm_settings["llm_provider"] = old_llm.get("llm_provider", "")
+        llm_settings["enable_llm_decision"] = old_analysis.get("enable_llm_decision", False)
+        llm_settings["custom_prompt"] = old_llm.get("custom_prompt", "")
+
+        # 翻译功能
+        old_translation = config_dict.get("translation_settings", {})
+        translation = {}
+        translation["enable_translation"] = old_translation.get("enable_translation", False)
+        translation["target_language"] = old_translation.get("target_language", "zh")
+        translation["translation_provider"] = old_translation.get("translation_provider", "llm")
+        translation["custom_translation_prompt"] = old_translation.get("custom_translation_prompt", "")
+
+        new_config["智能分析"] = {
+            **llm_settings,
+            "翻译功能": translation,
+        }
+
+        # 映射消息管理
+        # 合并转发
+        old_merge = config_dict.get("merge_forward_settings", {})
+        merge_forward = {}
+        # 处理新旧格式
+        if "group" in old_merge:
+            # 新格式
+            merge_forward["group"] = old_merge.get("group", False)
+            merge_forward["private"] = old_merge.get("private", False)
+            merge_forward["include_screenshot"] = old_merge.get("include_screenshot", False)
+        else:
+            # 旧格式兼容
+            merge_forward["group"] = False
+            merge_forward["private"] = False
+            merge_forward["include_screenshot"] = False
+
+        # 群聊设置
+        old_group = config_dict.get("group_settings", {})
+        group_settings = {}
+        group_settings["group_blacklist"] = old_group.get("group_blacklist", "")
+
+        # 消息撤回
+        old_recall = config_dict.get("recall_settings", {})
+        recall = {}
+        recall["enable_recall"] = old_recall.get("enable_recall", True)
+        recall["recall_type"] = old_recall.get("recall_type", "smart")
+        recall["recall_time_s"] = old_recall.get("recall_time", 10)
+        recall["smart_recall_enabled"] = old_recall.get("smart_recall_enabled", True)
+
+        new_config["消息管理"] = {
+            "合并转发": merge_forward,
+            "群聊设置": group_settings,
+            "消息撤回": recall,
+        }
+
+        logger.info("旧格式配置已成功转换为新格式")
+        return new_config
+
+    @staticmethod
+    def _get_nested_value(config: dict, category: str, subcategory: str, key: str, default=None):
+        """从嵌套配置中获取值
+
+        Args:
+            config: 配置字典
+            category: 一级分类（如"基础设置"）
+            subcategory: 二级分类（如"网络设置"）
+            key: 配置键名
+            default: 默认值
+
+        Returns:
+            配置值或默认值
+        """
+        try:
+            return config.get(category, {}).get(subcategory, {}).get(key, default)
+        except (AttributeError, KeyError):
+            return default
+
+    @staticmethod
+    def _get_direct_value(config: dict, category: str, key: str, default=None):
+        """从一级分类中直接获取值（非嵌套）
+
+        Args:
+            config: 配置字典
+            category: 一级分类
+            key: 配置键名
+            default: 默认值
+
+        Returns:
+            配置值或默认值
+        """
+        try:
+            return config.get(category, {}).get(key, default)
+        except (AttributeError, KeyError):
+            return default
+
+    @staticmethod
+    def _load_basic_settings(config: dict) -> dict:
+        """加载基础设置（网络、域名、缓存、资源）"""
         config_dict = {}
 
-        # 基本网络设置
-        config_dict["max_content_length"] = max(
-            1000, network_settings.get("max_content_length", 10000)
+        # 网络设置
+        config_dict["max_content_length"] = ConfigLoader._get_nested_value(
+            config, "基础设置", "网络设置", "max_content_length", 10000
         )
-        config_dict["timeout"] = max(
-            5, min(300, network_settings.get("request_timeout", 30))
+        config_dict["request_timeout_s"] = ConfigLoader._get_nested_value(
+            config, "基础设置", "网络设置", "request_timeout_s", 30
         )
-        config_dict["retry_count"] = max(0, min(10, network_settings.get("retry_count", 3)))
-        config_dict["retry_delay"] = max(0, min(10, network_settings.get("retry_delay", 2)))
-        config_dict["user_agent"] = network_settings.get(
-            "user_agent",
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+        config_dict["retry_count"] = ConfigLoader._get_nested_value(
+            config, "基础设置", "网络设置", "retry_count", 3
         )
-        config_dict["proxy"] = network_settings.get("proxy", "")
-
-        # 验证代理格式
-        config_dict["proxy"] = ConfigLoader._validate_proxy(config_dict["proxy"])
-
-        # 并发设置
-        config_dict["max_concurrency"] = max(
-            1, min(20, network_settings.get("max_concurrency", 5))
+        config_dict["retry_delay_s"] = ConfigLoader._get_nested_value(
+            config, "基础设置", "网络设置", "retry_delay_s", 2
         )
-        config_dict["dynamic_concurrency"] = bool(
-            network_settings.get("dynamic_concurrency", True)
+        config_dict["user_agent"] = ConfigLoader._get_nested_value(
+            config, "基础设置", "网络设置", "user_agent", "Mozilla/5.0"
+        )
+        proxy = ConfigLoader._get_nested_value(config, "基础设置", "网络设置", "proxy", "")
+        config_dict["proxy"] = ConfigLoader._validate_proxy(proxy)
+        config_dict["max_concurrency"] = ConfigLoader._get_nested_value(
+            config, "基础设置", "网络设置", "max_concurrency", 5
         )
 
-        # 优先级设置
-        config_dict["enable_priority_scheduling"] = bool(
-            network_settings.get("enable_priority_scheduling", False)
+        # 域名管理
+        allowed_text = ConfigLoader._get_nested_value(
+            config, "基础设置", "域名管理", "allowed_domains", ""
+        )
+        config_dict["allowed_domains"] = WebAnalyzerUtils.parse_domain_list(allowed_text)
+        blocked_text = ConfigLoader._get_nested_value(
+            config, "基础设置", "域名管理", "blocked_domains", ""
+        )
+        config_dict["blocked_domains"] = WebAnalyzerUtils.parse_domain_list(blocked_text)
+        config_dict["enable_unified_domain"] = ConfigLoader._get_nested_value(
+            config, "基础设置", "域名管理", "enable_unified_domain", True
         )
 
-        # URL处理设置
-        config_dict["enable_unified_domain"] = bool(
-            network_settings.get("enable_unified_domain", True)
+        # 缓存设置
+        config_dict["enable_cache"] = ConfigLoader._get_nested_value(
+            config, "基础设置", "缓存设置", "enable_cache", True
+        )
+        config_dict["cache_expire_time_min"] = ConfigLoader._get_nested_value(
+            config, "基础设置", "缓存设置", "cache_expire_time_min", 1440
+        )
+        config_dict["max_cache_size"] = ConfigLoader._get_nested_value(
+            config, "基础设置", "缓存设置", "max_cache_size", 100
+        )
+        config_dict["cache_preload_enabled"] = ConfigLoader._get_nested_value(
+            config, "基础设置", "缓存设置", "cache_preload_enabled", False
+        )
+        config_dict["cache_preload_count"] = ConfigLoader._get_nested_value(
+            config, "基础设置", "缓存设置", "cache_preload_count", 20
+        )
+
+        # 资源管理
+        config_dict["enable_memory_monitor"] = ConfigLoader._get_nested_value(
+            config, "基础设置", "资源管理", "enable_memory_monitor", True
+        )
+        config_dict["memory_threshold_percent"] = ConfigLoader._get_nested_value(
+            config, "基础设置", "资源管理", "memory_threshold_percent", 80.0
+        )
+
+        return config_dict
+
+    @staticmethod
+    def _load_analysis_settings(config: dict) -> dict:
+        """加载分析设置"""
+        config_dict = {}
+
+        config_dict["analysis_mode"] = ConfigLoader._get_direct_value(
+            config, "分析设置", "analysis_mode", "auto"
+        )
+        config_dict["auto_analyze"] = config_dict["analysis_mode"] == "auto"
+        config_dict["max_summary_length"] = ConfigLoader._get_direct_value(
+            config, "分析设置", "max_summary_length", 2000
+        )
+        config_dict["enable_emoji"] = ConfigLoader._get_direct_value(
+            config, "分析设置", "enable_emoji", True
+        )
+        config_dict["enable_statistics"] = ConfigLoader._get_direct_value(
+            config, "分析设置", "enable_statistics", True
+        )
+
+        # 内容提取
+        config_dict["enable_specific_extraction"] = ConfigLoader._get_nested_value(
+            config, "分析设置", "内容提取", "enable_specific_extraction", False
+        )
+        extract_types_text = ConfigLoader._get_nested_value(
+            config, "分析设置", "内容提取", "extract_types", "title\ncontent"
+        )
+        config_dict["extract_types"] = WebAnalyzerUtils.parse_extract_types(extract_types_text)
+        config_dict["extract_types"] = WebAnalyzerUtils.validate_extract_types(
+            config_dict["extract_types"]
+        )
+        config_dict["extract_types"] = WebAnalyzerUtils.ensure_minimal_extract_types(
+            config_dict["extract_types"]
+        )
+        config_dict["extract_types"] = WebAnalyzerUtils.add_required_extract_types(
+            config_dict["extract_types"]
+        )
+
+        return config_dict
+
+    @staticmethod
+    def _load_display_settings(config: dict) -> dict:
+        """加载展示设置"""
+        config_dict = {}
+
+        # 基本展示设置
+        config_dict["send_content_type"] = ConfigLoader._get_direct_value(
+            config, "展示设置", "send_content_type", "both"
+        )
+        config_dict["result_template"] = ConfigLoader._get_direct_value(
+            config, "展示设置", "result_template", "default"
+        )
+
+        # 结果折叠
+        config_dict["enable_collapsible"] = ConfigLoader._get_nested_value(
+            config, "展示设置", "结果折叠", "enable_collapsible", False
+        )
+        config_dict["collapse_threshold"] = ConfigLoader._get_nested_value(
+            config, "展示设置", "结果折叠", "collapse_threshold", 1500
+        )
+
+        # 自定义模板
+        config_dict["enable_custom_template"] = ConfigLoader._get_nested_value(
+            config, "展示设置", "自定义模板", "enable_custom_template", False
+        )
+        config_dict["template_content"] = ConfigLoader._get_nested_value(
+            config,
+            "展示设置",
+            "自定义模板",
+            "template_content",
+            "# 网页分析结果\n\n## 基本信息\n- 标题: {title}\n- 链接: {url}\n- 内容类型: {content_type}\n- 分析时间: {date} {time}\n\n## 内容摘要\n{summary}\n\n## 详细分析\n{analysis_result}\n\n## 内容统计\n{stats}",
+        )
+        config_dict["template_format"] = ConfigLoader._get_nested_value(
+            config, "展示设置", "自定义模板", "template_format", "markdown"
+        )
+
+        # URL识别
+        config_dict["enable_no_protocol_url"] = ConfigLoader._get_nested_value(
+            config, "展示设置", "URL识别", "enable_no_protocol_url", False
+        )
+        config_dict["default_protocol"] = ConfigLoader._get_nested_value(
+            config, "展示设置", "URL识别", "default_protocol", "https"
+        )
+
+        # 网页截图
+        config_dict["enable_screenshot"] = ConfigLoader._get_nested_value(
+            config, "展示设置", "网页截图", "enable_screenshot", True
+        )
+        config_dict["screenshot_quality"] = ConfigLoader._get_nested_value(
+            config, "展示设置", "网页截图", "screenshot_quality", 80
+        )
+        config_dict["screenshot_width"] = ConfigLoader._get_nested_value(
+            config, "展示设置", "网页截图", "screenshot_width", 1280
+        )
+        config_dict["screenshot_height"] = ConfigLoader._get_nested_value(
+            config, "展示设置", "网页截图", "screenshot_height", 720
+        )
+        config_dict["screenshot_full_page"] = ConfigLoader._get_nested_value(
+            config, "展示设置", "网页截图", "screenshot_full_page", False
+        )
+        config_dict["screenshot_wait_ms"] = ConfigLoader._get_nested_value(
+            config, "展示设置", "网页截图", "screenshot_wait_ms", 2000
+        )
+        config_dict["screenshot_format"] = ConfigLoader._get_nested_value(
+            config, "展示设置", "网页截图", "screenshot_format", "jpeg"
+        )
+        config_dict["enable_crop"] = ConfigLoader._get_nested_value(
+            config, "展示设置", "网页截图", "enable_crop", False
+        )
+        crop_area = ConfigLoader._get_nested_value(
+            config, "展示设置", "网页截图", "crop_area", "[0, 0, 1280, 720]"
+        )
+        default_crop_area = [0, 0, 1280, 720]
+        if isinstance(crop_area, str):
+            config_dict["crop_area"] = ConfigLoader._validate_crop_area(crop_area, default_crop_area)
+        else:
+            config_dict["crop_area"] = crop_area if isinstance(crop_area, list) else default_crop_area
+
+        return config_dict
+
+    @staticmethod
+    def _load_llm_settings(config: dict) -> dict:
+        """加载LLM智能分析设置"""
+        config_dict = {}
+
+        config_dict["llm_enabled"] = ConfigLoader._get_direct_value(
+            config, "智能分析", "llm_enabled", True
+        )
+        config_dict["llm_provider"] = ConfigLoader._get_direct_value(
+            config, "智能分析", "llm_provider", ""
+        )
+        config_dict["enable_llm_decision"] = ConfigLoader._get_direct_value(
+            config, "智能分析", "enable_llm_decision", False
+        )
+        config_dict["custom_prompt"] = ConfigLoader._get_direct_value(
+            config, "智能分析", "custom_prompt", ""
+        )
+
+        # 翻译功能
+        config_dict["enable_translation"] = ConfigLoader._get_nested_value(
+            config, "智能分析", "翻译功能", "enable_translation", False
+        )
+        config_dict["target_language"] = ConfigLoader._get_nested_value(
+            config, "智能分析", "翻译功能", "target_language", "zh"
+        )
+        config_dict["translation_provider"] = ConfigLoader._get_nested_value(
+            config, "智能分析", "翻译功能", "translation_provider", "llm"
+        )
+        config_dict["custom_translation_prompt"] = ConfigLoader._get_nested_value(
+            config, "智能分析", "翻译功能", "custom_translation_prompt", ""
+        )
+
+        return config_dict
+
+    @staticmethod
+    def _load_message_settings(config: dict) -> dict:
+        """加载消息管理设置"""
+        config_dict = {}
+
+        # 合并转发
+        config_dict["merge_forward_group"] = ConfigLoader._get_nested_value(
+            config, "消息管理", "合并转发", "group", False
+        )
+        config_dict["merge_forward_private"] = ConfigLoader._get_nested_value(
+            config, "消息管理", "合并转发", "private", False
+        )
+        config_dict["merge_forward_include_screenshot"] = ConfigLoader._get_nested_value(
+            config, "消息管理", "合并转发", "include_screenshot", False
+        )
+
+        # 群聊设置
+        group_blacklist_text = ConfigLoader._get_nested_value(
+            config, "消息管理", "群聊设置", "group_blacklist", ""
+        )
+        config_dict["group_blacklist"] = WebAnalyzerUtils.parse_group_list(group_blacklist_text)
+
+        # 消息撤回
+        config_dict["enable_recall"] = ConfigLoader._get_nested_value(
+            config, "消息管理", "消息撤回", "enable_recall", True
+        )
+        config_dict["recall_type"] = ConfigLoader._get_nested_value(
+            config, "消息管理", "消息撤回", "recall_type", "smart"
+        )
+        config_dict["recall_time_s"] = ConfigLoader._get_nested_value(
+            config, "消息管理", "消息撤回", "recall_time_s", 10
+        )
+        config_dict["smart_recall_enabled"] = ConfigLoader._get_nested_value(
+            config, "消息管理", "消息撤回", "smart_recall_enabled", True
         )
 
         return config_dict
@@ -143,156 +677,6 @@ class ConfigLoader:
         return proxy
 
     @staticmethod
-    def _load_domain_settings(config: Any) -> dict:
-        """加载和验证域名设置"""
-        domain_settings = config.get("domain_settings", {})
-        config_dict = {}
-
-        config_dict["allowed_domains"] = ConfigLoader._parse_domain_list(
-            domain_settings.get("allowed_domains", "")
-        )
-        config_dict["blocked_domains"] = ConfigLoader._parse_domain_list(
-            domain_settings.get("blocked_domains", "")
-        )
-
-        return config_dict
-
-    @staticmethod
-    def _parse_domain_list(domain_text: str) -> list[str]:
-        """将多行域名文本转换为Python列表"""
-        return WebAnalyzerUtils.parse_domain_list(domain_text)
-
-    @staticmethod
-    def _load_analysis_settings(config: Any) -> dict:
-        """加载和验证分析设置"""
-        analysis_settings = config.get("analysis_settings", {})
-        config_dict = {}
-
-        # 分析模式设置
-        valid_modes = ["auto", "manual", "hybrid", "LLMTOOL"]
-        config_dict["analysis_mode"] = analysis_settings.get("analysis_mode", "auto")
-        if config_dict["analysis_mode"] not in valid_modes:
-            logger.warning(
-                f"无效的分析模式: {config_dict['analysis_mode']}，将使用默认值 auto"
-            )
-            config_dict["analysis_mode"] = "auto"
-
-        config_dict["auto_analyze"] = bool(analysis_settings.get("auto_analyze", True))
-        if "analysis_mode" in analysis_settings:
-            config_dict["auto_analyze"] = config_dict["analysis_mode"] == "auto"
-
-        # 结果样式设置
-        config_dict["enable_emoji"] = bool(analysis_settings.get("enable_emoji", True))
-        config_dict["enable_statistics"] = bool(
-            analysis_settings.get("enable_statistics", True)
-        )
-        config_dict["max_summary_length"] = max(
-            500, min(10000, analysis_settings.get("max_summary_length", 2000))
-        )
-
-        # 发送内容类型设置
-        valid_content_types = ["both", "analysis_only", "screenshot_only"]
-        config_dict["send_content_type"] = analysis_settings.get(
-            "send_content_type", "both"
-        )
-        if config_dict["send_content_type"] not in valid_content_types:
-            logger.warning(
-                f"无效的发送内容类型: {config_dict['send_content_type']}，将使用默认值 both"
-            )
-            config_dict["send_content_type"] = "both"
-
-        # 结果模板设置
-        valid_templates = ["default", "detailed", "compact", "markdown", "simple"]
-        config_dict["result_template"] = analysis_settings.get("result_template", "default")
-        if config_dict["result_template"] not in valid_templates:
-            logger.warning(
-                f"无效的结果模板: {config_dict['result_template']}，将使用默认值 default"
-            )
-            config_dict["result_template"] = "default"
-
-        # 结果折叠设置
-        config_dict["enable_collapsible"] = bool(
-            analysis_settings.get("enable_collapsible", False)
-        )
-        config_dict["collapse_threshold"] = max(
-            500, min(5000, analysis_settings.get("collapse_threshold", 1500))
-        )
-
-        # URL识别设置
-        config_dict["enable_no_protocol_url"] = bool(
-            analysis_settings.get("enable_no_protocol_url", False)
-        )
-        valid_protocols = ["http", "https"]
-        config_dict["default_protocol"] = analysis_settings.get("default_protocol", "https")
-        if config_dict["default_protocol"] not in valid_protocols:
-            logger.warning(
-                f"无效的默认协议: {config_dict['default_protocol']}，将使用默认值 https"
-            )
-            config_dict["default_protocol"] = "https"
-
-        # LLM决策设置
-        config_dict["enable_llm_decision"] = bool(
-            analysis_settings.get("enable_llm_decision", False)
-        )
-
-        return config_dict
-
-    @staticmethod
-    def _load_screenshot_settings(config: Any) -> dict:
-        """加载和验证截图设置"""
-        screenshot_settings = config.get("screenshot_settings", {})
-        config_dict = {}
-
-        # 基本截图设置
-        config_dict["enable_screenshot"] = bool(
-            screenshot_settings.get("enable_screenshot", True)
-        )
-        config_dict["screenshot_quality"] = max(
-            10, min(100, screenshot_settings.get("screenshot_quality", 80))
-        )
-        config_dict["screenshot_width"] = max(
-            320, min(4096, screenshot_settings.get("screenshot_width", 1280))
-        )
-        config_dict["screenshot_height"] = max(
-            240, min(4096, screenshot_settings.get("screenshot_height", 720))
-        )
-        config_dict["screenshot_full_page"] = bool(
-            screenshot_settings.get("screenshot_full_page", False)
-        )
-        config_dict["screenshot_wait_time"] = max(
-            0, min(10000, screenshot_settings.get("screenshot_wait_time", 2000))
-        )
-
-        # 截图格式设置
-        valid_formats = ["jpeg", "png"]
-        screenshot_format = screenshot_settings.get("screenshot_format", "jpeg").lower()
-        config_dict["screenshot_format"] = (
-            screenshot_format if screenshot_format in valid_formats else "jpeg"
-        )
-        if config_dict["screenshot_format"] != screenshot_format:
-            logger.warning(f"无效的截图格式: {screenshot_format}，将使用默认格式 jpeg")
-
-        # 裁剪设置
-        config_dict["enable_crop"] = bool(screenshot_settings.get("enable_crop", False))
-        default_crop_area = [
-            0,
-            0,
-            config_dict["screenshot_width"],
-            config_dict["screenshot_height"],
-        ]
-        crop_area = screenshot_settings.get("crop_area", default_crop_area)
-
-        if isinstance(crop_area, str):
-            crop_area = ConfigLoader._validate_crop_area(crop_area, default_crop_area)
-        elif not (isinstance(crop_area, list) and len(crop_area) == 4):
-            logger.warning(f"无效的裁剪区域: {crop_area}，将使用默认值")
-            crop_area = default_crop_area
-
-        config_dict["crop_area"] = crop_area
-
-        return config_dict
-
-    @staticmethod
     def _validate_crop_area(crop_area_str: str, default_area: list) -> list:
         """验证和处理裁剪区域配置"""
         try:
@@ -307,227 +691,3 @@ class ConfigLoader:
                 f"解析裁剪区域失败: {crop_area_str}，错误: {e}，将使用默认值"
             )
             return default_area
-
-    @staticmethod
-    def _load_llm_settings(config: Any) -> dict:
-        """加载和验证LLM设置"""
-        llm_settings = config.get("llm_settings", {})
-        config_dict = {}
-
-        config_dict["llm_enabled"] = bool(llm_settings.get("llm_enabled", True))
-        config_dict["llm_provider"] = llm_settings.get("llm_provider", "")
-        config_dict["custom_prompt"] = llm_settings.get("custom_prompt", "")
-
-        return config_dict
-
-    @staticmethod
-    def _load_group_settings(config: Any) -> dict:
-        """加载和验证群聊设置"""
-        group_settings = config.get("group_settings", {})
-        config_dict = {}
-
-        group_blacklist_text = group_settings.get("group_blacklist", "")
-        config_dict["group_blacklist"] = ConfigLoader._parse_group_list(group_blacklist_text)
-
-        # 加载合并转发设置
-        merge_forward_config = config.get("merge_forward_settings", {})
-        
-        # 尝试从不同的格式中获取配置
-        # 优先检查是否有直接的 group/private 字段（新格式）
-        if "group" in merge_forward_config:
-            config_dict["merge_forward_group"] = bool(merge_forward_config.get("group", False))
-            config_dict["merge_forward_private"] = bool(merge_forward_config.get("private", False))
-            config_dict["merge_forward_include_screenshot"] = bool(
-                merge_forward_config.get("include_screenshot", False)
-            )
-        # 检查是否有 merge_forward_enabled 字段（旧格式）
-        elif "merge_forward_enabled" in merge_forward_config:
-            old_config = merge_forward_config.get("merge_forward_enabled", {})
-            # 如果旧配置是字典
-            if isinstance(old_config, dict):
-                config_dict["merge_forward_group"] = bool(old_config.get("group", False))
-                config_dict["merge_forward_private"] = bool(old_config.get("private", False))
-                config_dict["merge_forward_include_screenshot"] = bool(
-                    old_config.get("include_screenshot", False)
-                )
-                logger.info("检测到旧格式的合并转发配置，已自动转换为新格式")
-            else:
-                # 如果是其他类型，使用默认值
-                config_dict["merge_forward_group"] = False
-                config_dict["merge_forward_private"] = False
-                config_dict["merge_forward_include_screenshot"] = False
-        else:
-            # 使用默认值
-            config_dict["merge_forward_group"] = False
-            config_dict["merge_forward_private"] = False
-            config_dict["merge_forward_include_screenshot"] = False
-
-        return config_dict
-
-    @staticmethod
-    def _parse_group_list(group_text: str) -> list[str]:
-        """将多行群聊ID文本转换为Python列表"""
-        return WebAnalyzerUtils.parse_group_list(group_text)
-
-    @staticmethod
-    def _load_translation_settings(config: Any) -> dict:
-        """加载和验证翻译设置"""
-        translation_settings = config.get("translation_settings", {})
-        config_dict = {}
-
-        config_dict["enable_translation"] = bool(
-            translation_settings.get("enable_translation", False)
-        )
-
-        config_dict["target_language"] = translation_settings.get("target_language", "zh").lower()
-        valid_languages = ["zh", "en", "ja", "ko", "fr", "de", "es", "ru", "ar", "pt"]
-        if config_dict["target_language"] not in valid_languages:
-            logger.warning(
-                f"无效的目标语言: {config_dict['target_language']}，将使用默认语言 zh"
-            )
-            config_dict["target_language"] = "zh"
-
-        config_dict["translation_provider"] = translation_settings.get(
-            "translation_provider", "llm"
-        )
-        config_dict["custom_translation_prompt"] = translation_settings.get(
-            "custom_translation_prompt", ""
-        )
-
-        return config_dict
-
-    @staticmethod
-    def _load_cache_settings(config: Any) -> dict:
-        """加载和验证缓存设置"""
-        cache_settings = config.get("cache_settings", {})
-        config_dict = {}
-
-        config_dict["enable_cache"] = bool(cache_settings.get("enable_cache", True))
-        config_dict["cache_expire_time"] = max(
-            5, min(10080, cache_settings.get("cache_expire_time", 1440))
-        )
-        config_dict["max_cache_size"] = max(
-            10, min(1000, cache_settings.get("max_cache_size", 100))
-        )
-        config_dict["cache_preload_enabled"] = bool(
-            cache_settings.get("cache_preload_enabled", False)
-        )
-        config_dict["cache_preload_count"] = max(
-            0, min(100, cache_settings.get("cache_preload_count", 20))
-        )
-
-        return config_dict
-
-    @staticmethod
-    def _load_content_extraction_settings(config: Any) -> dict:
-        """加载和验证内容提取设置"""
-        content_extraction_settings = config.get("content_extraction_settings", {})
-        config_dict = {}
-
-        config_dict["enable_specific_extraction"] = bool(
-            content_extraction_settings.get("enable_specific_extraction", False)
-        )
-        extract_types_text = content_extraction_settings.get("extract_types", "title\ncontent")
-        config_dict["extract_types"] = WebAnalyzerUtils.parse_extract_types(extract_types_text)
-        config_dict["extract_types"] = WebAnalyzerUtils.validate_extract_types(
-            config_dict["extract_types"]
-        )
-        config_dict["extract_types"] = WebAnalyzerUtils.ensure_minimal_extract_types(
-            config_dict["extract_types"]
-        )
-        config_dict["extract_types"] = WebAnalyzerUtils.add_required_extract_types(
-            config_dict["extract_types"]
-        )
-
-        return config_dict
-
-    @staticmethod
-    def _load_recall_settings(config: Any) -> dict:
-        """加载和验证撤回设置"""
-        recall_settings = config.get("recall_settings", {})
-        config_dict = {}
-
-        config_dict["enable_recall"] = bool(recall_settings.get("enable_recall", True))
-        config_dict["recall_type"] = recall_settings.get("recall_type", "smart")
-        config_dict["recall_time"] = max(0, min(120, recall_settings.get("recall_time", 10)))
-        config_dict["smart_recall_enabled"] = bool(
-            recall_settings.get("smart_recall_enabled", True)
-        )
-
-        return config_dict
-
-    @staticmethod
-    def _load_command_settings(config: Any) -> dict:
-        """加载和验证命令设置"""
-        command_settings = config.get("command_settings", {})
-        config_dict = {}
-
-        custom_aliases = command_settings.get("custom_aliases", {})
-
-        if isinstance(custom_aliases, str):
-            try:
-                parsed_aliases = {}
-                lines = custom_aliases.strip().split("\n")
-                for line in lines:
-                    line = line.strip()
-                    if not line or "=" not in line:
-                        continue
-                    command, aliases = line.split("=", 1)
-                    command = command.strip()
-                    alias_list = [
-                        alias.strip() for alias in aliases.split(",") if alias.strip()
-                    ]
-                    if command and alias_list:
-                        parsed_aliases[command] = alias_list
-                config_dict["custom_command_aliases"] = parsed_aliases
-            except Exception as e:
-                logger.warning(f"解析自定义命令别名失败: {e}，将使用默认值")
-                config_dict["custom_command_aliases"] = {}
-        else:
-            config_dict["custom_command_aliases"] = custom_aliases
-
-        config_dict["enable_command_completion"] = bool(
-            command_settings.get("enable_completion", True)
-        )
-        config_dict["enable_command_help"] = bool(command_settings.get("enable_help", True))
-        config_dict["enable_param_hints"] = bool(command_settings.get("enable_param_hints", True))
-
-        return config_dict
-
-    @staticmethod
-    def _load_resource_settings(config: Any) -> dict:
-        """加载和验证资源管理设置"""
-        resource_settings = config.get("resource_settings", {})
-        config_dict = {}
-
-        config_dict["enable_memory_monitor"] = bool(
-            resource_settings.get("enable_memory_monitor", True)
-        )
-        config_dict["memory_threshold"] = max(
-            0.0, min(100.0, resource_settings.get("memory_threshold", 80.0))
-        )
-
-        return config_dict
-
-    @staticmethod
-    def _load_template_settings(config: Any) -> dict:
-        """加载和验证模板设置"""
-        template_settings = config.get("template_settings", {})
-        config_dict = {}
-
-        config_dict["enable_custom_template"] = bool(
-            template_settings.get("enable_custom_template", False)
-        )
-        config_dict["template_content"] = template_settings.get(
-            "template_content",
-            "# 网页分析结果\n\n## 基本信息\n- 标题: {title}\n- 链接: {url}\n- 内容类型: {content_type}\n- 分析时间: {date} {time}\n\n## 内容摘要\n{summary}\n\n## 详细分析\n{analysis_result}\n\n## 内容统计\n{stats}",
-        )
-        valid_formats = ["markdown", "plain", "html"]
-        config_dict["template_format"] = template_settings.get("template_format", "markdown")
-        if config_dict["template_format"] not in valid_formats:
-            logger.warning(
-                f"无效的模板格式: {config_dict['template_format']}，将使用默认格式 markdown"
-            )
-            config_dict["template_format"] = "markdown"
-
-        return config_dict
