@@ -218,6 +218,10 @@ class MessageHandler:
         await self._acquire_concurrency_slot()
         
         try:
+            # screenshot_only 模式：跳过网页抓取和分析，直接截图
+            if self.send_content_type == "screenshot_only":
+                return await self._process_screenshot_only(url, analyzer)
+            
             # 1. 检查缓存
             cached_result = self.check_cache(url)
             if cached_result:
@@ -232,7 +236,7 @@ class MessageHandler:
                     error_msg = ErrorHandler.handle_error(
                         ErrorType.NETWORK_ERROR, Exception("无法获取网页内容"), url
                     )
-                    return {"url": url, "result": error_msg, "screenshot": None}
+                    return {"url": url, "result": error_msg, "screenshot": None, "has_screenshot": False}
 
                 # 3. 提取结构化内容
                 content_data = analyzer.extract_content(html, url)
@@ -240,7 +244,7 @@ class MessageHandler:
                     error_msg = ErrorHandler.handle_error(
                         ErrorType.PARSING_ERROR, Exception("无法解析网页内容"), url
                     )
-                    return {"url": url, "result": error_msg, "screenshot": None}
+                    return {"url": url, "result": error_msg, "screenshot": None, "has_screenshot": False}
 
                 # 4. 调用 LLM 进行分析
                 analysis_result = await self._analyze_content(
@@ -277,6 +281,114 @@ class MessageHandler:
         finally:
             # 释放并发槽位
             self._release_concurrency_slot()
+
+    async def _process_screenshot_only(self, url: str, analyzer: WebAnalyzer) -> dict:
+        """处理 screenshot_only 模式的 URL，只生成截图，不抓取和分析网页内容
+
+        Args:
+            url: 网页 URL
+            analyzer: WebAnalyzer 实例
+
+        Returns:
+            包含截图的结果字典
+        """
+        try:
+            # 检查是否有 screenshot_only 模式的缓存
+            if self.enable_cache:
+                normalized_url = self.analyzer.normalize_url(url)
+                cache_key = f"{normalized_url}_screenshot_only"
+                cached_result = self.cache_manager.get(cache_key)
+                
+                if cached_result and isinstance(cached_result, dict):
+                    screenshot = cached_result.get("screenshot")
+                    if isinstance(screenshot, bytes):
+                        logger.info(f"使用 screenshot_only 模式缓存: {url}")
+                        return {
+                            "url": url,
+                            "result": "截图模式",
+                            "screenshot": screenshot,
+                            "has_screenshot": True
+                        }
+                    # 尝试从磁盘加载
+                    screenshot = self._load_screenshot_from_cache(cache_key)
+                    if screenshot:
+                        logger.info(f"从磁盘加载 screenshot_only 缓存: {url}")
+                        return {
+                            "url": url,
+                            "result": "截图模式",
+                            "screenshot": screenshot,
+                            "has_screenshot": True
+                        }
+
+            # 没有缓存，直接生成截图
+            logger.info(f"screenshot_only 模式：直接生成截图，跳过网页抓取和分析: {url}")
+            
+            screenshot = await self._generate_screenshot_for_only_mode(analyzer, url)
+            
+            if screenshot:
+                result_data = {
+                    "url": url,
+                    "result": "截图模式",
+                    "screenshot": screenshot,
+                    "has_screenshot": True
+                }
+                
+                # 更新缓存（使用单独的缓存键）
+                if self.enable_cache:
+                    normalized_url = self.analyzer.normalize_url(url)
+                    cache_key = f"{normalized_url}_screenshot_only"
+                    self.update_cache(cache_key, result_data)
+                
+                return result_data
+            else:
+                # 截图失败
+                error_msg = ErrorHandler.handle_error(
+                    ErrorType.SCREENSHOT_ERROR, Exception("截图生成失败"), url
+                )
+                return {"url": url, "result": error_msg, "screenshot": None, "has_screenshot": False}
+                
+        except Exception as e:
+            error_type = ErrorHandler.get_error_type(e)
+            error_msg = ErrorHandler.handle_error(error_type, e, url)
+            return {"url": url, "result": error_msg, "screenshot": None, "has_screenshot": False}
+
+    async def _generate_screenshot_for_only_mode(self, analyzer: WebAnalyzer, url: str) -> bytes | None:
+        """为 screenshot_only 模式生成截图
+
+        Args:
+            analyzer: WebAnalyzer 实例
+            url: 网页 URL
+
+        Returns:
+            截图二进制数据
+        """
+        if not self.enable_screenshot:
+            return None
+
+        try:
+            # 传入完整的截图参数
+            screenshot = await analyzer.capture_screenshot(
+                url=url,
+                quality=self.screenshot_quality,
+                width=self.screenshot_width,
+                height=self.screenshot_height,
+                full_page=self.screenshot_full_page,
+                wait_time=self.screenshot_wait_ms,
+                format=self.screenshot_format,
+            )
+            
+            # 如果启用了裁剪，对截图进行裁剪
+            if self.enable_crop and screenshot:
+                try:
+                    screenshot = analyzer.crop_screenshot(screenshot, tuple(self.crop_area))
+                    logger.info(f"screenshot_only 模式截图裁剪成功: {url}, 裁剪区域: {self.crop_area}")
+                except Exception as crop_error:
+                    logger.warning(f"screenshot_only 模式截图裁剪失败: {url}, 错误: {crop_error}, 使用原始截图")
+            
+            return screenshot
+        except Exception as e:
+            logger.error(f"screenshot_only 模式截图失败: {url}, 错误: {e}")
+            return None
 
     async def _fetch_webpage_content(self, analyzer: WebAnalyzer, url: str) -> str:
         """抓取网页 HTML 内容
