@@ -1,5 +1,33 @@
 # 更新日志
 
+### [v1.4.8] - 2026-02-06
+
+#### ⚡ 性能优化
+- **优化screenshot_only模式** - 当启用screenshot_only模式时，跳过网页抓取和LLM分析，直接生成截图，大幅提升响应速度
+- **新增快速路径** - 在process_single_url方法中添加screenshot_only快速通道，避免不必要的操作
+- **独立缓存键** - screenshot_only模式使用独立的缓存键，避免与完整分析模式缓存冲突
+
+#### 🚀 功能改进
+- **跳过冗余操作** - screenshot_only模式不再执行以下耗时操作：
+  - ❌ 网页HTML抓取 (fetch_webpage)
+  - ❌ 内容结构化提取 (extract_content)
+  - ❌ LLM智能分析 (analyze_with_llm)
+  - ❌ 特定内容提取 (extract_specific_content)
+- **直接截图** - 只调用capture_screenshot生成网页截图
+
+#### 💾 资源节省
+- **减少网络请求** - 不抓取网页HTML内容
+- **节省内存占用** - 不存储网页内容和分析结果
+- **降低LLM消耗** - 不调用LLM进行分析，节省token消耗
+- **减少计算开销** - 不进行内容提取和处理
+
+#### 🎯 代码质量提升
+- **新增_process_screenshot_only方法** - 专门处理screenshot_only模式的URL
+- **新增_generate_screenshot_for_only_mode方法** - 为screenshot_only模式生成截图
+- **优化缓存策略** - 使用{url}_screenshot_only作为独立缓存键
+
+---
+
 ### [v1.4.7] - 2026-02-03
 
 #### 🐛 Bug修复
