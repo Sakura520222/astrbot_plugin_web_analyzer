@@ -46,7 +46,7 @@ jobs:
           echo "正在提取版本 '$VERSION' 的更新日志..."
           
           # 查找当前版本的行号，支持多种标题格式（### 或 ##）
-          VERSION_LINE=$(grep -nE "^#{2,3}\s+\[${VERSION}\]" CHANGELOG.md 2>/dev/null | head -n 1 | cut -d':' -f1)
+          VERSION_LINE=$(grep -nE "^#{2,3} \[${VERSION}\]" CHANGELOG.md 2>/dev/null | head -n 1 | cut -d':' -f1)
           
           if [ -z "$VERSION_LINE" ]; then
             # 如果标题格式匹配失败，尝试简单匹配
@@ -60,11 +60,16 @@ jobs:
              echo "找到版本 $VERSION 在第 $VERSION_LINE 行"
              
              # 从当前版本下一行开始，直到下一个版本标题或文件结尾
-             # 匹配 ## [vx.x.x] 或 ### [vx.x.x] 格式
-             CHANGELOG_CONTENT=$(tail -n +$((VERSION_LINE + 1)) CHANGELOG.md 2>/dev/null | sed '/^#{2,3}\s\+\[v/Q' 2>/dev/null)
+             # 使用 awk 更可靠地提取内容
+             awk -v start="$VERSION_LINE" '
+               NR > start {
+                 if (/^#{1,3} \[v/) exit;
+                 print;
+               }
+             ' CHANGELOG.md > /tmp/changelog.txt
              
-             # 移除末尾的空行
-             CHANGELOG_CONTENT=$(echo "$CHANGELOG_CONTENT" | sed -e :a -e '/^\n*$/{$d;N;ba' -e '}')
+             # 读取内容并移除末尾空行
+             CHANGELOG_CONTENT=$(cat /tmp/changelog.txt | sed -e :a -e '/^\n*$/{$d;N;ba' -e '}')
              
              if [ -z "$CHANGELOG_CONTENT" ]; then
                  CHANGELOG_CONTENT="此版本没有详细的更新日志内容。"
