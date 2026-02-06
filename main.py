@@ -1168,7 +1168,6 @@ class WebAnalyzerPlugin(Star):
                     extract_types=self.extract_types,
                     result_formatter=self.result_formatter,
                 )
-
                 results.append(result)
 
                 # 从处理中集合移除URL
