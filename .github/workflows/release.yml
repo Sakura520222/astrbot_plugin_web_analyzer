@@ -45,48 +45,27 @@ jobs:
           VERSION=$(echo "$VERSION" | tr -d '\r\n')
           echo "正在提取版本 '$VERSION' 的更新日志..."
           
-          # 调试信息：打印当前目录和文件列表
-          echo "当前工作目录: $(pwd)"
-          echo "CHANGELOG.md 文件信息:"
-          ls -la CHANGELOG.md 2>/dev/null || echo "文件不存在"
-          echo "文件前5行内容:"
-          head -n 5 CHANGELOG.md 2>/dev/null || echo "无法读取文件"
-          
-          # 列出 CHANGELOG.md 中所有版本，用于调试
-          echo "CHANGELOG.md 中的版本列表："
-          grep -n "## \[" CHANGELOG.md 2>/dev/null || echo "无法查找版本"
-          
-          # 调试：打印 VERSION 变量的确切值
-          echo "VERSION 变量值: '${VERSION}'"
-          echo "VERSION 变量长度: ${#VERSION}"
-          
-          # 查找当前版本的行号，尝试多种匹配模式
-          echo "尝试匹配模式1: \"[${VERSION}]\"（固定字符串匹配）"
-          VERSION_LINE=$(grep -n -F "[${VERSION}]" CHANGELOG.md 2>/dev/null | cut -d':' -f1)
+          # 查找当前版本的行号，支持多种标题格式（### 或 ##）
+          VERSION_LINE=$(grep -nE "^#{2,3}\s+\[${VERSION}\]" CHANGELOG.md 2>/dev/null | head -n 1 | cut -d':' -f1)
           
           if [ -z "$VERSION_LINE" ]; then
-            echo "模式1未匹配，尝试模式2: \"## [${VERSION}]\"（固定字符串匹配）"
-            VERSION_LINE=$(grep -n -F "## [${VERSION}]" CHANGELOG.md 2>/dev/null | cut -d':' -f1)
-          fi
-          
-          if [ -z "$VERSION_LINE" ]; then
-            echo "模式2未匹配，尝试模式3: \"${VERSION}\"（不带方括号）"
-            VERSION_LINE=$(grep -n "${VERSION}" CHANGELOG.md 2>/dev/null | cut -d':' -f1)
+            # 如果标题格式匹配失败，尝试简单匹配
+            VERSION_LINE=$(grep -n -F "[${VERSION}]" CHANGELOG.md 2>/dev/null | head -n 1 | cut -d':' -f1)
           fi
           
           if [ -z "$VERSION_LINE" ]; then
              echo "警告：在 CHANGELOG.md 中未找到版本 $VERSION"
-             echo "请检查 CHANGELOG.md 文件内容和版本格式"
              CHANGELOG_CONTENT="未找到版本 $VERSION 的更新日志"
           else
              echo "找到版本 $VERSION 在第 $VERSION_LINE 行"
-             # 显示匹配到的行内容
-             echo "匹配的行内容: $(sed -n "${VERSION_LINE}p" CHANGELOG.md 2>/dev/null)"
              
              # 从当前版本下一行开始，直到下一个版本标题或文件结尾
-             # 使用 sed 提取内容，保留空行
-             CHANGELOG_CONTENT=$(tail -n +$((VERSION_LINE + 1)) CHANGELOG.md 2>/dev/null | sed '/^## \[/Q' 2>/dev/null)
-             # 如果内容为空，则使用默认消息
+             # 匹配 ## [vx.x.x] 或 ### [vx.x.x] 格式
+             CHANGELOG_CONTENT=$(tail -n +$((VERSION_LINE + 1)) CHANGELOG.md 2>/dev/null | sed '/^#{2,3}\s\+\[v/Q' 2>/dev/null)
+             
+             # 移除末尾的空行
+             CHANGELOG_CONTENT=$(echo "$CHANGELOG_CONTENT" | sed -e :a -e '/^\n*$/{$d;N;ba' -e '}')
+             
              if [ -z "$CHANGELOG_CONTENT" ]; then
                  CHANGELOG_CONTENT="此版本没有详细的更新日志内容。"
              fi
@@ -110,18 +89,13 @@ jobs:
             main.py \
             metadata.yaml \
             requirements.txt \
-            analyzer.py \
-            cache.py \
-            utils.py \
             _conf_schema.json \
             logo.png \
             README.md \
             LICENSE \
             CHANGELOG.md \
-            REFACTORING.md \
             core/ \
-            wiki/ \
-            .github/workflows/release.yml
+            wiki/
           
           echo "打包完成，文件大小: $(du -h $ZIP_FILE | cut -f1)"
           echo "ZIP_FILE=$ZIP_FILE" >> $GITHUB_OUTPUT
