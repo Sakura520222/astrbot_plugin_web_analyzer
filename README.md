@@ -175,10 +175,6 @@ AstrBot网页分析插件，能够自动识别用户发送的网页链接，智�
 | 完善的错误处理 | 实现错误分级和分类，提供详细的错误信息 |
 | 详细日志记录 | 新增详细的日志记录，便于调试和监控 |
 
-## Star
-
-[![Star History Chart](https://api.star-history.com/svg?repos=Sakura520222/astrbot_plugin_web_analyzer&type=Date)](https://star-history.com/#Sakura520222/astrbot_plugin_web_analyzer&Date)
-
 ## 文档
 
 详细文档请查看 [Wiki](wiki/Home.md)：
@@ -694,3 +690,9 @@ astrbot_plugin_web_analyzer/
 ## 许可证
 
 本项目采用 [MIT License](LICENSE) 开源协议。
+
+---
+
+## Star
+
+[![Star History Chart](https://api.star-history.com/svg?repos=Sakura520222/astrbot_plugin_web_analyzer&type=Date)](https://star-history.com/#Sakura520222/astrbot_plugin_web_analyzer&Date)
