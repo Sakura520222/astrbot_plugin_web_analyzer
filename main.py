@@ -7,14 +7,6 @@ AstrBot 网页分析插件 - 重构版本
 本版本使用核心模块重构，遵循 PEP 8 规范。
 """
 
-import sys
-from pathlib import Path
-
-# 将当前目录添加到 Python 路径（必须在导入 core 模块之前）
-current_dir = Path(__file__).parent
-if str(current_dir) not in sys.path:
-    sys.path.insert(0, str(current_dir))
-
 from typing import Any
 
 from astrbot.api import AstrBotConfig, logger
@@ -22,23 +14,23 @@ from astrbot.api.event import AstrMessageEvent, filter
 from astrbot.api.message_components import File, Node, Nodes, Plain
 from astrbot.api.star import Context, Star, register
 
-from core.analyzer import WebAnalyzer
-from core.cache import CacheManager
-from core.utils import WebAnalyzerUtils
+from .core.analyzer import WebAnalyzer
+from .core.cache import CacheManager
+from .core.utils import WebAnalyzerUtils
 
 # 导入核心模块
-from core.config_loader import ConfigLoader
-from core.result_formatter import ResultFormatter
-from core.llm_analyzer import LLMAnalyzer
-from core.message_handler import MessageHandler
-from core.plugin_helpers import PluginHelpers, MessageHelpers
+from .core.config_loader import ConfigLoader
+from .core.result_formatter import ResultFormatter
+from .core.llm_analyzer import LLMAnalyzer
+from .core.message_handler import MessageHandler
+from .core.plugin_helpers import PluginHelpers, MessageHelpers
 
 
 @register(
     "astrbot_plugin_web_analyzer",
     "Sakura520222",
     "自动识别网页链接，智能抓取解析内容，集成大语言模型进行深度分析和总结，支持网页截图、缓存机制和多种管理命令",
-    "1.4.8",
+    "1.4.9",
     "https://github.com/Sakura520222/astrbot_plugin_web_analyzer",
 )
 class WebAnalyzerPlugin(Star):
