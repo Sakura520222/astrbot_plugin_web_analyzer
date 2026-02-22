@@ -5,12 +5,10 @@
 提供统一的错误处理、日志记录和用户友好的错误信息生成。
 """
 
-import logging
-from typing import Any
 
 from astrbot.api import logger
 
-from core.constants import ERROR_MESSAGES, ErrorSeverity, ErrorType
+from .constants import ERROR_MESSAGES, ErrorSeverity, ErrorType
 
 
 class ErrorHandler:

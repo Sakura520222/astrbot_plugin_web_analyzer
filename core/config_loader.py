@@ -5,9 +5,9 @@
 支持新旧配置格式的兼容性映射。
 """
 
-from typing import Any
 import sys
 from pathlib import Path
+from typing import Any
 
 # 确保父目录在 Python 路径中
 parent_dir = Path(__file__).parent.parent
@@ -17,9 +17,7 @@ if str(parent_dir) not in sys.path:
 from astrbot.api import logger
 from astrbot.api.star import Context
 
-from core.cache import CacheManager
-from core.analyzer import WebAnalyzer
-from core.utils import WebAnalyzerUtils
+from .utils import WebAnalyzerUtils
 
 
 class ConfigLoader:
@@ -172,7 +170,7 @@ class ConfigLoader:
             # 尝试获取所有配置键
             try:
                 for key in dir(config):
-                    if not key.startswith('_'):
+                    if not key.startswith("_"):
                         try:
                             config_dict[key] = getattr(config, key)
                         except Exception:

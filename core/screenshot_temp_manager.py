@@ -5,12 +5,10 @@
 负责管理截图临时文件的创建、复用和清理，使用 TTL 机制避免并发问题。
 """
 
+import asyncio
 import os
 import time
-import asyncio
 from collections import OrderedDict
-from typing import Optional
-from pathlib import Path
 
 # 条件导入 logger
 logger = None
@@ -45,24 +43,24 @@ class ScreenshotTempManager:
         """
         # 初始化临时文件目录
         self.temp_dir = self._initialize_temp_dir(temp_dir)
-        
+
         # 配置参数
         self.ttl = ttl
         self.cleanup_interval = cleanup_interval
         self.max_memory_cache = max_memory_cache
-        
+
         # 文件元数据记录：{url_hash: {"path": str, "created_at": float}}
         self._file_metadata: dict[str, dict] = {}
-        
+
         # 内存缓存：使用 OrderedDict 实现 LRU 缓存
         self._memory_cache: OrderedDict[str, bytes] = OrderedDict()
-        
+
         # 清理任务引用
-        self._cleanup_task: Optional[asyncio.Task] = None
-        
+        self._cleanup_task: asyncio.Task | None = None
+
         # 启动后台清理任务
         self._start_cleanup_task()
-        
+
         logger.info(
             f"ScreenshotTempManager 初始化完成: "
             f"temp_dir={self.temp_dir}, ttl={ttl}s, "
@@ -82,10 +80,10 @@ class ScreenshotTempManager:
             # 使用默认临时目录（项目根目录下的 data/temp）
             project_root = os.path.dirname(os.path.dirname(__file__))
             temp_dir = os.path.join(project_root, "data", "temp")
-        
+
         # 确保目录存在
         os.makedirs(temp_dir, exist_ok=True)
-        
+
         return temp_dir
 
     def _start_cleanup_task(self):
@@ -110,16 +108,16 @@ class ScreenshotTempManager:
         """清理所有过期的临时文件"""
         current_time = time.time()
         expired_hashes = []
-        
+
         # 查找过期的文件
         for url_hash, metadata in self._file_metadata.items():
             if current_time - metadata["created_at"] > self.ttl:
                 expired_hashes.append(url_hash)
-        
+
         # 删除过期文件
         for url_hash in expired_hashes:
             await self._remove_file(url_hash)
-        
+
         if expired_hashes:
             logger.info(f"清理了 {len(expired_hashes)} 个过期的临时文件")
 
@@ -131,10 +129,10 @@ class ScreenshotTempManager:
         """
         if url_hash not in self._file_metadata:
             return
-        
+
         metadata = self._file_metadata[url_hash]
         file_path = metadata["path"]
-        
+
         try:
             if os.path.exists(file_path):
                 os.remove(file_path)
@@ -177,7 +175,7 @@ class ScreenshotTempManager:
             oldest_hash, _ = self._memory_cache.popitem(last=False)
             logger.debug(f"LRU 缓存已满，移除最久未使用的截图: {oldest_hash}")
 
-    def get_from_memory(self, url: str) -> Optional[bytes]:
+    def get_from_memory(self, url: str) -> bytes | None:
         """从内存缓存获取截图数据
         
         Args:
@@ -202,21 +200,21 @@ class ScreenshotTempManager:
             screenshot: 截图二进制数据
         """
         url_hash = self._get_url_hash(url)
-        
+
         # 确保缓存不超过最大容量
         self._ensure_cache_size()
-        
+
         # 添加到缓存
         self._memory_cache[url_hash] = screenshot
         logger.debug(f"截图已添加到内存缓存: {url}, 大小: {len(screenshot)} 字节")
 
     async def get_or_create_temp_path(
-        self, 
-        url: str, 
-        screenshot: Optional[bytes] = None,
+        self,
+        url: str,
+        screenshot: bytes | None = None,
         screenshot_format: str = "jpeg",
-        cache_dir: Optional[str] = None
-    ) -> Optional[str]:
+        cache_dir: str | None = None
+    ) -> str | None:
         """获取缓存截图文件路径
         
         优先返回缓存目录中的截图文件路径。如果截图数据存在但缓存文件不存在，
@@ -233,50 +231,50 @@ class ScreenshotTempManager:
         """
         if not cache_dir:
             cache_dir = self.temp_dir
-        
+
         url_hash = self._get_url_hash(url)
-        
+
         # 构建缓存截图文件路径
         cache_screenshot_path = os.path.join(cache_dir, f"{url_hash}_screenshot.bin")
-        
+
         # 检查缓存文件是否存在
         if os.path.exists(cache_screenshot_path):
             logger.debug(f"使用缓存截图文件: {cache_screenshot_path}")
-            
+
             # 如果有新的截图数据，更新内存缓存
             if screenshot:
                 self.put_to_memory(url, screenshot)
-            
+
             return cache_screenshot_path
-        
+
         # 缓存文件不存在，如果有截图数据则创建缓存文件
         if screenshot:
             try:
                 # 写入缓存文件
                 with open(cache_screenshot_path, "wb") as f:
                     f.write(screenshot)
-                
+
                 # 添加到内存缓存
                 self.put_to_memory(url, screenshot)
-                
+
                 logger.info(
                     f"创建缓存截图文件: {cache_screenshot_path}, "
                     f"大小: {len(screenshot)} 字节"
                 )
                 return cache_screenshot_path
-                
+
             except Exception as e:
                 logger.error(f"创建缓存截图文件失败: {cache_screenshot_path}, 错误: {e}")
                 return None
-        
+
         logger.warning(f"无截图数据且缓存文件不存在: {url}")
         return None
 
     async def prepare_screenshots(
         self,
-        urls_and_screenshots: list[tuple[str, Optional[bytes]]],
+        urls_and_screenshots: list[tuple[str, bytes | None]],
         screenshot_format: str = "jpeg"
-    ) -> list[Optional[str]]:
+    ) -> list[str | None]:
         """批量准备截图临时文件路径
         
         Args:
@@ -298,7 +296,7 @@ class ScreenshotTempManager:
         url: str,
         load_from_disk_func=None,
         screenshot_format: str = "jpeg"
-    ) -> Optional[str]:
+    ) -> str | None:
         """获取用于发送的截图路径
         
         按以下优先级查找：
@@ -315,13 +313,13 @@ class ScreenshotTempManager:
             临时文件路径，如果获取失败则返回 None
         """
         url_hash = self._get_url_hash(url)
-        
+
         # 1. 检查内存缓存
         if url_hash in self._memory_cache:
             screenshot = self._memory_cache[url_hash]
             self._update_lru_cache(url_hash)
             return await self.get_or_create_temp_path(url, screenshot, screenshot_format)
-        
+
         # 2. 检查是否有未过期的临时文件
         if url_hash in self._file_metadata:
             metadata = self._file_metadata[url_hash]
@@ -330,7 +328,7 @@ class ScreenshotTempManager:
                 if os.path.exists(file_path):
                     # 文件存在且未过期，直接使用
                     return file_path
-        
+
         # 3. 从磁盘加载
         if load_from_disk_func:
             try:
@@ -339,14 +337,14 @@ class ScreenshotTempManager:
                     return await self.get_or_create_temp_path(url, screenshot, screenshot_format)
             except Exception as e:
                 logger.error(f"从磁盘加载截图失败: {url}, 错误: {e}")
-        
+
         return None
 
     def clear_all(self):
         """清空所有临时文件和缓存"""
         # 清空内存缓存
         self._memory_cache.clear()
-        
+
         # 删除所有临时文件
         for url_hash, metadata in list(self._file_metadata.items()):
             try:
@@ -355,10 +353,10 @@ class ScreenshotTempManager:
                     os.remove(file_path)
             except Exception as e:
                 logger.error(f"删除临时文件失败: {metadata['path']}, 错误: {e}")
-        
+
         # 清空元数据
         self._file_metadata.clear()
-        
+
         logger.info("已清空所有临时文件和缓存")
 
     async def shutdown(self):
@@ -382,7 +380,7 @@ class ScreenshotTempManager:
             1 for metadata in self._file_metadata.values()
             if current_time - metadata["created_at"] <= self.ttl
         )
-        
+
         return {
             "temp_dir": self.temp_dir,
             "memory_cache_size": len(self._memory_cache),

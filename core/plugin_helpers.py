@@ -13,10 +13,9 @@ from typing import Any
 from astrbot.api import logger
 from astrbot.api.event import AstrMessageEvent
 
-from core.constants import ErrorType
-from core.error_handler import ErrorHandler
-from core.result_formatter import ResultFormatter
-from core.utils import WebAnalyzerUtils
+from .error_handler import ErrorHandler
+from .result_formatter import ResultFormatter
+from .utils import WebAnalyzerUtils
 
 
 class PluginHelpers:
