@@ -868,17 +868,40 @@ class WebAnalyzer:
             logger.error(error_msg)
             raise ScreenshotError(error_msg) from None
         
-        # 使用 playwright 的 API 来检查浏览器是否已安装
+        # 直接尝试使用浏览器，如果失败则安装
+        # 这样可以避免在 asyncio loop 中使用 Sync API
         try:
+            # 尝试获取浏览器可执行文件路径
             from playwright.sync_api import sync_playwright
+            import asyncio
+            import threading
             
-            with sync_playwright() as p:
-                # 尝试获取已安装的浏览器
-                browsers = p.chromium.executable_path
-                if os.path.exists(browsers):
-                    logger.info(f"浏览器已安装: {browsers}")
-                    self._playwright_browser_checked = True
-                    return
+            # 在单独的线程中运行同步代码，避免阻塞 asyncio loop
+            def check_browser():
+                try:
+                    with sync_playwright() as p:
+                        browser_path = p.chromium.executable_path
+                        return os.path.exists(browser_path), browser_path
+                except Exception as e:
+                    return False, str(e)
+            
+            # 在线程中执行检查
+            result = {}
+            def thread_func():
+                result['exists'], result['path'] = check_browser()
+            
+            thread = threading.Thread(target=thread_func)
+            thread.start()
+            thread.join(timeout=5)  # 5秒超时
+            
+            if thread.is_alive():
+                logger.warning("浏览器检查超时，将尝试安装")
+            elif result.get('exists'):
+                logger.info(f"浏览器已安装: {result['path']}")
+                self._playwright_browser_checked = True
+                return
+            else:
+                logger.warning(f"浏览器未安装或检查失败: {result.get('path', '未知错误')}")
         except Exception as e:
             logger.warning(f"检查浏览器安装状态失败: {e}，将尝试安装浏览器")
         
@@ -900,19 +923,37 @@ class WebAnalyzer:
             # 合并标准输出和错误输出
             full_output = f"STDOUT:\n{result.stdout}\n\nSTDERR:\n{result.stderr}"
 
+            # 检查是否真正失败（忽略仅有弃用警告的情况）
             if result.returncode != 0:
-                error_msg = (
-                    f"浏览器安装失败 (返回码: {result.returncode})\n"
-                    f"完整输出:\n{full_output}\n\n"
-                    f"请尝试手动安装:\n"
-                    f"  1. 运行: pip install --upgrade playwright\n"
-                    f"  2. 运行: python -m playwright install chromium\n"
-                    f"  3. 如果仍然失败,可能需要配置代理或检查网络连接"
+                # 检查 stderr 是否只有弃用警告（而非真正的错误）
+                stderr_lines = [line for line in result.stderr.split('\n') if line.strip()]
+                has_real_error = any(
+                    'error' in line.lower() or 'failed' in line.lower() or 'exception' in line.lower()
+                    for line in stderr_lines
                 )
-                logger.error(error_msg)
-                raise ScreenshotError(error_msg) from None
+                
+                # 检查输出中是否包含成功下载的标记
+                download_success = (
+                    'Chromium' in result.stdout and 
+                    'downloaded to' in result.stdout
+                )
 
-            logger.info(f"浏览器安装成功\n{full_output}")
+                if download_success and not has_real_error:
+                    # 浏览器实际下载成功，只是有弃用警告
+                    logger.info(f"浏览器安装成功（忽略非关键警告）\n{full_output}")
+                else:
+                    error_msg = (
+                        f"浏览器安装失败 (返回码: {result.returncode})\n"
+                        f"完整输出:\n{full_output}\n\n"
+                        f"请尝试手动安装:\n"
+                        f"  1. 运行: pip install --upgrade playwright\n"
+                        f"  2. 运行: python -m playwright install chromium\n"
+                        f"  3. 如果仍然失败,可能需要配置代理或检查网络连接"
+                    )
+                    logger.error(error_msg)
+                    raise ScreenshotError(error_msg) from None
+            else:
+                logger.info(f"浏览器安装成功\n{full_output}")
 
         except subprocess.TimeoutExpired:
             error_msg = (
