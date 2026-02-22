@@ -140,12 +140,11 @@ class WebAnalyzerPlugin(Star):
             return
 
         # 验证URL格式是否正确，并规范化URL
-        valid_urls = [
+        valid_urls = list({
             self.analyzer.normalize_url(url)
             for url in urls
             if self.analyzer.is_valid_url(url)
-        ]
-        valid_urls = list(set(valid_urls))
+        })
         if not valid_urls:
             yield event.plain_result("无效的URL链接，请检查格式是否正确")
             return
@@ -358,13 +357,13 @@ class WebAnalyzerPlugin(Star):
 
         # 验证URL格式是否正确，并规范化URL
         valid_urls = list(
-            set(
-                [
+            {
+
                     self.analyzer.normalize_url(url)
                     for url in urls
                     if self.analyzer.is_valid_url(url)
-                ]
-            )
+
+            }
         )
         if not valid_urls:
             return

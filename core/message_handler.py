@@ -14,15 +14,15 @@ parent_dir = Path(__file__).parent.parent
 if str(parent_dir) not in sys.path:
     sys.path.insert(0, str(parent_dir))
 
-from astrbot.api import logger
-from astrbot.api.event import AstrMessageEvent
-from astrbot.api.message_components import Image, Node, Nodes, Plain
+from astrbot.api import logger  # noqa: E402
+from astrbot.api.event import AstrMessageEvent  # noqa: E402
+from astrbot.api.message_components import Image, Node, Nodes, Plain  # noqa: E402
 
-from .analyzer import WebAnalyzer
-from .cache import CacheManager
-from .constants import ErrorType
-from .error_handler import ErrorHandler
-from .screenshot_temp_manager import ScreenshotTempManager
+from .analyzer import WebAnalyzer  # noqa: E402
+from .cache import CacheManager  # noqa: E402
+from .constants import ErrorType  # noqa: E402
+from .error_handler import ErrorHandler  # noqa: E402
+from .screenshot_temp_manager import ScreenshotTempManager  # noqa: E402
 
 
 class MessageHandler:
@@ -646,12 +646,12 @@ class MessageHandler:
         self, analysis_results: list
     ) -> list[str | None]:
         """准备用于发送的截图文件路径
-        
+
         将截图数据（从内存、缓存文件或新生成的）保存为临时图片文件。
-        
+
         Args:
             analysis_results: 分析结果列表
-            
+
         Returns:
             临时图片文件路径列表
         """
@@ -680,11 +680,11 @@ class MessageHandler:
 
     async def _create_temp_screenshot_file(self, url: str, screenshot: bytes) -> str | None:
         """从截图数据创建临时图片文件
-        
+
         Args:
             url: 网页URL
             screenshot: 截图二进制数据
-            
+
         Returns:
             临时文件路径，失败返回None
         """
@@ -712,10 +712,10 @@ class MessageHandler:
 
     async def _load_screenshot_from_cache_to_temp(self, url: str) -> str | None:
         """从缓存加载截图并创建临时文件
-        
+
         Args:
             url: 网页URL
-            
+
         Returns:
             临时文件路径，失败返回None
         """
@@ -753,9 +753,7 @@ class MessageHandler:
         sender_id = self._get_sender_id(event)
 
         for i, (result_data, temp_path) in enumerate(zip(analysis_results, temp_paths), 1):
-            screenshot = result_data.get("screenshot")
             analysis_result = result_data.get("result")
-            url = result_data.get("url", "")
 
             # 检查是否有实际的截图数据（优先使用 temp_path 判断）
             has_screenshot = temp_path is not None
