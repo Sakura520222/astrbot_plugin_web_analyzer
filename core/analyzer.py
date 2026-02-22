@@ -852,26 +852,81 @@ class WebAnalyzer:
         import sys
 
         logger.info("正在检查浏览器...")
-
-        browser_path = os.path.join(
-            os.path.expanduser("~"), ".cache", "ms-playwright", "chromium"
-        )
-
-        if os.path.exists(browser_path):
-            logger.info("浏览器已安装，跳过安装步骤")
-        else:
-            logger.info("正在安装浏览器...")
+        
+        # 先检查 playwright 是否已安装
+        try:
+            import playwright
+            logger.debug("Playwright 已安装")
+        except ImportError:
+            error_msg = (
+                "Playwright 未安装！\n"
+                "请运行以下命令安装:\n"
+                "  pip install playwright\n"
+                "然后运行:\n"
+                "  playwright install chromium"
+            )
+            logger.error(error_msg)
+            raise ScreenshotError(error_msg) from None
+        
+        # 使用 playwright 的 API 来检查浏览器是否已安装
+        try:
+            from playwright.sync_api import sync_playwright
+            
+            with sync_playwright() as p:
+                # 尝试获取已安装的浏览器
+                browsers = p.chromium.executable_path
+                if os.path.exists(browsers):
+                    logger.info(f"浏览器已安装: {browsers}")
+                    self._playwright_browser_checked = True
+                    return
+        except Exception as e:
+            logger.warning(f"检查浏览器安装状态失败: {e}，将尝试安装浏览器")
+        
+        # 浏览器未安装，开始安装
+        logger.info("正在安装浏览器...")
+        
+        try:
+            # 执行安装命令，添加超时和更详细的错误捕获
             result = subprocess.run(
                 [sys.executable, "-m", "playwright", "install", "chromium"],
                 capture_output=True,
                 text=True,
+                timeout=300,  # 5分钟超时
+                encoding='utf-8',
+                errors='replace',  # 防止编码错误
+                env={**os.environ, 'PLAYWRIGHT_BROWSERS_PATH': '0'}  # 使用默认路径
             )
 
-            if result.returncode != 0:
-                logger.error(f"浏览器安装失败: {result.stderr}")
-                raise ScreenshotError(f"浏览器安装失败: {result.stderr}") from None
+            # 合并标准输出和错误输出
+            full_output = f"STDOUT:\n{result.stdout}\n\nSTDERR:\n{result.stderr}"
 
-            logger.info("浏览器安装成功")
+            if result.returncode != 0:
+                error_msg = (
+                    f"浏览器安装失败 (返回码: {result.returncode})\n"
+                    f"完整输出:\n{full_output}\n\n"
+                    f"请尝试手动安装:\n"
+                    f"  1. 运行: pip install --upgrade playwright\n"
+                    f"  2. 运行: python -m playwright install chromium\n"
+                    f"  3. 如果仍然失败,可能需要配置代理或检查网络连接"
+                )
+                logger.error(error_msg)
+                raise ScreenshotError(error_msg) from None
+
+            logger.info(f"浏览器安装成功\n{full_output}")
+
+        except subprocess.TimeoutExpired:
+            error_msg = (
+                "浏览器安装超时（5分钟）\n"
+                "可能原因: 网络连接慢或下载文件较大\n"
+                "建议: 尝试手动安装或配置代理"
+            )
+            logger.error(error_msg)
+            raise ScreenshotError(error_msg) from None
+        
+        except Exception as e:
+            error_msg = f"浏览器安装过程中发生异常: {str(e)}"
+            logger.error(error_msg)
+            raise ScreenshotError(error_msg) from e
 
         # 标记已检查浏览器，避免重复检查
         self._playwright_browser_checked = True
