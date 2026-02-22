@@ -1,5 +1,29 @@
 # 更新日志
 
+### [v1.5.0] - 2026-02-22
+
+#### 🐛 Bug修复
+- **修复所有core模块导入失败问题** - 解决 `ModuleNotFoundError: No module named 'core.cache'` 及相关错误
+- **统一采用相对导入** - 将 `core/` 目录下所有模块的绝对导入改为相对导入（`.`），避免与 AstrBot 框架自身的 `core` 目录冲突
+- **修复的文件**:
+  - `core/config_loader.py` - 修复3处导入
+  - `core/plugin_helpers.py` - 修复4处导入
+  - `core/message_handler.py` - 修复6处导入
+  - `core/error_handler.py` - 修复1处导入
+  - `core/command_handlers.py` - 修复1处导入
+
+#### 🔧 技术改进
+- **标准化导入方式** - 所有模块间导入统一使用相对导入（`from .module import Class`），这是 Python 包内部模块互相导入的标准做法
+- **提高兼容性** - 确保插件在 AstrBot 框架中能够正常加载和运行
+- **优化代码结构** - 移除不必要的 `sys.path` 设置代码，简化导入逻辑
+
+#### 📝 说明
+- 此修复解决了插件启动时的导入错误
+- 现在插件应该能够正常加载和运行
+- 请重新启动 AstrBot 以应用此修复
+
+---
+
 ### [v1.4.9] - 2026-02-09
 
 #### 🐛 Bug修复

@@ -897,7 +897,6 @@ class WebAnalyzer:
         Returns:
             有效的浏览器实例，如果没有可用实例则返回None
         """
-        from playwright.async_api import async_playwright
 
         async with WebAnalyzer._browser_lock:
             while WebAnalyzer._browser_pool:
@@ -1275,7 +1274,7 @@ class WebAnalyzer:
                                 if cls.startswith("lang-"):
                                     language = cls[5:]
                                     break
-                        
+
                         # 限制单个代码块长度
                         truncated_code = (
                             code_text[:1000] + "..."

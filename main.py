@@ -16,21 +16,20 @@ from astrbot.api.star import Context, Star, register
 
 from .core.analyzer import WebAnalyzer
 from .core.cache import CacheManager
-from .core.utils import WebAnalyzerUtils
 
 # 导入核心模块
 from .core.config_loader import ConfigLoader
-from .core.result_formatter import ResultFormatter
 from .core.llm_analyzer import LLMAnalyzer
 from .core.message_handler import MessageHandler
-from .core.plugin_helpers import PluginHelpers, MessageHelpers
+from .core.plugin_helpers import MessageHelpers, PluginHelpers
+from .core.result_formatter import ResultFormatter
 
 
 @register(
     "astrbot_plugin_web_analyzer",
     "Sakura520222",
     "自动识别网页链接，智能抓取解析内容，集成大语言模型进行深度分析和总结，支持网页截图、缓存机制和多种管理命令",
-    "1.4.9",
+    "1.5.0",
     "https://github.com/Sakura520222/astrbot_plugin_web_analyzer",
 )
 class WebAnalyzerPlugin(Star):
@@ -704,7 +703,7 @@ class WebAnalyzerPlugin(Star):
         # 更新分析模式
         self.analysis_mode = mode
         self.auto_analyze = mode == "auto"
-        
+
         # 保存配置
         try:
             analysis_settings = self.config.get("analysis_settings", {})
@@ -1098,7 +1097,7 @@ class WebAnalyzerPlugin(Star):
                 for table in specific_content["tables"][:2]:
                     headers = table.get("headers", [])
                     rows = table.get("rows", [])
-                    specific_content_str += f"\n表格:\n"
+                    specific_content_str += "\n表格:\n"
                     if headers:
                         specific_content_str += (
                             f"| {' | '.join(headers)} |\n"

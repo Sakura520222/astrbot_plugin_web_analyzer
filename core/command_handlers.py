@@ -13,7 +13,7 @@ from astrbot.api import logger
 from astrbot.api.event import AstrMessageEvent, filter
 from astrbot.api.message_components import File, Node, Nodes, Plain
 
-from core.plugin_helpers import PluginHelpers
+from .plugin_helpers import PluginHelpers
 
 
 class CommandMixin:
@@ -705,7 +705,7 @@ class CommandMixin:
                 for table in specific_content["tables"][:2]:
                     headers = table.get("headers", [])
                     rows = table.get("rows", [])
-                    specific_content_str += f"\n表格:\n"
+                    specific_content_str += "\n表格:\n"
                     if headers:
                         specific_content_str += (
                             f"| {' | '.join(headers)} |\n"
