@@ -22,7 +22,7 @@ except ImportError:
 
 class ScreenshotTempManager:
     """截图临时文件管理器
-    
+
     管理截图临时文件的创建、复用和自动清理，使用 TTL 机制确保文件生命周期。
     """
 
@@ -34,7 +34,7 @@ class ScreenshotTempManager:
         max_memory_cache: int = 30
     ):
         """初始化临时文件管理器
-        
+
         Args:
             temp_dir: 临时文件目录，默认使用项目根目录下的 data/temp
             ttl: 文件生存期（秒），默认 60 秒
@@ -69,10 +69,10 @@ class ScreenshotTempManager:
 
     def _initialize_temp_dir(self, temp_dir: str | None) -> str:
         """初始化临时文件目录
-        
+
         Args:
             temp_dir: 用户指定的临时目录
-            
+
         Returns:
             最终使用的临时目录路径
         """
@@ -123,7 +123,7 @@ class ScreenshotTempManager:
 
     async def _remove_file(self, url_hash: str):
         """删除指定的临时文件
-        
+
         Args:
             url_hash: URL 哈希值
         """
@@ -148,10 +148,10 @@ class ScreenshotTempManager:
 
     def _get_url_hash(self, url: str) -> str:
         """计算 URL 的哈希值
-        
+
         Args:
             url: 网页 URL
-            
+
         Returns:
             URL 的 MD5 哈希值
         """
@@ -160,7 +160,7 @@ class ScreenshotTempManager:
 
     def _update_lru_cache(self, url_hash: str):
         """更新 LRU 缓存顺序
-        
+
         Args:
             url_hash: URL 哈希值
         """
@@ -177,10 +177,10 @@ class ScreenshotTempManager:
 
     def get_from_memory(self, url: str) -> bytes | None:
         """从内存缓存获取截图数据
-        
+
         Args:
             url: 网页 URL
-            
+
         Returns:
             截图二进制数据，如果不存在则返回 None
         """
@@ -194,7 +194,7 @@ class ScreenshotTempManager:
 
     def put_to_memory(self, url: str, screenshot: bytes):
         """将截图数据放入内存缓存
-        
+
         Args:
             url: 网页 URL
             screenshot: 截图二进制数据
@@ -216,16 +216,16 @@ class ScreenshotTempManager:
         cache_dir: str | None = None
     ) -> str | None:
         """获取缓存截图文件路径
-        
+
         优先返回缓存目录中的截图文件路径。如果截图数据存在但缓存文件不存在，
         则创建缓存文件并返回其路径。
-        
+
         Args:
             url: 网页 URL
             screenshot: 截图二进制数据（可选，用于保存到缓存）
             screenshot_format: 截图格式（jpeg, png 等）
             cache_dir: 缓存目录路径
-            
+
         Returns:
             缓存文件路径，如果获取失败则返回 None
         """
@@ -276,11 +276,11 @@ class ScreenshotTempManager:
         screenshot_format: str = "jpeg"
     ) -> list[str | None]:
         """批量准备截图临时文件路径
-        
+
         Args:
             urls_and_screenshots: (url, screenshot) 元组列表
             screenshot_format: 截图格式
-            
+
         Returns:
             临时文件路径列表
         """
@@ -298,17 +298,17 @@ class ScreenshotTempManager:
         screenshot_format: str = "jpeg"
     ) -> str | None:
         """获取用于发送的截图路径
-        
+
         按以下优先级查找：
         1. 内存缓存
         2. 临时文件（未过期）
         3. 从磁盘加载（通过提供的回调函数）
-        
+
         Args:
             url: 网页 URL
             load_from_disk_func: 从磁盘加载截图的回调函数
             screenshot_format: 截图格式
-            
+
         Returns:
             临时文件路径，如果获取失败则返回 None
         """
@@ -371,7 +371,7 @@ class ScreenshotTempManager:
 
     def get_stats(self) -> dict:
         """获取统计信息
-        
+
         Returns:
             包含统计数据的字典
         """

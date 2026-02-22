@@ -245,7 +245,6 @@ class LLMAnalyzer:
         """
         try:
             content = content_data["content"]
-            url = content_data["url"]
 
             # 检查 LLM 是否可用和启用
             if not self.check_llm_availability():
