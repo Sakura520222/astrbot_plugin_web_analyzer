@@ -15,3 +15,4 @@ API_USAGE.md
 AstrBot插件开发文档 .md
 logs/
 run_ruff.py
+main_backup.py
