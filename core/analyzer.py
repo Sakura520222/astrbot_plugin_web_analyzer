@@ -78,6 +78,11 @@ class WebAnalyzer:
     _cleanup_interval = 60 * 5  # 清理间隔，5分钟
     _instance_timeout = 60 * 30  # 实例超时时间，30分钟未使用则清理
 
+    # 浏览器安装相关
+    _browser_install_lock = None  # 浏览器安装进程锁
+    _browser_install_status_file = None  # 浏览器安装状态文件路径
+    _is_installing = False  # 是否正在安装浏览器
+
     def __init__(
         self,
         max_content_length: int = 10000,
@@ -127,6 +132,28 @@ class WebAnalyzer:
             import asyncio
 
             WebAnalyzer._browser_lock = asyncio.Lock()
+
+        # 初始化浏览器安装锁
+        if not WebAnalyzer._browser_install_lock:
+            import asyncio
+
+            WebAnalyzer._browser_install_lock = asyncio.Lock()
+
+        # 初始化浏览器安装状态文件路径
+        if not WebAnalyzer._browser_install_status_file:
+            from pathlib import Path
+
+            try:
+                from astrbot.core.utils.astrbot_path import get_astrbot_data_path
+                data_path = get_astrbot_data_path()
+                status_file_path = data_path / "plugin_data" / "astrbot_plugin_web_analyzer" / "browser_install_status.json"
+                # 确保目录存在
+                status_file_path.parent.mkdir(parents=True, exist_ok=True)
+                WebAnalyzer._browser_install_status_file = str(status_file_path)
+            except Exception as e:
+                logger.warning(f"无法初始化浏览器状态文件路径: {e}, 将使用临时路径")
+                import tempfile
+                WebAnalyzer._browser_install_status_file = str(Path(tempfile.gettempdir()) / "browser_install_status.json")
 
     @staticmethod
     async def _cleanup_browser_pool():
@@ -838,19 +865,206 @@ class WebAnalyzer:
             logger.error(f"捕获网页截图失败: {url}, 错误: {e}")
             raise ScreenshotError(f"捕获网页截图失败: {url}, 错误: {str(e)}") from e
 
-    async def _ensure_browser_installed(self):
-        """确保Playwright浏览器已安装
+    def _get_browser_install_path(self) -> str:
+        """获取浏览器安装路径
 
-        检查Chromium浏览器是否已安装，如果未安装则自动安装。
-        使用类属性标记避免重复检查。
+        Returns:
+            str: 浏览器安装路径
         """
-        if hasattr(self, "_playwright_browser_checked"):
-            return
+        from pathlib import Path
 
+        try:
+            from astrbot.core.utils.astrbot_path import get_astrbot_data_path
+            data_path = get_astrbot_data_path()
+            browser_path = data_path / "plugin_data" / "astrbot_plugin_web_analyzer" / "playwright_browsers"
+            # 确保目录存在
+            browser_path.mkdir(parents=True, exist_ok=True)
+            return str(browser_path)
+        except Exception as e:
+            logger.warning(f"无法获取AstrBot数据路径，使用临时路径: {e}")
+            import tempfile
+            temp_path = Path(tempfile.gettempdir()) / "astrbot_web_analyzer_browsers"
+            temp_path.mkdir(parents=True, exist_ok=True)
+            return str(temp_path)
+
+    def _load_install_status(self) -> dict:
+        """加载浏览器安装状态
+
+        Returns:
+            dict: 安装状态字典，包含installed、install_path、install_time等信息
+        """
+        import json
+        from pathlib import Path
+
+        status_file = Path(WebAnalyzer._browser_install_status_file)
+
+        if not status_file.exists():
+            return {"installed": False}
+
+        try:
+            with open(status_file, encoding="utf-8") as f:
+                return json.load(f)
+        except Exception as e:
+            logger.warning(f"加载浏览器安装状态失败: {e}")
+            return {"installed": False}
+
+    def _save_install_status(self, status: dict):
+        """保存浏览器安装状态
+
+        Args:
+            status: 要保存的状态字典
+        """
+        import json
+        from pathlib import Path
+
+        try:
+            status_file = Path(WebAnalyzer._browser_install_status_file)
+            status_file.parent.mkdir(parents=True, exist_ok=True)
+
+            with open(status_file, "w", encoding="utf-8") as f:
+                json.dump(status, f, ensure_ascii=False, indent=2)
+
+            logger.debug(f"已保存浏览器安装状态: {status}")
+        except Exception as e:
+            logger.error(f"保存浏览器安装状态失败: {e}")
+
+    async def _check_browser_installed_async(self) -> tuple[bool, str]:
+        """异步检查浏览器是否已安装
+
+        Returns:
+            tuple: (是否已安装, 浏览器路径或错误信息)
+        """
+        from playwright.async_api import async_playwright
+
+        try:
+            pw = await async_playwright().start()
+            try:
+                browser_path = pw.chromium.executable_path
+                import os
+                exists = os.path.exists(browser_path)
+                return exists, browser_path
+            finally:
+                await pw.stop()
+        except Exception as e:
+            return False, str(e)
+
+    async def _install_browser_async(self) -> str:
+        """异步安装浏览器
+
+        Returns:
+            str: 安装路径
+
+        Raises:
+            ScreenshotError: 安装失败时抛出
+        """
+        import asyncio
         import os
         import sys
 
-        logger.info("正在检查浏览器...")
+        install_path = self._get_browser_install_path()
+        logger.info(f"开始安装浏览器到: {install_path}")
+
+        # 设置环境变量，指定安装路径
+        env = {**os.environ, "PLAYWRIGHT_BROWSERS_PATH": install_path}
+
+        process = await asyncio.create_subprocess_exec(
+            sys.executable,
+            "-m",
+            "playwright",
+            "install",
+            "chromium",
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+            env=env
+        )
+
+        try:
+            # 等待进程完成，设置超时
+            stdout, stderr = await asyncio.wait_for(
+                process.communicate(),
+                timeout=300  # 5分钟超时
+            )
+
+            # 解码输出
+            stdout_text = stdout.decode("utf-8", errors="replace")
+            stderr_text = stderr.decode("utf-8", errors="replace")
+
+            # 合并标准输出和错误输出
+            full_output = f"STDOUT:\n{stdout_text}\n\nSTDERR:\n{stderr_text}"
+
+            # 检查是否真正失败（忽略仅有弃用警告的情况）
+            if process.returncode != 0:
+                # 检查 stderr 是否只有弃用警告（而非真正的错误）
+                stderr_lines = [
+                    line for line in stderr_text.split("\n") if line.strip()
+                ]
+                has_real_error = any(
+                    "error" in line.lower()
+                    or "failed" in line.lower()
+                    or "exception" in line.lower()
+                    for line in stderr_lines
+                )
+
+                # 检查输出中是否包含成功下载的标记
+                download_success = (
+                    "Chromium" in stdout_text and "downloaded to" in stdout_text
+                )
+
+                if download_success and not has_real_error:
+                    # 浏览器实际下载成功，只是有弃用警告
+                    logger.info(
+                        f"浏览器安装成功（忽略非关键警告）\n{full_output}"
+                    )
+                else:
+                    error_msg = (
+                        f"浏览器安装失败 (返回码: {process.returncode})\n"
+                        f"完整输出:\n{full_output}\n\n"
+                        f"请尝试手动安装:\n"
+                        f"  1. 运行: pip install --upgrade playwright\n"
+                        f"  2. 运行: PLAYWRIGHT_BROWSERS_PATH={install_path} python -m playwright install chromium\n"
+                        f"  3. 如果仍然失败,可能需要配置代理或检查网络连接"
+                    )
+                    logger.error(error_msg)
+                    raise ScreenshotError(error_msg) from None
+            else:
+                logger.info(f"浏览器安装成功\n{full_output}")
+
+            return install_path
+
+        except asyncio.TimeoutError:
+            # 超时时终止进程
+            try:
+                process.kill()
+                await process.wait()
+            except Exception:
+                pass
+            raise
+
+    async def _ensure_browser_installed(self):
+        """确保Playwright浏览器已安装（优化版本）
+
+        改进点：
+        1. 使用持久化记录，避免重复检查
+        2. 使用安装锁，防止并发安装
+        3. 完全异步化，避免阻塞
+        4. 使用安全路径，避免被清理
+
+        Raises:
+            ScreenshotError: 浏览器安装失败时抛出
+        """
+        import asyncio
+
+        # 检查当前实例是否已检查过
+        if hasattr(self, "_playwright_browser_checked"):
+            return
+
+        # 加载持久化的安装状态
+        install_status = self._load_install_status()
+
+        if install_status.get("installed", False):
+            logger.info(f"浏览器已安装（从持久化记录）: {install_status.get('install_path', '未知路径')}")
+            self._playwright_browser_checked = True
+            return
 
         # 先检查 playwright 是否已安装
         try:
@@ -870,136 +1084,81 @@ class WebAnalyzer:
             logger.error(error_msg)
             raise ScreenshotError(error_msg) from None
 
-        # 直接尝试使用浏览器，如果失败则安装
-        # 这样可以避免在 asyncio loop 中使用 Sync API
-        try:
-            # 尝试获取浏览器可执行文件路径
-            import threading
-
-            from playwright.sync_api import sync_playwright
-
-            # 在单独的线程中运行同步代码，避免阻塞 asyncio loop
-            def check_browser():
-                try:
-                    with sync_playwright() as p:
-                        browser_path = p.chromium.executable_path
-                        return os.path.exists(browser_path), browser_path
-                except Exception as e:
-                    return False, str(e)
-
-            # 在线程中执行检查
-            result = {}
-            def thread_func():
-                result["exists"], result["path"] = check_browser()
-
-            thread = threading.Thread(target=thread_func)
-            thread.start()
-            thread.join(timeout=5)  # 5秒超时
-
-            if thread.is_alive():
-                logger.warning("浏览器检查超时，将尝试安装")
-            elif result.get("exists"):
-                logger.info(f"浏览器已安装: {result['path']}")
+        # 获取安装锁，防止并发安装
+        async with WebAnalyzer._browser_install_lock:
+            # 双重检查：可能在等待锁的过程中已被其他实例安装
+            install_status = self._load_install_status()
+            if install_status.get("installed", False):
+                logger.info(f"浏览器已在其他实例中安装: {install_status.get('install_path', '未知路径')}")
                 self._playwright_browser_checked = True
                 return
-            else:
-                logger.warning(f"浏览器未安装或检查失败: {result.get('path', '未知错误')}")
-        except Exception as e:
-            logger.warning(f"检查浏览器安装状态失败: {e}，将尝试安装浏览器")
 
-        # 浏览器未安装，开始安装
-        logger.info("正在安装浏览器...")
+            # 检查是否正在安装
+            if WebAnalyzer._is_installing:
+                logger.info("浏览器正在其他实例中安装，等待完成...")
+                # 等待安装完成（最多等待5分钟）
+                for _ in range(300):
+                    await asyncio.sleep(1)
+                    install_status = self._load_install_status()
+                    if install_status.get("installed", False):
+                        logger.info("浏览器安装完成")
+                        self._playwright_browser_checked = True
+                        return
+                # 超时
+                error_msg = "等待浏览器安装超时"
+                logger.error(error_msg)
+                raise ScreenshotError(error_msg) from None
 
-        try:
-            # 执行安装命令，使用异步方法避免阻塞
-            import asyncio
-
-            process = await asyncio.create_subprocess_exec(
-                sys.executable,
-                "-m",
-                "playwright",
-                "install",
-                "chromium",
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-                env={**os.environ, "PLAYWRIGHT_BROWSERS_PATH": "0"}  # 使用默认路径
-            )
+            # 标记开始安装
+            WebAnalyzer._is_installing = True
+            logger.info("正在检查浏览器...")
 
             try:
-                # 等待进程完成，设置超时
-                stdout, stderr = await asyncio.wait_for(
-                    process.communicate(),
-                    timeout=300  # 5分钟超时
-                )
+                # 异步检查浏览器是否已安装
+                installed, browser_info = await self._check_browser_installed_async()
 
-                # 解码输出
-                stdout_text = stdout.decode("utf-8", errors="replace")
-                stderr_text = stderr.decode("utf-8", errors="replace")
+                if installed:
+                    logger.info(f"浏览器已安装: {browser_info}")
+                    # 保存安装状态
+                    self._save_install_status({
+                        "installed": True,
+                        "install_path": browser_info,
+                        "install_time": time.time(),
+                        "browser_type": "chromium"
+                    })
+                    self._playwright_browser_checked = True
+                    return
 
-                # 合并标准输出和错误输出
-                full_output = f"STDOUT:\n{stdout_text}\n\nSTDERR:\n{stderr_text}"
+                # 浏览器未安装，开始安装
+                logger.info("浏览器未安装，开始自动安装...")
+                install_path = await self._install_browser_async()
 
-                # 检查是否真正失败（忽略仅有弃用警告的情况）
-                if process.returncode != 0:
-                    # 检查 stderr 是否只有弃用警告（而非真正的错误）
-                    stderr_lines = [
-                        line for line in stderr_text.split("\n") if line.strip()
-                    ]
-                    has_real_error = any(
-                        "error" in line.lower()
-                        or "failed" in line.lower()
-                        or "exception" in line.lower()
-                        for line in stderr_lines
-                    )
+                # 保存安装状态
+                self._save_install_status({
+                    "installed": True,
+                    "install_path": install_path,
+                    "install_time": time.time(),
+                    "browser_type": "chromium"
+                })
 
-                    # 检查输出中是否包含成功下载的标记
-                    download_success = (
-                        "Chromium" in stdout_text and "downloaded to" in stdout_text
-                    )
+                logger.info(f"浏览器安装成功: {install_path}")
 
-                    if download_success and not has_real_error:
-                        # 浏览器实际下载成功，只是有弃用警告
-                        logger.info(
-                            f"浏览器安装成功（忽略非关键警告）\n{full_output}"
-                        )
-                    else:
-                        error_msg = (
-                            f"浏览器安装失败 (返回码: {process.returncode})\n"
-                            f"完整输出:\n{full_output}\n\n"
-                            f"请尝试手动安装:\n"
-                            f"  1. 运行: pip install --upgrade playwright\n"
-                            f"  2. 运行: python -m playwright install chromium\n"
-                            f"  3. 如果仍然失败,可能需要配置代理或检查网络连接"
-                        )
-                        logger.error(error_msg)
-                        raise ScreenshotError(error_msg) from None
-                else:
-                    logger.info(f"浏览器安装成功\n{full_output}")
-
-            except asyncio.TimeoutError:
-                # 超时时终止进程
-                try:
-                    process.kill()
-                    await process.wait()
-                except Exception:
+            except Exception as e:
+                logger.error(f"浏览器安装失败: {e}")
+                # 清理安装状态
+                install_status = self._load_install_status()
+                if install_status.get("installed", False):
+                    # 如果之前的安装成功，不需要清理
                     pass
+                else:
+                    # 安装失败，清理状态
+                    self._save_install_status({"installed": False})
                 raise
+            finally:
+                # 清除安装标志
+                WebAnalyzer._is_installing = False
 
-        except asyncio.TimeoutError:
-            error_msg = (
-                "浏览器安装超时（5分钟）\n"
-                "可能原因: 网络连接慢或下载文件较大\n"
-                "建议: 尝试手动安装或配置代理"
-            )
-            logger.error(error_msg)
-            raise ScreenshotError(error_msg) from None
-
-        except Exception as e:
-            error_msg = f"浏览器安装过程中发生异常: {str(e)}"
-            logger.error(error_msg)
-            raise ScreenshotError(error_msg) from e
-
-        # 标记已检查浏览器，避免重复检查
+        # 标记已检查浏览器
         self._playwright_browser_checked = True
 
     async def _get_or_create_browser(self) -> tuple:
