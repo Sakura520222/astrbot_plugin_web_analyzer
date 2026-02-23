@@ -14,10 +14,10 @@ parent_dir = Path(__file__).parent.parent
 if str(parent_dir) not in sys.path:
     sys.path.insert(0, str(parent_dir))
 
-from astrbot.api import logger
-from astrbot.api.star import Context
+from astrbot.api import logger  # noqa: E402
+from astrbot.api.star import Context  # noqa: E402
 
-from .utils import WebAnalyzerUtils
+from .utils import WebAnalyzerUtils  # noqa: E402
 
 
 class ConfigLoader:
