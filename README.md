@@ -6,6 +6,8 @@
 [![GitHub Stars](https://img.shields.io/github/stars/Sakura520222/astrbot_plugin_web_analyzer?style=social)](https://github.com/Sakura520222/astrbot_plugin_web_analyzer/stargazers)
 [![GitHub Forks](https://img.shields.io/github/forks/Sakura520222/astrbot_plugin_web_analyzer?style=social)](https://github.com/Sakura520222/astrbot_plugin_web_analyzer/network/members)
 
+---
+
 AstrBot网页分析插件，能够自动识别用户发送的网页链接，智能抓取解析内容，集成大语言模型进行深度分析和总结，支持网页截图、缓存机制和多种管理命令。
 
 ---
@@ -21,7 +23,6 @@ AstrBot网页分析插件，能够自动识别用户发送的网页链接，智�
 
 ### 📦 模块化重构
 - 将 `main.py` 拆分为多个核心模块
-
 
 ### 💡 使用建议
 - 🧪 **测试环境优先** - 建议先在测试环境中验证
