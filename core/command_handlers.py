@@ -569,9 +569,7 @@ class CommandMixin:
             provider_id = self.llm_provider
             if not provider_id:
                 umo = event.unified_msg_origin
-                provider_id = await self.context.get_current_chat_provider_id(
-                    umo=umo
-                )
+                provider_id = await self.context.get_current_chat_provider_id(umo=umo)
 
             if not provider_id:
                 logger.error("无法获取LLM提供商ID，无法进行翻译")
@@ -701,7 +699,9 @@ class CommandMixin:
 
             # 添加表格（如果有）
             if "tables" in specific_content and specific_content["tables"]:
-                specific_content_str += f"\n📊 表格 ({len(specific_content['tables'])}):\n"
+                specific_content_str += (
+                    f"\n📊 表格 ({len(specific_content['tables'])}):\n"
+                )
                 for table in specific_content["tables"][:2]:
                     headers = table.get("headers", [])
                     rows = table.get("rows", [])
@@ -716,7 +716,9 @@ class CommandMixin:
 
             # 添加列表（如果有）
             if "lists" in specific_content and specific_content["lists"]:
-                specific_content_str += f"\n📋 列表 ({len(specific_content['lists'])}):\n"
+                specific_content_str += (
+                    f"\n📋 列表 ({len(specific_content['lists'])}):\n"
+                )
                 for list_item in specific_content["lists"][:2]:
                     list_type = list_item.get("type", "ul")
                     items = list_item.get("items", [])

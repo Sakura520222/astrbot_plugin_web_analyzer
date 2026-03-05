@@ -1,4 +1,3 @@
-
 """
 截图临时文件管理模块
 
@@ -16,6 +15,7 @@ try:
     from astrbot.api import logger
 except ImportError:
     import logging
+
     logging.basicConfig(level=logging.INFO)
     logger = logging.getLogger(__name__)
 
@@ -31,7 +31,7 @@ class ScreenshotTempManager:
         temp_dir: str = None,
         ttl: int = 60,
         cleanup_interval: int = 60,
-        max_memory_cache: int = 30
+        max_memory_cache: int = 30,
     ):
         """初始化临时文件管理器
 
@@ -156,6 +156,7 @@ class ScreenshotTempManager:
             URL 的 MD5 哈希值
         """
         import hashlib
+
         return hashlib.md5(url.encode("utf-8")).hexdigest()
 
     def _update_lru_cache(self, url_hash: str):
@@ -213,7 +214,7 @@ class ScreenshotTempManager:
         url: str,
         screenshot: bytes | None = None,
         screenshot_format: str = "jpeg",
-        cache_dir: str | None = None
+        cache_dir: str | None = None,
     ) -> str | None:
         """获取缓存截图文件路径
 
@@ -264,7 +265,9 @@ class ScreenshotTempManager:
                 return cache_screenshot_path
 
             except Exception as e:
-                logger.error(f"创建缓存截图文件失败: {cache_screenshot_path}, 错误: {e}")
+                logger.error(
+                    f"创建缓存截图文件失败: {cache_screenshot_path}, 错误: {e}"
+                )
                 return None
 
         logger.warning(f"无截图数据且缓存文件不存在: {url}")
@@ -273,7 +276,7 @@ class ScreenshotTempManager:
     async def prepare_screenshots(
         self,
         urls_and_screenshots: list[tuple[str, bytes | None]],
-        screenshot_format: str = "jpeg"
+        screenshot_format: str = "jpeg",
     ) -> list[str | None]:
         """批量准备截图临时文件路径
 
@@ -292,10 +295,7 @@ class ScreenshotTempManager:
         return await asyncio.gather(*tasks)
 
     async def get_screenshot_for_send(
-        self,
-        url: str,
-        load_from_disk_func=None,
-        screenshot_format: str = "jpeg"
+        self, url: str, load_from_disk_func=None, screenshot_format: str = "jpeg"
     ) -> str | None:
         """获取用于发送的截图路径
 
@@ -318,7 +318,9 @@ class ScreenshotTempManager:
         if url_hash in self._memory_cache:
             screenshot = self._memory_cache[url_hash]
             self._update_lru_cache(url_hash)
-            return await self.get_or_create_temp_path(url, screenshot, screenshot_format)
+            return await self.get_or_create_temp_path(
+                url, screenshot, screenshot_format
+            )
 
         # 2. 检查是否有未过期的临时文件
         if url_hash in self._file_metadata:
@@ -334,7 +336,9 @@ class ScreenshotTempManager:
             try:
                 screenshot = load_from_disk_func(url)
                 if screenshot:
-                    return await self.get_or_create_temp_path(url, screenshot, screenshot_format)
+                    return await self.get_or_create_temp_path(
+                        url, screenshot, screenshot_format
+                    )
             except Exception as e:
                 logger.error(f"从磁盘加载截图失败: {url}, 错误: {e}")
 
@@ -377,7 +381,8 @@ class ScreenshotTempManager:
         """
         current_time = time.time()
         active_files = sum(
-            1 for metadata in self._file_metadata.values()
+            1
+            for metadata in self._file_metadata.values()
             if current_time - metadata["created_at"] <= self.ttl
         )
 
@@ -387,5 +392,5 @@ class ScreenshotTempManager:
             "memory_cache_max": self.max_memory_cache,
             "active_files": active_files,
             "total_files": len(self._file_metadata),
-            "ttl": self.ttl
+            "ttl": self.ttl,
         }

@@ -140,24 +140,34 @@ class WebAnalyzerPlugin(Star):
             return
 
         # 验证URL格式是否正确，并规范化URL
-        valid_urls = list({
-            self.analyzer.normalize_url(url)
-            for url in urls
-            if self.analyzer.is_valid_url(url)
-        })
+        valid_urls = list(
+            {
+                self.analyzer.normalize_url(url)
+                for url in urls
+                if self.analyzer.is_valid_url(url)
+            }
+        )
         if not valid_urls:
             yield event.plain_result("无效的URL链接，请检查格式是否正确")
             return
 
         # 过滤掉不允许访问的域名
-        allowed_urls = [url for url in valid_urls if PluginHelpers.is_domain_allowed(url, self.allowed_domains, self.blocked_domains)]
+        allowed_urls = [
+            url
+            for url in valid_urls
+            if PluginHelpers.is_domain_allowed(
+                url, self.allowed_domains, self.blocked_domains
+            )
+        ]
         if not allowed_urls:
             yield event.plain_result("所有域名都不在允许访问的列表中，或已被禁止访问")
             return
 
         # 检查群组黑名单
         group_id = PluginHelpers.get_group_id(event)
-        if PluginHelpers.is_group_blacklisted(str(group_id) if group_id else "", self.group_blacklist):
+        if PluginHelpers.is_group_blacklisted(
+            str(group_id) if group_id else "", self.group_blacklist
+        ):
             logger.info(f"群组 {group_id} 在黑名单中，跳过处理")
             return
 
@@ -168,8 +178,13 @@ class WebAnalyzerPlugin(Star):
             message = f"正在分析{len(allowed_urls)}个网页链接..."
 
         processing_message_id, bot = await MessageHelpers.send_processing_message(
-            event, message, self.enable_recall, self.recall_type,
-            self.recall_time_s, self.smart_recall_enabled, self.recall_tasks
+            event,
+            message,
+            self.enable_recall,
+            self.recall_type,
+            self.recall_time_s,
+            self.smart_recall_enabled,
+            self.recall_tasks,
         )
 
         # 批量处理所有允许访问的URL
@@ -213,7 +228,9 @@ class WebAnalyzerPlugin(Star):
             return
 
         # 检查域名是否允许访问
-        if not PluginHelpers.is_domain_allowed(normalized_url, self.allowed_domains, self.blocked_domains):
+        if not PluginHelpers.is_domain_allowed(
+            normalized_url, self.allowed_domains, self.blocked_domains
+        ):
             error_msg = f"该域名不在允许访问的列表中: {normalized_url}"
             logger.warning(error_msg)
             yield event.plain_result(error_msg)
@@ -222,8 +239,13 @@ class WebAnalyzerPlugin(Star):
         # 发送处理提示消息，告知用户正在分析
         message = f"正在分析网页: {normalized_url}"
         processing_message_id, bot = await MessageHelpers.send_processing_message(
-            event, message, self.enable_recall, self.recall_type,
-            self.recall_time_s, self.smart_recall_enabled, self.recall_tasks
+            event,
+            message,
+            self.enable_recall,
+            self.recall_type,
+            self.recall_time_s,
+            self.smart_recall_enabled,
+            self.recall_tasks,
         )
 
         # 处理单个URL
@@ -288,7 +310,9 @@ class WebAnalyzerPlugin(Star):
             return
 
         # 检查域名是否允许访问
-        if not PluginHelpers.is_domain_allowed(normalized_url, self.allowed_domains, self.blocked_domains):
+        if not PluginHelpers.is_domain_allowed(
+            normalized_url, self.allowed_domains, self.blocked_domains
+        ):
             error_msg = f"该域名不在允许访问的列表中: {normalized_url}"
             logger.warning(error_msg)
             yield event.plain_result(error_msg)
@@ -297,8 +321,13 @@ class WebAnalyzerPlugin(Star):
         # 发送处理提示消息，告知用户正在分析
         message = f"正在分析网页: {normalized_url}"
         processing_message_id, bot = await MessageHelpers.send_processing_message(
-            event, message, self.enable_recall, self.recall_type,
-            self.recall_time_s, self.smart_recall_enabled, self.recall_tasks
+            event,
+            message,
+            self.enable_recall,
+            self.recall_type,
+            self.recall_time_s,
+            self.smart_recall_enabled,
+            self.recall_tasks,
         )
 
         # 保存原始send_content_type配置
@@ -345,7 +374,9 @@ class WebAnalyzerPlugin(Star):
 
         # 检查群聊是否在黑名单中（仅群聊消息）
         group_id = PluginHelpers.get_group_id(event)
-        if PluginHelpers.is_group_blacklisted(str(group_id) if group_id else "", self.group_blacklist):
+        if PluginHelpers.is_group_blacklisted(
+            str(group_id) if group_id else "", self.group_blacklist
+        ):
             return
 
         # 从消息中提取所有URL
@@ -358,18 +389,22 @@ class WebAnalyzerPlugin(Star):
         # 验证URL格式是否正确，并规范化URL
         valid_urls = list(
             {
-
-                    self.analyzer.normalize_url(url)
-                    for url in urls
-                    if self.analyzer.is_valid_url(url)
-
+                self.analyzer.normalize_url(url)
+                for url in urls
+                if self.analyzer.is_valid_url(url)
             }
         )
         if not valid_urls:
             return
 
         # 过滤掉不允许访问的域名
-        allowed_urls = [url for url in valid_urls if PluginHelpers.is_domain_allowed(url, self.allowed_domains, self.blocked_domains)]
+        allowed_urls = [
+            url
+            for url in valid_urls
+            if PluginHelpers.is_domain_allowed(
+                url, self.allowed_domains, self.blocked_domains
+            )
+        ]
         if not allowed_urls:
             return
 
@@ -390,8 +425,13 @@ class WebAnalyzerPlugin(Star):
 
             # 直接调用发送方法，不使用yield，获取message_id和bot实例
             processing_message_id, bot = await MessageHelpers.send_processing_message(
-                event, message, self.enable_recall, self.recall_type,
-                self.recall_time_s, self.smart_recall_enabled, self.recall_tasks
+                event,
+                message,
+                self.enable_recall,
+                self.recall_type,
+                self.recall_time_s,
+                self.smart_recall_enabled,
+                self.recall_tasks,
             )
 
             # 批量处理所有允许访问的URL
@@ -960,9 +1000,7 @@ class WebAnalyzerPlugin(Star):
             provider_id = self.llm_provider
             if not provider_id:
                 umo = event.unified_msg_origin
-                provider_id = await self.context.get_current_chat_provider_id(
-                    umo=umo
-                )
+                provider_id = await self.context.get_current_chat_provider_id(umo=umo)
 
             if not provider_id:
                 logger.error("无法获取LLM提供商ID，无法进行翻译")
@@ -1092,7 +1130,9 @@ class WebAnalyzerPlugin(Star):
 
             # 添加表格（如果有）
             if "tables" in specific_content and specific_content["tables"]:
-                specific_content_str += f"\n📊 表格 ({len(specific_content['tables'])}):\n"
+                specific_content_str += (
+                    f"\n📊 表格 ({len(specific_content['tables'])}):\n"
+                )
                 for table in specific_content["tables"][:2]:
                     headers = table.get("headers", [])
                     rows = table.get("rows", [])
@@ -1107,7 +1147,9 @@ class WebAnalyzerPlugin(Star):
 
             # 添加列表（如果有）
             if "lists" in specific_content and specific_content["lists"]:
-                specific_content_str += f"\n📋 列表 ({len(specific_content['lists'])}):\n"
+                specific_content_str += (
+                    f"\n📋 列表 ({len(specific_content['lists'])}):\n"
+                )
                 for list_item in specific_content["lists"][:2]:
                     list_type = list_item.get("type", "ul")
                     items = list_item.get("items", [])
@@ -1171,14 +1213,20 @@ class WebAnalyzerPlugin(Star):
 
         # 发送所有分析结果
         if results:
-            async for result in self.message_handler.send_analysis_result(event, results):
+            async for result in self.message_handler.send_analysis_result(
+                event, results
+            ):
                 yield result
 
         # 撤回处理消息
         if self.enable_recall and processing_message_id and bot:
             await MessageHelpers.recall_processing_message(
-                event, processing_message_id, bot, self.recall_time_s,
-                self.recall_type, self.smart_recall_enabled
+                event,
+                processing_message_id,
+                bot,
+                self.recall_time_s,
+                self.recall_type,
+                self.smart_recall_enabled,
             )
 
     async def terminate(self):

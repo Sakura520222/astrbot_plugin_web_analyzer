@@ -1,4 +1,3 @@
-
 """
 消息处理模块
 
@@ -84,8 +83,7 @@ class MessageHandler:
 
         # 初始化截图临时文件管理器
         self.screenshot_temp_manager = ScreenshotTempManager(
-            ttl=screenshot_temp_ttl,
-            max_memory_cache=screenshot_cache_size
+            ttl=screenshot_temp_ttl, max_memory_cache=screenshot_cache_size
         )
 
         # 并发控制信号量
@@ -131,11 +129,17 @@ class MessageHandler:
                 if not isinstance(screenshot, bytes):
                     screenshot = self._load_screenshot_from_cache(normalized_url)
                     if screenshot:
-                        logger.info(f"从磁盘加载缓存截图成功: {normalized_url}, 大小: {len(screenshot)} 字节")
+                        logger.info(
+                            f"从磁盘加载缓存截图成功: {normalized_url}, 大小: {len(screenshot)} 字节"
+                        )
                     else:
-                        logger.warning(f"缓存标记有截图，但磁盘文件不存在: {normalized_url}")
+                        logger.warning(
+                            f"缓存标记有截图，但磁盘文件不存在: {normalized_url}"
+                        )
                 else:
-                    logger.info(f"使用内存中的缓存截图: {normalized_url}, 大小: {len(screenshot)} 字节")
+                    logger.info(
+                        f"使用内存中的缓存截图: {normalized_url}, 大小: {len(screenshot)} 字节"
+                    )
             else:
                 logger.info(f"缓存中无截图标记: {normalized_url}")
 
@@ -144,7 +148,7 @@ class MessageHandler:
                 "url": url,
                 "result": result_text,
                 "screenshot": screenshot,
-                "has_screenshot": screenshot is not None
+                "has_screenshot": screenshot is not None,
             }
 
         return cached_result
@@ -152,6 +156,7 @@ class MessageHandler:
     def _init_semaphore(self):
         """初始化并发控制信号量"""
         import asyncio
+
         self.concurrency_semaphore = asyncio.Semaphore(self.max_concurrency)
         logger.info(f"初始化并发控制信号量，最大并发数: {self.max_concurrency}")
 
@@ -159,7 +164,9 @@ class MessageHandler:
         """获取并发槽位"""
         if self.concurrency_semaphore:
             await self.concurrency_semaphore.acquire()
-            logger.debug(f"获取并发槽位成功，当前可用: {self.concurrency_semaphore._value}")
+            logger.debug(
+                f"获取并发槽位成功，当前可用: {self.concurrency_semaphore._value}"
+            )
 
     def _release_concurrency_slot(self):
         """释放并发槽位"""
@@ -233,7 +240,12 @@ class MessageHandler:
                     error_msg = ErrorHandler.handle_error(
                         ErrorType.NETWORK_ERROR, Exception("无法获取网页内容"), url
                     )
-                    return {"url": url, "result": error_msg, "screenshot": None, "has_screenshot": False}
+                    return {
+                        "url": url,
+                        "result": error_msg,
+                        "screenshot": None,
+                        "has_screenshot": False,
+                    }
 
                 # 3. 提取结构化内容
                 content_data = analyzer.extract_content(html, url)
@@ -241,7 +253,12 @@ class MessageHandler:
                     error_msg = ErrorHandler.handle_error(
                         ErrorType.PARSING_ERROR, Exception("无法解析网页内容"), url
                     )
-                    return {"url": url, "result": error_msg, "screenshot": None, "has_screenshot": False}
+                    return {
+                        "url": url,
+                        "result": error_msg,
+                        "screenshot": None,
+                        "has_screenshot": False,
+                    }
 
                 # 4. 调用 LLM 进行分析
                 analysis_result = await self._analyze_content(
@@ -264,7 +281,7 @@ class MessageHandler:
                     "url": url,
                     "result": analysis_result,
                     "screenshot": screenshot,
-                    "has_screenshot": screenshot is not None
+                    "has_screenshot": screenshot is not None,
                 }
 
                 # 8. 更新缓存
@@ -304,7 +321,7 @@ class MessageHandler:
                             "url": url,
                             "result": "截图模式",
                             "screenshot": screenshot,
-                            "has_screenshot": True
+                            "has_screenshot": True,
                         }
                     # 尝试从磁盘加载
                     screenshot = self._load_screenshot_from_cache(cache_key)
@@ -314,11 +331,13 @@ class MessageHandler:
                             "url": url,
                             "result": "截图模式",
                             "screenshot": screenshot,
-                            "has_screenshot": True
+                            "has_screenshot": True,
                         }
 
             # 没有缓存，直接生成截图
-            logger.info(f"screenshot_only 模式：直接生成截图，跳过网页抓取和分析: {url}")
+            logger.info(
+                f"screenshot_only 模式：直接生成截图，跳过网页抓取和分析: {url}"
+            )
 
             screenshot = await self._generate_screenshot_for_only_mode(analyzer, url)
 
@@ -327,7 +346,7 @@ class MessageHandler:
                     "url": url,
                     "result": "截图模式",
                     "screenshot": screenshot,
-                    "has_screenshot": True
+                    "has_screenshot": True,
                 }
 
                 # 更新缓存（使用单独的缓存键）
@@ -342,14 +361,26 @@ class MessageHandler:
                 error_msg = ErrorHandler.handle_error(
                     ErrorType.SCREENSHOT_ERROR, Exception("截图生成失败"), url
                 )
-                return {"url": url, "result": error_msg, "screenshot": None, "has_screenshot": False}
+                return {
+                    "url": url,
+                    "result": error_msg,
+                    "screenshot": None,
+                    "has_screenshot": False,
+                }
 
         except Exception as e:
             error_type = ErrorHandler.get_error_type(e)
             error_msg = ErrorHandler.handle_error(error_type, e, url)
-            return {"url": url, "result": error_msg, "screenshot": None, "has_screenshot": False}
+            return {
+                "url": url,
+                "result": error_msg,
+                "screenshot": None,
+                "has_screenshot": False,
+            }
 
-    async def _generate_screenshot_for_only_mode(self, analyzer: WebAnalyzer, url: str) -> bytes | None:
+    async def _generate_screenshot_for_only_mode(
+        self, analyzer: WebAnalyzer, url: str
+    ) -> bytes | None:
         """为 screenshot_only 模式生成截图
 
         Args:
@@ -377,10 +408,16 @@ class MessageHandler:
             # 如果启用了裁剪，对截图进行裁剪
             if self.enable_crop and screenshot:
                 try:
-                    screenshot = analyzer.crop_screenshot(screenshot, tuple(self.crop_area))
-                    logger.info(f"screenshot_only 模式截图裁剪成功: {url}, 裁剪区域: {self.crop_area}")
+                    screenshot = analyzer.crop_screenshot(
+                        screenshot, tuple(self.crop_area)
+                    )
+                    logger.info(
+                        f"screenshot_only 模式截图裁剪成功: {url}, 裁剪区域: {self.crop_area}"
+                    )
                 except Exception as crop_error:
-                    logger.warning(f"screenshot_only 模式截图裁剪失败: {url}, 错误: {crop_error}, 使用原始截图")
+                    logger.warning(
+                        f"screenshot_only 模式截图裁剪失败: {url}, 错误: {crop_error}, 使用原始截图"
+                    )
 
             return screenshot
         except Exception as e:
@@ -427,7 +464,11 @@ class MessageHandler:
             return None
 
     async def _analyze_content(
-        self, event: AstrMessageEvent, content_data: dict, llm_analyzer, enable_translation: bool
+        self,
+        event: AstrMessageEvent,
+        content_data: dict,
+        llm_analyzer,
+        enable_translation: bool,
     ) -> str:
         """调用 LLM 或基础分析方法分析内容
 
@@ -535,17 +576,23 @@ class MessageHandler:
             # 如果启用了裁剪，对截图进行裁剪
             if self.enable_crop and screenshot:
                 try:
-                    screenshot = analyzer.crop_screenshot(screenshot, tuple(self.crop_area))
+                    screenshot = analyzer.crop_screenshot(
+                        screenshot, tuple(self.crop_area)
+                    )
                     logger.info(f"截图裁剪成功: {url}, 裁剪区域: {self.crop_area}")
                 except Exception as crop_error:
-                    logger.warning(f"截图裁剪失败: {url}, 错误: {crop_error}, 使用原始截图")
+                    logger.warning(
+                        f"截图裁剪失败: {url}, 错误: {crop_error}, 使用原始截图"
+                    )
 
             return screenshot
         except Exception as e:
             logger.error(f"截图失败: {url}, 错误: {e}")
             return None
 
-    async def send_analysis_result(self, event: AstrMessageEvent, analysis_results: list):
+    async def send_analysis_result(
+        self, event: AstrMessageEvent, analysis_results: list
+    ):
         """发送分析结果
 
         Args:
@@ -576,7 +623,9 @@ class MessageHandler:
                 break
             # 检查分析结果文本是否包含错误信息
             result_text = result.get("result", "")
-            if not any(keyword in result_text for keyword in ["失败", "错误", "无法", "❌"]):
+            if not any(
+                keyword in result_text for keyword in ["失败", "错误", "无法", "❌"]
+            ):
                 all_errors = False
                 break
 
@@ -588,7 +637,9 @@ class MessageHandler:
             # screenshot_only 模式：直接发送截图，不使用合并转发
             if self.send_content_type == "screenshot_only":
                 logger.info("screenshot_only 模式：直接发送截图")
-                async for result in self._send_screenshots_only(event, analysis_results):
+                async for result in self._send_screenshots_only(
+                    event, analysis_results
+                ):
                     yield result
                 return
 
@@ -678,7 +729,9 @@ class MessageHandler:
 
         return temp_paths
 
-    async def _create_temp_screenshot_file(self, url: str, screenshot: bytes) -> str | None:
+    async def _create_temp_screenshot_file(
+        self, url: str, screenshot: bytes
+    ) -> str | None:
         """从截图数据创建临时图片文件
 
         Args:
@@ -694,7 +747,9 @@ class MessageHandler:
             # 生成临时文件名
             url_hash = hashlib.md5(url.encode("utf-8")).hexdigest()
             ext = f".{self.screenshot_format}"
-            temp_path = os.path.join(self.screenshot_temp_manager.temp_dir, f"{url_hash}{ext}")
+            temp_path = os.path.join(
+                self.screenshot_temp_manager.temp_dir, f"{url_hash}{ext}"
+            )
 
             # 确保目录存在
             os.makedirs(self.screenshot_temp_manager.temp_dir, exist_ok=True)
@@ -752,7 +807,9 @@ class MessageHandler:
         nodes = []
         sender_id = self._get_sender_id(event)
 
-        for i, (result_data, temp_path) in enumerate(zip(analysis_results, temp_paths), 1):
+        for i, (result_data, temp_path) in enumerate(
+            zip(analysis_results, temp_paths), 1
+        ):
             analysis_result = result_data.get("result")
 
             # 检查是否有实际的截图数据（优先使用 temp_path 判断）
@@ -776,10 +833,11 @@ class MessageHandler:
             #    - screenshot_only 模式：必须包含截图（因为没有文字）
             #    - both 模式：不包含截图（会独立发送）
             #    - analysis_only 模式：不包含截图（本来就不需要）
-            should_include_screenshot_in_node = (
-                has_screenshot and (
-                    self.merge_forward_include_screenshot or
-                    (not self.merge_forward_include_screenshot and self.send_content_type == "screenshot_only")
+            should_include_screenshot_in_node = has_screenshot and (
+                self.merge_forward_include_screenshot
+                or (
+                    not self.merge_forward_include_screenshot
+                    and self.send_content_type == "screenshot_only"
                 )
             )
 
@@ -812,22 +870,29 @@ class MessageHandler:
                 # - screenshot_only：截图已合并到节点中，不独立发送
                 # - both：截图未合并到节点中，独立发送
                 # - analysis_only：不需要截图
-                logger.info(f"merge_forward_include_screenshot 配置: {self.merge_forward_include_screenshot}")
+                logger.info(
+                    f"merge_forward_include_screenshot 配置: {self.merge_forward_include_screenshot}"
+                )
                 if not self.merge_forward_include_screenshot:
-                    for i, (temp_path, result_data) in enumerate(zip(temp_paths, analysis_results), 1):
+                    for i, (temp_path, result_data) in enumerate(
+                        zip(temp_paths, analysis_results), 1
+                    ):
                         # 判断是否需要独立发送截图
                         has_screenshot = result_data.get("has_screenshot", False)
                         should_send_screenshot = (
-                            has_screenshot and
-                            temp_path is not None and
-                            self.send_content_type == "both"  # only both mode sends screenshot independently
+                            has_screenshot
+                            and temp_path is not None
+                            and self.send_content_type
+                            == "both"  # only both mode sends screenshot independently
                         )
 
                         if should_send_screenshot:
                             try:
                                 image_component = Image.fromFileSystem(temp_path)
                                 yield event.chain_result([image_component])
-                                logger.info(f"独立发送截图 {i}/{len(temp_paths)}: {temp_path}")
+                                logger.info(
+                                    f"独立发送截图 {i}/{len(temp_paths)}: {temp_path}"
+                                )
                             except Exception as e:
                                 logger.error(f"独立发送截图 {i} 失败: {e}")
 
@@ -896,7 +961,9 @@ class MessageHandler:
             logger.error(f"从缓存加载截图失败: {url}, 错误: {e}")
             return None
 
-    async def _send_screenshots_only(self, event: AstrMessageEvent, analysis_results: list):
+    async def _send_screenshots_only(
+        self, event: AstrMessageEvent, analysis_results: list
+    ):
         """只发送截图，不发送文字（screenshot_only 模式专用）
 
         Args:
@@ -909,14 +976,18 @@ class MessageHandler:
         # 准备所有截图的临时文件路径
         temp_paths = await self._prepare_screenshots_for_send(analysis_results)
 
-        for i, (result_data, temp_path) in enumerate(zip(analysis_results, temp_paths), 1):
+        for i, (result_data, temp_path) in enumerate(
+            zip(analysis_results, temp_paths), 1
+        ):
             has_screenshot = result_data.get("has_screenshot", False)
 
             if has_screenshot and temp_path:
                 try:
                     image_component = Image.fromFileSystem(temp_path)
                     yield event.chain_result([image_component])
-                    logger.info(f"screenshot_only 模式发送截图 {i}/{len(analysis_results)}: {temp_path}")
+                    logger.info(
+                        f"screenshot_only 模式发送截图 {i}/{len(analysis_results)}: {temp_path}"
+                    )
                 except Exception as e:
                     logger.error(f"screenshot_only 模式发送截图 {i} 失败: {e}")
 
@@ -933,7 +1004,9 @@ class MessageHandler:
         # 准备所有截图的临时文件路径
         temp_paths = await self._prepare_screenshots_for_send(analysis_results)
 
-        for i, (result_data, temp_path) in enumerate(zip(analysis_results, temp_paths), 1):
+        for i, (result_data, temp_path) in enumerate(
+            zip(analysis_results, temp_paths), 1
+        ):
             screenshot = result_data.get("screenshot")
             analysis_result = result_data.get("result")
 
