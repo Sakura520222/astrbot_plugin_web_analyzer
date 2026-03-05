@@ -198,7 +198,9 @@ class ConfigLoader:
         # 映射网络设置
         network_settings = {}
         old_network = config_dict.get("network_settings", {})
-        network_settings["max_content_length"] = old_network.get("max_content_length", 10000)
+        network_settings["max_content_length"] = old_network.get(
+            "max_content_length", 10000
+        )
         network_settings["request_timeout_s"] = old_network.get("request_timeout", 30)
         network_settings["retry_count"] = old_network.get("retry_count", 3)
         network_settings["retry_delay_s"] = old_network.get("retry_delay", 2)
@@ -209,7 +211,9 @@ class ConfigLoader:
         # 映射域名设置
         domain_settings = {}
         old_domain = config_dict.get("domain_settings", {})
-        domain_settings["enable_unified_domain"] = old_domain.get("enable_unified_domain", True)
+        domain_settings["enable_unified_domain"] = old_domain.get(
+            "enable_unified_domain", True
+        )
         domain_settings["allowed_domains"] = old_domain.get("allowed_domains", "")
         domain_settings["blocked_domains"] = old_domain.get("blocked_domains", "")
 
@@ -217,16 +221,24 @@ class ConfigLoader:
         cache_settings = {}
         old_cache = config_dict.get("cache_settings", {})
         cache_settings["enable_cache"] = old_cache.get("enable_cache", True)
-        cache_settings["cache_expire_time_min"] = old_cache.get("cache_expire_time", 1440)
+        cache_settings["cache_expire_time_min"] = old_cache.get(
+            "cache_expire_time", 1440
+        )
         cache_settings["max_cache_size"] = old_cache.get("max_cache_size", 100)
-        cache_settings["cache_preload_enabled"] = old_cache.get("cache_preload_enabled", False)
+        cache_settings["cache_preload_enabled"] = old_cache.get(
+            "cache_preload_enabled", False
+        )
         cache_settings["cache_preload_count"] = old_cache.get("cache_preload_count", 20)
 
         # 映射资源设置
         resource_settings = {}
         old_resource = config_dict.get("resource_settings", {})
-        resource_settings["enable_memory_monitor"] = old_resource.get("enable_memory_monitor", True)
-        resource_settings["memory_threshold_percent"] = old_resource.get("memory_threshold", 80.0)
+        resource_settings["enable_memory_monitor"] = old_resource.get(
+            "enable_memory_monitor", True
+        )
+        resource_settings["memory_threshold_percent"] = old_resource.get(
+            "memory_threshold", 80.0
+        )
 
         # 构建基础设置
         new_config["基础设置"] = {
@@ -240,9 +252,13 @@ class ConfigLoader:
         analysis_settings = {}
         old_analysis = config_dict.get("analysis_settings", {})
         analysis_settings["analysis_mode"] = old_analysis.get("analysis_mode", "auto")
-        analysis_settings["max_summary_length"] = old_analysis.get("max_summary_length", 2000)
+        analysis_settings["max_summary_length"] = old_analysis.get(
+            "max_summary_length", 2000
+        )
         analysis_settings["enable_emoji"] = old_analysis.get("enable_emoji", True)
-        analysis_settings["enable_statistics"] = old_analysis.get("enable_statistics", True)
+        analysis_settings["enable_statistics"] = old_analysis.get(
+            "enable_statistics", True
+        )
 
         # 内容提取设置
         content_extraction = {}
@@ -250,7 +266,9 @@ class ConfigLoader:
         content_extraction["enable_specific_extraction"] = old_extraction.get(
             "enable_specific_extraction", False
         )
-        content_extraction["extract_types"] = old_extraction.get("extract_types", "title\ncontent")
+        content_extraction["extract_types"] = old_extraction.get(
+            "extract_types", "title\ncontent"
+        )
 
         new_config["分析设置"] = {
             **analysis_settings,
@@ -260,25 +278,39 @@ class ConfigLoader:
         # 映射展示设置
         display_settings = {}
         old_analysis = config_dict.get("analysis_settings", {})
-        display_settings["send_content_type"] = old_analysis.get("send_content_type", "both")
-        display_settings["result_template"] = old_analysis.get("result_template", "default")
+        display_settings["send_content_type"] = old_analysis.get(
+            "send_content_type", "both"
+        )
+        display_settings["result_template"] = old_analysis.get(
+            "result_template", "default"
+        )
 
         # 结果折叠
         collapsible = {}
-        collapsible["enable_collapsible"] = old_analysis.get("enable_collapsible", False)
+        collapsible["enable_collapsible"] = old_analysis.get(
+            "enable_collapsible", False
+        )
         collapsible["collapse_threshold"] = old_analysis.get("collapse_threshold", 1500)
 
         # 自定义模板
         old_template = config_dict.get("template_settings", {})
         custom_template = {}
-        custom_template["enable_custom_template"] = old_template.get("enable_custom_template", False)
+        custom_template["enable_custom_template"] = old_template.get(
+            "enable_custom_template", False
+        )
         custom_template["template_content"] = old_template.get("template_content", "")
-        custom_template["template_format"] = old_template.get("template_format", "markdown")
+        custom_template["template_format"] = old_template.get(
+            "template_format", "markdown"
+        )
 
         # URL识别
         url_recognition = {}
-        url_recognition["enable_no_protocol_url"] = old_analysis.get("enable_no_protocol_url", False)
-        url_recognition["default_protocol"] = old_analysis.get("default_protocol", "https")
+        url_recognition["enable_no_protocol_url"] = old_analysis.get(
+            "enable_no_protocol_url", False
+        )
+        url_recognition["default_protocol"] = old_analysis.get(
+            "default_protocol", "https"
+        )
 
         # 网页截图
         old_screenshot = config_dict.get("screenshot_settings", {})
@@ -287,9 +319,15 @@ class ConfigLoader:
         screenshot["screenshot_quality"] = old_screenshot.get("screenshot_quality", 80)
         screenshot["screenshot_width"] = old_screenshot.get("screenshot_width", 1280)
         screenshot["screenshot_height"] = old_screenshot.get("screenshot_height", 720)
-        screenshot["screenshot_full_page"] = old_screenshot.get("screenshot_full_page", False)
-        screenshot["screenshot_wait_ms"] = old_screenshot.get("screenshot_wait_time", 2000)
-        screenshot["screenshot_format"] = old_screenshot.get("screenshot_format", "jpeg")
+        screenshot["screenshot_full_page"] = old_screenshot.get(
+            "screenshot_full_page", False
+        )
+        screenshot["screenshot_wait_ms"] = old_screenshot.get(
+            "screenshot_wait_time", 2000
+        )
+        screenshot["screenshot_format"] = old_screenshot.get(
+            "screenshot_format", "jpeg"
+        )
         screenshot["enable_crop"] = old_screenshot.get("enable_crop", False)
         screenshot["crop_area"] = old_screenshot.get("crop_area", "[0, 0, 1280, 720]")
 
@@ -306,16 +344,24 @@ class ConfigLoader:
         llm_settings = {}
         llm_settings["llm_enabled"] = old_llm.get("llm_enabled", True)
         llm_settings["llm_provider"] = old_llm.get("llm_provider", "")
-        llm_settings["enable_llm_decision"] = old_analysis.get("enable_llm_decision", False)
+        llm_settings["enable_llm_decision"] = old_analysis.get(
+            "enable_llm_decision", False
+        )
         llm_settings["custom_prompt"] = old_llm.get("custom_prompt", "")
 
         # 翻译功能
         old_translation = config_dict.get("translation_settings", {})
         translation = {}
-        translation["enable_translation"] = old_translation.get("enable_translation", False)
+        translation["enable_translation"] = old_translation.get(
+            "enable_translation", False
+        )
         translation["target_language"] = old_translation.get("target_language", "zh")
-        translation["translation_provider"] = old_translation.get("translation_provider", "llm")
-        translation["custom_translation_prompt"] = old_translation.get("custom_translation_prompt", "")
+        translation["translation_provider"] = old_translation.get(
+            "translation_provider", "llm"
+        )
+        translation["custom_translation_prompt"] = old_translation.get(
+            "custom_translation_prompt", ""
+        )
 
         new_config["智能分析"] = {
             **llm_settings,
@@ -331,7 +377,9 @@ class ConfigLoader:
             # 新格式
             merge_forward["group"] = old_merge.get("group", False)
             merge_forward["private"] = old_merge.get("private", False)
-            merge_forward["include_screenshot"] = old_merge.get("include_screenshot", False)
+            merge_forward["include_screenshot"] = old_merge.get(
+                "include_screenshot", False
+            )
         else:
             # 旧格式兼容
             merge_forward["group"] = False
@@ -361,7 +409,9 @@ class ConfigLoader:
         return new_config
 
     @staticmethod
-    def _get_nested_value(config: dict, category: str, subcategory: str, key: str, default=None):
+    def _get_nested_value(
+        config: dict, category: str, subcategory: str, key: str, default=None
+    ):
         """从嵌套配置中获取值
 
         Args:
@@ -418,7 +468,9 @@ class ConfigLoader:
         config_dict["user_agent"] = ConfigLoader._get_nested_value(
             config, "基础设置", "网络设置", "user_agent", "Mozilla/5.0"
         )
-        proxy = ConfigLoader._get_nested_value(config, "基础设置", "网络设置", "proxy", "")
+        proxy = ConfigLoader._get_nested_value(
+            config, "基础设置", "网络设置", "proxy", ""
+        )
         config_dict["proxy"] = ConfigLoader._validate_proxy(proxy)
         config_dict["max_concurrency"] = ConfigLoader._get_nested_value(
             config, "基础设置", "网络设置", "max_concurrency", 5
@@ -428,11 +480,15 @@ class ConfigLoader:
         allowed_text = ConfigLoader._get_nested_value(
             config, "基础设置", "域名管理", "allowed_domains", ""
         )
-        config_dict["allowed_domains"] = WebAnalyzerUtils.parse_domain_list(allowed_text)
+        config_dict["allowed_domains"] = WebAnalyzerUtils.parse_domain_list(
+            allowed_text
+        )
         blocked_text = ConfigLoader._get_nested_value(
             config, "基础设置", "域名管理", "blocked_domains", ""
         )
-        config_dict["blocked_domains"] = WebAnalyzerUtils.parse_domain_list(blocked_text)
+        config_dict["blocked_domains"] = WebAnalyzerUtils.parse_domain_list(
+            blocked_text
+        )
         config_dict["enable_unified_domain"] = ConfigLoader._get_nested_value(
             config, "基础设置", "域名管理", "enable_unified_domain", True
         )
@@ -490,7 +546,9 @@ class ConfigLoader:
         extract_types_text = ConfigLoader._get_nested_value(
             config, "分析设置", "内容提取", "extract_types", "title\ncontent"
         )
-        config_dict["extract_types"] = WebAnalyzerUtils.parse_extract_types(extract_types_text)
+        config_dict["extract_types"] = WebAnalyzerUtils.parse_extract_types(
+            extract_types_text
+        )
         config_dict["extract_types"] = WebAnalyzerUtils.validate_extract_types(
             config_dict["extract_types"]
         )
@@ -577,9 +635,13 @@ class ConfigLoader:
         )
         default_crop_area = [0, 0, 1280, 720]
         if isinstance(crop_area, str):
-            config_dict["crop_area"] = ConfigLoader._validate_crop_area(crop_area, default_crop_area)
+            config_dict["crop_area"] = ConfigLoader._validate_crop_area(
+                crop_area, default_crop_area
+            )
         else:
-            config_dict["crop_area"] = crop_area if isinstance(crop_area, list) else default_crop_area
+            config_dict["crop_area"] = (
+                crop_area if isinstance(crop_area, list) else default_crop_area
+            )
 
         return config_dict
 
@@ -629,15 +691,19 @@ class ConfigLoader:
         config_dict["merge_forward_private"] = ConfigLoader._get_nested_value(
             config, "消息管理", "合并转发", "private", False
         )
-        config_dict["merge_forward_include_screenshot"] = ConfigLoader._get_nested_value(
-            config, "消息管理", "合并转发", "include_screenshot", False
+        config_dict["merge_forward_include_screenshot"] = (
+            ConfigLoader._get_nested_value(
+                config, "消息管理", "合并转发", "include_screenshot", False
+            )
         )
 
         # 群聊设置
         group_blacklist_text = ConfigLoader._get_nested_value(
             config, "消息管理", "群聊设置", "group_blacklist", ""
         )
-        config_dict["group_blacklist"] = WebAnalyzerUtils.parse_group_list(group_blacklist_text)
+        config_dict["group_blacklist"] = WebAnalyzerUtils.parse_group_list(
+            group_blacklist_text
+        )
 
         # 消息撤回
         config_dict["enable_recall"] = ConfigLoader._get_nested_value(

@@ -59,7 +59,9 @@ class PluginHelpers:
         return group_id
 
     @staticmethod
-    def is_domain_allowed(url: str, allowed_domains: list, blocked_domains: list) -> bool:
+    def is_domain_allowed(
+        url: str, allowed_domains: list, blocked_domains: list
+    ) -> bool:
         """检查指定URL的域名是否允许访问
 
         Args:
@@ -217,9 +219,7 @@ class MessageHelpers:
                     logger.debug(f"发送私聊处理消息: {message} 到用户 {user_id}")
                 else:
                     # 无法获取user_id，使用原始方式发送
-                    logger.warning(
-                        f"无法获取user_id，使用原始方式发送消息: {message}"
-                    )
+                    logger.warning(f"无法获取user_id，使用原始方式发送消息: {message}")
                     response = event.plain_result(message)
                     if hasattr(event, "send"):
                         await event.send(response)

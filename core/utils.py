@@ -196,7 +196,9 @@ class WebAnalyzerUtils:
 
             # 优先级2: 检查是否在允许列表中
             if allowed_domains:
-                return WebAnalyzerUtils._is_domain_allowed_in_list(domain, allowed_domains)
+                return WebAnalyzerUtils._is_domain_allowed_in_list(
+                    domain, allowed_domains
+                )
 
             # 优先级3: 允许列表为空，允许所有未被禁止的域名
             return True
@@ -220,8 +222,7 @@ class WebAnalyzerUtils:
             return False
 
         return any(
-            blocked_domain.lower() in domain
-            for blocked_domain in blocked_domains
+            blocked_domain.lower() in domain for blocked_domain in blocked_domains
         )
 
     @staticmethod
@@ -236,8 +237,7 @@ class WebAnalyzerUtils:
             True表示在允许列表中，False表示不在
         """
         return any(
-            allowed_domain.lower() in domain
-            for allowed_domain in allowed_domains
+            allowed_domain.lower() in domain for allowed_domain in allowed_domains
         )
 
     @staticmethod
@@ -361,15 +361,89 @@ class WebAnalyzerUtils:
         """获取内容类型检测规则"""
         return {
             "新闻资讯": ["新闻", "资讯", "报道", "快讯", "时事", "热点", "头条"],
-            "教程指南": ["教程", "指南", "学习", "如何", "步骤", "方法", "技巧", "实战"],
+            "教程指南": [
+                "教程",
+                "指南",
+                "学习",
+                "如何",
+                "步骤",
+                "方法",
+                "技巧",
+                "实战",
+            ],
             "个人博客": ["博客", "日志", "随笔", "感悟", "分享", "思考", "心得"],
-            "产品介绍": ["产品", "服务", "功能", "特性", "优势", "价格", "购买", "下载"],
-            "技术文档": ["文档", "API", "SDK", "开发", "技术", "编程", "代码", "框架", "库"],
-            "学术论文": ["论文", "研究", "实验", "结果", "结论", "摘要", "引言", "方法", "分析"],
-            "娱乐资讯": ["娱乐", "明星", "影视", "音乐", "综艺", "游戏", "动漫", "追星"],
-            "体育新闻": ["体育", "足球", "篮球", "赛事", "比赛", "运动员", "健身", "运动"],
-            "教育资讯": ["教育", "培训", "学校", "课程", "招生", "升学", "考试", "留学"],
-            "商业分析": ["商业", "分析", "市场", "行业", "趋势", "报告", "数据", "调研"],
+            "产品介绍": [
+                "产品",
+                "服务",
+                "功能",
+                "特性",
+                "优势",
+                "价格",
+                "购买",
+                "下载",
+            ],
+            "技术文档": [
+                "文档",
+                "API",
+                "SDK",
+                "开发",
+                "技术",
+                "编程",
+                "代码",
+                "框架",
+                "库",
+            ],
+            "学术论文": [
+                "论文",
+                "研究",
+                "实验",
+                "结果",
+                "结论",
+                "摘要",
+                "引言",
+                "方法",
+                "分析",
+            ],
+            "娱乐资讯": [
+                "娱乐",
+                "明星",
+                "影视",
+                "音乐",
+                "综艺",
+                "游戏",
+                "动漫",
+                "追星",
+            ],
+            "体育新闻": [
+                "体育",
+                "足球",
+                "篮球",
+                "赛事",
+                "比赛",
+                "运动员",
+                "健身",
+                "运动",
+            ],
+            "教育资讯": [
+                "教育",
+                "培训",
+                "学校",
+                "课程",
+                "招生",
+                "升学",
+                "考试",
+                "留学",
+            ],
+            "商业分析": [
+                "商业",
+                "分析",
+                "市场",
+                "行业",
+                "趋势",
+                "报告",
+                "数据",
+                "调研",
+            ],
         }
 
     @staticmethod

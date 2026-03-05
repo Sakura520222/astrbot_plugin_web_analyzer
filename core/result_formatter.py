@@ -1,4 +1,3 @@
-
 """
 结果格式化模块
 
@@ -142,7 +141,9 @@ class ResultFormatter:
 
         rendered_template = template_content
         for var_name, var_value in template_vars.items():
-            rendered_template = rendered_template.replace(f"{{{var_name}}}", str(var_value))
+            rendered_template = rendered_template.replace(
+                f"{{{var_name}}}", str(var_value)
+            )
 
         return rendered_template
 

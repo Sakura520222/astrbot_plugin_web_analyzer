@@ -145,15 +145,24 @@ class WebAnalyzer:
 
             try:
                 from astrbot.core.utils.astrbot_path import get_astrbot_data_path
+
                 data_path = get_astrbot_data_path()
-                status_file_path = data_path / "plugin_data" / "astrbot_plugin_web_analyzer" / "browser_install_status.json"
+                status_file_path = (
+                    data_path
+                    / "plugin_data"
+                    / "astrbot_plugin_web_analyzer"
+                    / "browser_install_status.json"
+                )
                 # 确保目录存在
                 status_file_path.parent.mkdir(parents=True, exist_ok=True)
                 WebAnalyzer._browser_install_status_file = str(status_file_path)
             except Exception as e:
                 logger.warning(f"无法初始化浏览器状态文件路径: {e}, 将使用临时路径")
                 import tempfile
-                WebAnalyzer._browser_install_status_file = str(Path(tempfile.gettempdir()) / "browser_install_status.json")
+
+                WebAnalyzer._browser_install_status_file = str(
+                    Path(tempfile.gettempdir()) / "browser_install_status.json"
+                )
 
     @staticmethod
     async def _cleanup_browser_pool():
@@ -686,7 +695,9 @@ class WebAnalyzer:
 
         return content_text
 
-    def _try_extract_from_selectors(self, soup: BeautifulSoup, selectors: list[str]) -> str:
+    def _try_extract_from_selectors(
+        self, soup: BeautifulSoup, selectors: list[str]
+    ) -> str:
         """尝试从多个选择器中提取内容
 
         Args:
@@ -875,14 +886,21 @@ class WebAnalyzer:
 
         try:
             from astrbot.core.utils.astrbot_path import get_astrbot_data_path
+
             data_path = get_astrbot_data_path()
-            browser_path = data_path / "plugin_data" / "astrbot_plugin_web_analyzer" / "playwright_browsers"
+            browser_path = (
+                data_path
+                / "plugin_data"
+                / "astrbot_plugin_web_analyzer"
+                / "playwright_browsers"
+            )
             # 确保目录存在
             browser_path.mkdir(parents=True, exist_ok=True)
             return str(browser_path)
         except Exception as e:
             logger.warning(f"无法获取AstrBot数据路径，使用临时路径: {e}")
             import tempfile
+
             temp_path = Path(tempfile.gettempdir()) / "astrbot_web_analyzer_browsers"
             temp_path.mkdir(parents=True, exist_ok=True)
             return str(temp_path)
@@ -941,6 +959,7 @@ class WebAnalyzer:
             try:
                 browser_path = pw.chromium.executable_path
                 import os
+
                 exists = os.path.exists(browser_path)
                 return exists, browser_path
             finally:
@@ -975,14 +994,14 @@ class WebAnalyzer:
             "chromium",
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
-            env=env
+            env=env,
         )
 
         try:
             # 等待进程完成，设置超时
             stdout, stderr = await asyncio.wait_for(
                 process.communicate(),
-                timeout=300  # 5分钟超时
+                timeout=300,  # 5分钟超时
             )
 
             # 解码输出
@@ -1012,9 +1031,7 @@ class WebAnalyzer:
 
                 if download_success and not has_real_error:
                     # 浏览器实际下载成功，只是有弃用警告
-                    logger.info(
-                        f"浏览器安装成功（忽略非关键警告）\n{full_output}"
-                    )
+                    logger.info(f"浏览器安装成功（忽略非关键警告）\n{full_output}")
                 else:
                     error_msg = (
                         f"浏览器安装失败 (返回码: {process.returncode})\n"
@@ -1062,13 +1079,16 @@ class WebAnalyzer:
         install_status = self._load_install_status()
 
         if install_status.get("installed", False):
-            logger.info(f"浏览器已安装（从持久化记录）: {install_status.get('install_path', '未知路径')}")
+            logger.info(
+                f"浏览器已安装（从持久化记录）: {install_status.get('install_path', '未知路径')}"
+            )
             self._playwright_browser_checked = True
             return
 
         # 先检查 playwright 是否已安装
         try:
             import importlib.util
+
             if importlib.util.find_spec("playwright"):
                 logger.debug("Playwright 已安装")
             else:
@@ -1089,7 +1109,9 @@ class WebAnalyzer:
             # 双重检查：可能在等待锁的过程中已被其他实例安装
             install_status = self._load_install_status()
             if install_status.get("installed", False):
-                logger.info(f"浏览器已在其他实例中安装: {install_status.get('install_path', '未知路径')}")
+                logger.info(
+                    f"浏览器已在其他实例中安装: {install_status.get('install_path', '未知路径')}"
+                )
                 self._playwright_browser_checked = True
                 return
 
@@ -1120,12 +1142,14 @@ class WebAnalyzer:
                 if installed:
                     logger.info(f"浏览器已安装: {browser_info}")
                     # 保存安装状态
-                    self._save_install_status({
-                        "installed": True,
-                        "install_path": browser_info,
-                        "install_time": time.time(),
-                        "browser_type": "chromium"
-                    })
+                    self._save_install_status(
+                        {
+                            "installed": True,
+                            "install_path": browser_info,
+                            "install_time": time.time(),
+                            "browser_type": "chromium",
+                        }
+                    )
                     self._playwright_browser_checked = True
                     return
 
@@ -1134,12 +1158,14 @@ class WebAnalyzer:
                 install_path = await self._install_browser_async()
 
                 # 保存安装状态
-                self._save_install_status({
-                    "installed": True,
-                    "install_path": install_path,
-                    "install_time": time.time(),
-                    "browser_type": "chromium"
-                })
+                self._save_install_status(
+                    {
+                        "installed": True,
+                        "install_path": install_path,
+                        "install_time": time.time(),
+                        "browser_type": "chromium",
+                    }
+                )
 
                 logger.info(f"浏览器安装成功: {install_path}")
 
@@ -1341,7 +1367,9 @@ class WebAnalyzer:
             raise screenshot_error
 
         # 从池中获取的浏览器实例无效，尝试创建新实例
-        logger.error(f"从池中获取的浏览器实例无效，重新创建浏览器实例: {screenshot_error}")
+        logger.error(
+            f"从池中获取的浏览器实例无效，重新创建浏览器实例: {screenshot_error}"
+        )
 
         try:
             await browser.close()
@@ -1566,7 +1594,9 @@ class WebAnalyzer:
                             if len(code_text) > 1000
                             else code_text
                         )
-                        code_blocks.append({"code": truncated_code, "language": language})
+                        code_blocks.append(
+                            {"code": truncated_code, "language": language}
+                        )
                 extracted_content["code_blocks"] = code_blocks[:5]  # 限制最多5个代码块
 
             # 提取元信息
@@ -1609,7 +1639,9 @@ class WebAnalyzer:
                 # 提取og:description
                 og_description = soup.find("meta", attrs={"property": "og:description"})
                 if og_description:
-                    meta_info["og_description"] = og_description.get("content", "").strip()
+                    meta_info["og_description"] = og_description.get(
+                        "content", ""
+                    ).strip()
 
                 extracted_content["meta"] = meta_info
 
@@ -1642,7 +1674,11 @@ class WebAnalyzer:
                 # 查找embed标签（可能包含音频）
                 for embed in soup.find_all("embed"):
                     src = embed.get("src")
-                    if src and (src.endswith(".mp3") or src.endswith(".wav") or src.endswith(".ogg")):
+                    if src and (
+                        src.endswith(".mp3")
+                        or src.endswith(".wav")
+                        or src.endswith(".ogg")
+                    ):
                         full_url = urljoin(url, src)
                         audios.append(full_url)
                 extracted_content["audios"] = audios[:5]  # 限制最多5个音频
@@ -1666,11 +1702,13 @@ class WebAnalyzer:
                 # 查找所有h1-h6标签
                 for level in range(1, 7):
                     for heading in soup.find_all(f"h{level}"):
-                        headings.append({
-                            "level": level,
-                            "text": heading.get_text().strip(),
-                            "id": heading.get("id", "")
-                        })
+                        headings.append(
+                            {
+                                "level": level,
+                                "text": heading.get_text().strip(),
+                                "id": heading.get("id", ""),
+                            }
+                        )
                 extracted_content["headings"] = headings
 
             # 提取段落，最多提取20个
@@ -1688,11 +1726,13 @@ class WebAnalyzer:
                 for button in soup.find_all("button"):
                     text = button.get_text().strip()
                     onclick = button.get("onclick", "").strip()
-                    buttons.append({
-                        "text": text,
-                        "onclick": onclick,
-                        "type": button.get("type", "button")
-                    })
+                    buttons.append(
+                        {
+                            "text": text,
+                            "onclick": onclick,
+                            "type": button.get("type", "button"),
+                        }
+                    )
                 extracted_content["buttons"] = buttons[:10]  # 限制最多10个按钮
 
             # 提取表单，最多提取5个
@@ -1703,42 +1743,52 @@ class WebAnalyzer:
                         "action": form.get("action", ""),
                         "method": form.get("method", "get"),
                         "inputs": [],
-                        "buttons": []
+                        "buttons": [],
                     }
                     # 提取表单输入
                     for input_elem in form.find_all("input"):
-                        form_data["inputs"].append({
-                            "type": input_elem.get("type", "text"),
-                            "name": input_elem.get("name", ""),
-                            "value": input_elem.get("value", "")
-                        })
+                        form_data["inputs"].append(
+                            {
+                                "type": input_elem.get("type", "text"),
+                                "name": input_elem.get("name", ""),
+                                "value": input_elem.get("value", ""),
+                            }
+                        )
                     # 提取表单文本域
                     for textarea in form.find_all("textarea"):
-                        form_data["inputs"].append({
-                            "type": "textarea",
-                            "name": textarea.get("name", ""),
-                            "value": textarea.get_text().strip()
-                        })
+                        form_data["inputs"].append(
+                            {
+                                "type": "textarea",
+                                "name": textarea.get("name", ""),
+                                "value": textarea.get_text().strip(),
+                            }
+                        )
                     # 提取表单选择
                     for select in form.find_all("select"):
                         options = []
                         for option in select.find_all("option"):
-                            options.append({
-                                "value": option.get("value", ""),
-                                "text": option.get_text().strip(),
-                                "selected": bool(option.get("selected"))
-                            })
-                        form_data["inputs"].append({
-                            "type": "select",
-                            "name": select.get("name", ""),
-                            "options": options
-                        })
+                            options.append(
+                                {
+                                    "value": option.get("value", ""),
+                                    "text": option.get_text().strip(),
+                                    "selected": bool(option.get("selected")),
+                                }
+                            )
+                        form_data["inputs"].append(
+                            {
+                                "type": "select",
+                                "name": select.get("name", ""),
+                                "options": options,
+                            }
+                        )
                     # 提取表单按钮
                     for button in form.find_all("button"):
-                        form_data["buttons"].append({
-                            "text": button.get_text().strip(),
-                            "type": button.get("type", "submit")
-                        })
+                        form_data["buttons"].append(
+                            {
+                                "text": button.get_text().strip(),
+                                "type": button.get("type", "submit"),
+                            }
+                        )
                     forms.append(form_data)
                 extracted_content["forms"] = forms[:5]  # 限制最多5个表单
 

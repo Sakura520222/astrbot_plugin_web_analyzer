@@ -1,10 +1,8 @@
-
 """
 错误处理模块
 
 提供统一的错误处理、日志记录和用户友好的错误信息生成。
 """
-
 
 from astrbot.api import logger
 
@@ -168,16 +166,18 @@ class ErrorHandler:
             or "lxml" in exception_type_lower
         ):
             return ErrorType.HTML_PARSING
-        if "empty" in exception_msg or "none" in exception_msg or "null" in exception_msg:
+        if (
+            "empty" in exception_msg
+            or "none" in exception_msg
+            or "null" in exception_msg
+        ):
             return ErrorType.CONTENT_EMPTY
         if "parse" in exception_msg:
             return ErrorType.PARSING_ERROR
         return None
 
     @staticmethod
-    def _check_llm_errors(
-        exception_type_lower: str, exception_msg: str
-    ) -> str | None:
+    def _check_llm_errors(exception_type_lower: str, exception_msg: str) -> str | None:
         """检查LLM相关错误"""
         if "llm" in exception_type_lower or "llm" in exception_msg:
             return ErrorType.LLM_ERROR
@@ -187,7 +187,11 @@ class ErrorHandler:
             return ErrorType.LLM_TIMEOUT
         if "invalid" in exception_msg or "format" in exception_msg:
             return ErrorType.LLM_INVALID_RESPONSE
-        if "permission" in exception_msg or "auth" in exception_msg or "key" in exception_msg:
+        if (
+            "permission" in exception_msg
+            or "auth" in exception_msg
+            or "key" in exception_msg
+        ):
             return ErrorType.LLM_PERMISSION
         return None
 

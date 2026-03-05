@@ -521,7 +521,9 @@ class CacheManager:
 
         return cache_data.get("result")
 
-    def _is_cache_expired(self, cache_data: dict[str, Any], current_time: float) -> bool:
+    def _is_cache_expired(
+        self, cache_data: dict[str, Any], current_time: float
+    ) -> bool:
         """检查缓存是否过期
 
         Args:
@@ -564,7 +566,9 @@ class CacheManager:
         # 检查缓存大小，超过最大限制则根据LRU策略清理
         self._cleanup()
 
-    def _create_cache_data(self, url: str, result: dict[str, Any], timestamp: float) -> dict[str, Any]:
+    def _create_cache_data(
+        self, url: str, result: dict[str, Any], timestamp: float
+    ) -> dict[str, Any]:
         """创建缓存数据结构
 
         Args:
@@ -575,13 +579,11 @@ class CacheManager:
         Returns:
             完整的缓存数据字典
         """
-        return {
-            "url": url,
-            "timestamp": timestamp,
-            "result": result
-        }
+        return {"url": url, "timestamp": timestamp, "result": result}
 
-    def _add_to_memory_cache(self, url: str, cache_data: dict[str, Any], timestamp: float):
+    def _add_to_memory_cache(
+        self, url: str, cache_data: dict[str, Any], timestamp: float
+    ):
         """添加缓存到内存
 
         Args:
