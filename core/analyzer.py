@@ -146,7 +146,14 @@ class WebAnalyzer:
             try:
                 from astrbot.core.utils.astrbot_path import get_astrbot_data_path
 
-                data_path = get_astrbot_data_path()
+                # 确保 data_path 是 Path 对象，修复路径拼接错误
+                data_path_raw = get_astrbot_data_path()
+                data_path = (
+                    Path(data_path_raw)
+                    if not isinstance(data_path_raw, Path)
+                    else data_path_raw
+                )
+
                 status_file_path = (
                     data_path
                     / "plugin_data"
@@ -156,6 +163,9 @@ class WebAnalyzer:
                 # 确保目录存在
                 status_file_path.parent.mkdir(parents=True, exist_ok=True)
                 WebAnalyzer._browser_install_status_file = str(status_file_path)
+                logger.debug(
+                    f"浏览器状态文件路径已初始化: {WebAnalyzer._browser_install_status_file}"
+                )
             except Exception as e:
                 logger.warning(f"无法初始化浏览器状态文件路径: {e}, 将使用临时路径")
                 import tempfile
@@ -887,7 +897,14 @@ class WebAnalyzer:
         try:
             from astrbot.core.utils.astrbot_path import get_astrbot_data_path
 
-            data_path = get_astrbot_data_path()
+            # 确保 data_path 是 Path 对象，修复路径拼接错误
+            data_path_raw = get_astrbot_data_path()
+            data_path = (
+                Path(data_path_raw)
+                if not isinstance(data_path_raw, Path)
+                else data_path_raw
+            )
+
             browser_path = (
                 data_path
                 / "plugin_data"
@@ -896,6 +913,7 @@ class WebAnalyzer:
             )
             # 确保目录存在
             browser_path.mkdir(parents=True, exist_ok=True)
+            logger.debug(f"浏览器安装路径: {browser_path}")
             return str(browser_path)
         except Exception as e:
             logger.warning(f"无法获取AstrBot数据路径，使用临时路径: {e}")
@@ -903,6 +921,7 @@ class WebAnalyzer:
 
             temp_path = Path(tempfile.gettempdir()) / "astrbot_web_analyzer_browsers"
             temp_path.mkdir(parents=True, exist_ok=True)
+            logger.debug(f"使用临时浏览器路径: {temp_path}")
             return str(temp_path)
 
     def _load_install_status(self) -> dict:
@@ -947,28 +966,91 @@ class WebAnalyzer:
             logger.error(f"保存浏览器安装状态失败: {e}")
 
     async def _check_browser_installed_async(self) -> tuple[bool, str]:
-        """异步检查浏览器是否已安装
+        """异步检查浏览器是否已安装（智能路径探测版本）
 
         Returns:
             tuple: (是否已安装, 浏览器路径或错误信息)
         """
         from playwright.async_api import async_playwright
+        import os
+        from pathlib import Path
 
         try:
             pw = await async_playwright().start()
             try:
-                browser_path = pw.chromium.executable_path
-                import os
-
-                exists = os.path.exists(browser_path)
-                return exists, browser_path
+                # 尝试获取 Playwright 默认的浏览器路径
+                default_path = pw.chromium.executable_path
+                
+                # 如果默认路径存在，直接返回
+                if os.path.exists(default_path):
+                    return True, default_path
+                
+                # 默认路径不存在，尝试智能路径探测
+                logger.debug(f"默认浏览器路径不存在: {default_path}，开始智能路径探测")
+                
+                # 优先级1: 用户自定义安装路径
+                custom_install_path = self._get_browser_install_path()
+                if custom_install_path:
+                    # 尝试查找 chromium-* 目录
+                    custom_path = Path(custom_install_path)
+                    if custom_path.exists():
+                        # 查找所有 chromium-* 目录
+                        chromium_dirs = list(custom_path.glob("chromium-*"))
+                        if chromium_dirs:
+                            # 选择最新的版本目录（按名称排序，通常版本号越新越靠后）
+                            latest_dir = sorted(chromium_dirs, reverse=True)[0]
+                            # 尝试多个可能的可执行文件路径
+                            possible_exec_paths = [
+                                latest_dir / "chrome-linux" / "chrome",
+                                latest_dir / "chrome" / "chrome",
+                                latest_dir / "chrome.exe",
+                                latest_dir / "msedge" / "msedge",
+                            ]
+                            
+                            for exec_path in possible_exec_paths:
+                                if exec_path.exists():
+                                    logger.info(f"找到自定义路径的浏览器: {exec_path}")
+                                    return True, str(exec_path)
+                
+                # 优先级2: 尝试常见的 Playwright 安装路径
+                common_paths = [
+                    # Linux 系统路径
+                    Path.home() / ".cache" / "ms-playwright" / "chromium-*" / "chrome-linux" / "chrome",
+                    Path("/root/.cache/ms-playwright/chromium-*/chrome-linux/chrome"),
+                    # Windows 系统路径
+                    Path.home() / "AppData" / "Local" / "ms-playwright" / "chromium-*" / "chrome-win" / "chrome.exe",
+                    # macOS 系统路径
+                    Path.home() / "Library" / "Caches" / "ms-playwright" / "chromium-*" / "chrome-mac" / "Chromium.app" / "Contents" / "MacOS" / "Chromium",
+                ]
+                
+                for pattern_path in common_paths:
+                    # 处理通配符
+                    if "*" in str(pattern_path):
+                        parent_dir = pattern_path.parent.parent
+                        if parent_dir.exists():
+                            matching_dirs = list(parent_dir.glob(pattern_path.parent.name))
+                            if matching_dirs:
+                                exec_path = matching_dirs[0] / pattern_path.name
+                                if exec_path.exists():
+                                    logger.info(f"找到常见路径的浏览器: {exec_path}")
+                                    return True, str(exec_path)
+                    else:
+                        if pattern_path.exists():
+                            logger.info(f"找到常见路径的浏览器: {pattern_path}")
+                            return True, str(pattern_path)
+                
+                # 所有路径都找不到，但 Playwright 可能能启动，记录警告
+                logger.warning("未找到浏览器可执行文件，但 Playwright 可能仍能启动浏览器")
+                return False, "未找到浏览器可执行文件"
+                
             finally:
                 await pw.stop()
         except Exception as e:
+            logger.debug(f"检查浏览器安装时出错: {e}")
             return False, str(e)
 
     async def _install_browser_async(self) -> str:
-        """异步安装浏览器
+        """异步安装浏览器（优化版本，增强成功判断）
 
         Returns:
             str: 安装路径
@@ -1011,42 +1093,125 @@ class WebAnalyzer:
             # 合并标准输出和错误输出
             full_output = f"STDOUT:\n{stdout_text}\n\nSTDERR:\n{stderr_text}"
 
+            logger.debug(f"浏览器安装进程输出:\n{full_output}")
+
             # 检查是否真正失败（忽略仅有弃用警告的情况）
-            if process.returncode != 0:
+            install_success = False
+            install_reason = ""
+
+            if process.returncode == 0:
+                # 返回码为 0，明确成功
+                install_success = True
+                install_reason = "进程返回码为 0"
+            else:
+                # 返回码非 0，需要进一步判断（软验证机制）
                 # 检查 stderr 是否只有弃用警告（而非真正的错误）
                 stderr_lines = [
                     line for line in stderr_text.split("\n") if line.strip()
                 ]
-                has_real_error = any(
-                    "error" in line.lower()
-                    or "failed" in line.lower()
-                    or "exception" in line.lower()
-                    for line in stderr_lines
-                )
+                
+                # 更精确的错误检测：排除 DeprecationWarning
+                has_real_error = False
+                for line in stderr_lines:
+                    # 跳过 DeprecationWarning
+                    if "DeprecationWarning" in line or "deprecated" in line.lower():
+                        continue
+                    # 检查真正的错误关键词
+                    if any(
+                        keyword in line.lower()
+                        for keyword in ["error", "failed", "exception", "cannot", "unable"]
+                    ):
+                        # 排除一些常见的非致命错误信息
+                        if "CVE" not in line:  # 忽略 CVE 相关警告
+                            has_real_error = True
+                            break
 
                 # 检查输出中是否包含成功下载的标记
                 download_success = (
                     "Chromium" in stdout_text and "downloaded to" in stdout_text
                 )
+                
+                # 额外检查：是否有多个组件成功下载
+                component_count = stdout_text.count("downloaded to")
+                multiple_components = component_count >= 2  # 至少下载了2个组件（Chromium + 其他）
 
                 if download_success and not has_real_error:
-                    # 浏览器实际下载成功，只是有弃用警告
-                    logger.info(f"浏览器安装成功（忽略非关键警告）\n{full_output}")
+                    # 浏览器实际下载成功，只是有弃用警告或非致命返回码
+                    install_success = True
+                    if multiple_components:
+                        install_reason = f"文件下载成功（{component_count}个组件），忽略非零返回码 {process.returncode} 和弃用警告"
+                    else:
+                        install_reason = f"文件下载成功，忽略非零返回码 {process.returncode} 和弃用警告"
+                elif multiple_components and not has_real_error:
+                    # 即使没有明确的 Chromium 标记，但多个组件下载成功
+                    install_success = True
+                    install_reason = f"多个组件下载成功（{component_count}个），忽略非零返回码 {process.returncode}"
                 else:
-                    error_msg = (
-                        f"浏览器安装失败 (返回码: {process.returncode})\n"
-                        f"完整输出:\n{full_output}\n\n"
-                        f"请尝试手动安装:\n"
-                        f"  1. 运行: pip install --upgrade playwright\n"
-                        f"  2. 运行: PLAYWRIGHT_BROWSERS_PATH={install_path} python -m playwright install chromium\n"
-                        f"  3. 如果仍然失败,可能需要配置代理或检查网络连接"
-                    )
-                    logger.error(error_msg)
-                    raise ScreenshotError(error_msg) from None
-            else:
-                logger.info(f"浏览器安装成功\n{full_output}")
+                    install_success = False
+                    install_reason = f"进程返回码: {process.returncode}, 存在实际错误"
 
-            return install_path
+            # 验证浏览器可执行文件是否真实存在（使用自定义路径验证）
+            if install_success:
+                try:
+                    # 直接在自定义路径中查找浏览器，不依赖 Playwright 的默认路径
+                    from pathlib import Path
+                    
+                    install_path_obj = Path(install_path)
+                    if not install_path_obj.exists():
+                        raise FileNotFoundError(f"安装路径不存在: {install_path}")
+                    
+                    # 查找 chromium-* 目录
+                    chromium_dirs = list(install_path_obj.glob("chromium-*"))
+                    if not chromium_dirs:
+                        raise FileNotFoundError(f"未找到 chromium-* 目录在: {install_path}")
+                    
+                    # 选择最新的版本
+                    latest_dir = sorted(chromium_dirs, reverse=True)[0]
+                    
+                    # 尝试多个可能的可执行文件路径
+                    possible_exec_paths = [
+                        latest_dir / "chrome-linux" / "chrome",
+                        latest_dir / "chrome-linux64" / "chrome",
+                        latest_dir / "chrome" / "chrome",
+                        latest_dir / "chrome.exe",
+                    ]
+                    
+                    browser_executable = None
+                    for exec_path in possible_exec_paths:
+                        if exec_path.exists():
+                            browser_executable = str(exec_path)
+                            break
+                    
+                    if browser_executable:
+                        logger.info(
+                            f"浏览器安装成功且文件验证通过: {install_reason}"
+                        )
+                        logger.info(f"浏览器可执行文件路径: {browser_executable}")
+                        return install_path
+                    else:
+                        logger.warning(
+                            f"浏览器文件验证失败: 在 {latest_dir} 中未找到可执行文件"
+                        )
+                        logger.warning(f"尝试过的路径: {[str(p) for p in possible_exec_paths]}")
+                        install_success = False
+                        install_reason = "浏览器可执行文件不存在"
+                        
+                except Exception as verify_error:
+                    logger.warning(f"验证浏览器安装失败: {verify_error}")
+                    install_success = False
+                    install_reason = f"验证失败: {verify_error}"
+
+            # 安装失败，抛出错误
+            error_msg = (
+                f"浏览器安装失败: {install_reason}\n"
+                f"完整输出:\n{full_output}\n\n"
+                f"请尝试手动安装:\n"
+                f"  1. 运行: pip install --upgrade playwright\n"
+                f"  2. 运行: PLAYWRIGHT_BROWSERS_PATH={install_path} python -m playwright install chromium\n"
+                f"  3. 如果仍然失败,可能需要配置代理或检查网络连接"
+            )
+            logger.error(error_msg)
+            raise ScreenshotError(error_msg) from None
 
         except asyncio.TimeoutError:
             # 超时时终止进程
@@ -1055,7 +1220,9 @@ class WebAnalyzer:
                 await process.wait()
             except Exception:
                 pass
-            raise
+            error_msg = "浏览器安装超时（超过 300 秒）"
+            logger.error(error_msg)
+            raise ScreenshotError(error_msg) from None
 
     async def _ensure_browser_installed(self):
         """确保Playwright浏览器已安装（优化版本）
@@ -1234,9 +1401,16 @@ class WebAnalyzer:
         Returns:
             tuple: (browser实例, playwright实例)
         """
+        import os
         from playwright.async_api import async_playwright
 
         logger.debug("创建新的浏览器实例")
+        
+        # 设置环境变量，让 Playwright 使用自定义浏览器路径
+        custom_browser_path = self._get_browser_install_path()
+        os.environ["PLAYWRIGHT_BROWSERS_PATH"] = custom_browser_path
+        logger.debug(f"设置 PLAYWRIGHT_BROWSERS_PATH={custom_browser_path}")
+        
         playwright_instance = await async_playwright().start()
 
         browser = await playwright_instance.chromium.launch(

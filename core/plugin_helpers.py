@@ -293,11 +293,16 @@ class MessageHelpers:
         recall_type: str,
         smart_recall_enabled: bool,
     ):
-        """撤回处理提示消息
+        """撤回处理提示消息（优化版本，带重试机制）
 
         根据配置的撤回类型执行不同的撤回策略：
         - smart: 智能撤回，分析完成后立即撤回（无延迟）
         - time_based: 定时撤回，等待指定时间后撤回
+
+        改进点：
+        - 添加重试机制，最多重试3次
+        - 增加超时时间，提高成功率
+        - 改进错误处理和日志记录
 
         Args:
             event: 消息事件对象
@@ -308,28 +313,58 @@ class MessageHelpers:
             smart_recall_enabled: 是否启用智能撤回
         """
         if not message_id or not bot:
+            logger.warning("无法撤回消息：message_id 或 bot 为空")
             return
 
-        try:
-            # 检查撤回类型
-            if recall_type == "smart" and smart_recall_enabled:
-                # 智能撤回：立即撤回，不需要延迟
+        import asyncio
+
+        # 根据撤回类型设置等待时间
+        if recall_type == "smart" and smart_recall_enabled:
+            # 智能撤回：立即撤回，不需要延迟
+            wait_time = 0
+            logger.info(
+                f"智能撤回：分析完成，立即撤回处理中消息，message_id: {message_id}"
+            )
+        else:
+            # 定时撤回：等待指定时间后撤回
+            wait_time = delay
+            if delay > 0:
                 logger.info(
-                    f"智能撤回：分析完成，立即撤回处理中消息，message_id: {message_id}"
+                    f"定时撤回：等待 {delay} 秒后撤回消息，message_id: {message_id}"
                 )
-                await bot.delete_msg(message_id=message_id)
-                logger.info(f"智能撤回成功，已撤回消息: {message_id}")
-            else:
-                # 定时撤回：等待指定时间后撤回
-                if delay > 0:
-                    import asyncio
 
-                    logger.info(
-                        f"定时撤回：等待 {delay} 秒后撤回消息，message_id: {message_id}"
+        # 等待指定时间
+        if wait_time > 0:
+            await asyncio.sleep(wait_time)
+
+        # 执行撤回，带重试机制
+        max_retries = 3
+        retry_delay = 1  # 每次重试间隔1秒
+
+        for attempt in range(max_retries):
+            try:
+                # 尝试撤回消息
+                await bot.delete_msg(message_id=message_id)
+
+                if recall_type == "smart" and smart_recall_enabled:
+                    logger.info(f"智能撤回成功，已撤回消息: {message_id}")
+                else:
+                    logger.info(f"定时撤回成功，已撤回消息: {message_id}")
+
+                # 撤回成功，退出循环
+                break
+
+            except Exception as e:
+                if attempt < max_retries - 1:
+                    # 还有重试次数，记录警告并等待后重试
+                    logger.warning(
+                        f"撤回消息失败（第 {attempt + 1}/{max_retries} 次尝试）: {e}，"
+                        f"将在 {retry_delay} 秒后重试"
                     )
-                    await asyncio.sleep(delay)
-
-                await bot.delete_msg(message_id=message_id)
-                logger.info(f"定时撤回成功，已撤回消息: {message_id}")
-        except Exception as e:
-            logger.error(f"撤回处理提示消息失败: {e}")
+                    await asyncio.sleep(retry_delay)
+                else:
+                    # 重试次数用完，记录错误
+                    logger.error(
+                        f"撤回处理提示消息失败（已重试 {max_retries} 次）: {e}，"
+                        f"message_id: {message_id}"
+                    )
