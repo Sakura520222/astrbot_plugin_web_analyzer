@@ -178,11 +178,17 @@ class MessageHelpers:
         """
         import asyncio
 
-        # 获取bot实例（兼容不同类型的事件）
+        # 获取平台名称
+        platform_name = event.get_platform_name() if hasattr(event, "get_platform_name") else None
+
+        # 获取bot/client实例（兼容不同类型的事件）
         bot = event.bot if hasattr(event, "bot") else None
+        # Telegram 平台使用 client 属性
+        client = event.client if hasattr(event, "client") else None
+
         message_id = None
 
-        # 直接调用bot的发送消息方法，获取消息ID
+        # 直接调用bot/client的发送消息方法，获取消息ID
         try:
             # 根据事件类型选择发送方法
             send_result = None
@@ -200,8 +206,29 @@ class MessageHelpers:
             if hasattr(event, "is_private_chat"):
                 is_private = event.is_private_chat()
 
-            # 发送消息
-            if bot and group_id:
+            # Telegram 平台特殊处理
+            if platform_name == "telegram" and client:
+                chat_id = group_id if group_id else user_id
+                if chat_id:
+                    # 处理 topic 群组的 chat_id（去掉 # 后面的 thread_id）
+                    if "#" in chat_id:
+                        chat_id = chat_id.split("#")[0]
+                    # Telegram 发送消息并获取 message_id
+                    msg = await client.send_message(
+                        chat_id=int(chat_id),
+                        text=message
+                    )
+                    message_id = msg.message_id
+                    logger.debug(f"发送 Telegram 处理消息: {message} 到 {chat_id}")
+                else:
+                    logger.warning("无法获取 Telegram chat_id，使用原始方式发送消息")
+                    response = event.plain_result(message)
+                    if hasattr(event, "send"):
+                        await event.send(response)
+                    return None, client
+
+            # QQ 平台发送消息
+            elif bot and group_id:
                 # 群聊消息
                 send_result = await bot.send_group_msg(
                     group_id=group_id, message=message
@@ -225,52 +252,61 @@ class MessageHelpers:
                         await event.send(response)
                     return None, bot
             else:
-                # 无法确定消息类型或没有bot实例，使用原始方式发送并记录详细信息
+                # 无法确定消息类型或没有bot/client实例，使用原始方式发送并记录详细信息
                 logger.debug(
-                    f"使用原始方式发送处理消息，event类型: {type(event)}, has_bot={hasattr(event, 'bot')}, get_group_id={hasattr(event, 'get_group_id')}, get_sender_id={hasattr(event, 'get_sender_id')}, is_private_chat={hasattr(event, 'is_private_chat')}"
+                    f"使用原始方式发送处理消息，event类型: {type(event)}, platform={platform_name}, has_bot={hasattr(event, 'bot')}, has_client={hasattr(event, 'client')}"
                 )
                 # 尝试使用event.plain_result发送，虽然无法获取message_id
                 response = event.plain_result(message)
                 # 使用event的send方法发送
                 if hasattr(event, "send"):
                     await event.send(response)
-                return None, bot
+                return None, bot or client
 
-            # 检查send_result是否包含message_id
-            if isinstance(send_result, dict):
-                message_id = send_result.get("message_id")
-            elif hasattr(send_result, "message_id"):
-                message_id = send_result.message_id
+            # 检查send_result是否包含message_id（QQ 平台）
+            if send_result is not None:
+                if isinstance(send_result, dict):
+                    message_id = send_result.get("message_id")
+                elif hasattr(send_result, "message_id"):
+                    message_id = send_result.message_id
 
             logger.debug(f"发送处理消息成功，message_id: {message_id}")
 
-            # 如果获取到message_id且启用了自动撤回且有bot实例
-            if message_id and enable_recall and bot:
+            # 如果获取到message_id且启用了自动撤回且有bot/client实例
+            if message_id and enable_recall and (bot or client):
                 # 定时撤回模式
                 if recall_type == "time_based":
                     logger.info(
                         f"创建定时撤回任务，message_id: {message_id}，延迟: {recall_time_s}秒"
                     )
 
+                    # 闭包捕获需要的变量
+                    recall_bot = bot
+                    recall_client = client
+                    recall_platform = platform_name
+                    recall_event = event
+                    recall_message_id = message_id
+
                     async def _recall_task():
                         try:
                             await asyncio.sleep(recall_time_s)
-                            # 获取平台名称
-                            platform_name = event.get_platform_name() if hasattr(event, 'get_platform_name') else None
 
-                            if platform_name == "telegram":
+                            if recall_platform == "telegram" and recall_client:
                                 # Telegram 撤回
                                 chat_id = None
-                                if hasattr(event, 'get_group_id'):
-                                    chat_id = event.get_group_id()
-                                if not chat_id and hasattr(event, 'get_sender_id'):
-                                    chat_id = event.get_sender_id()
-                                if chat_id and message_id:
-                                    await bot.delete_message(chat_id=int(chat_id), message_id=int(message_id))
-                            else:
+                                if hasattr(recall_event, "get_group_id"):
+                                    chat_id = recall_event.get_group_id()
+                                if not chat_id and hasattr(recall_event, "get_sender_id"):
+                                    chat_id = recall_event.get_sender_id()
+                                if chat_id:
+                                    # 处理 topic 群组的 chat_id
+                                    if "#" in chat_id:
+                                        chat_id = chat_id.split("#")[0]
+                                    await recall_client.delete_message(chat_id=int(chat_id), message_id=int(recall_message_id))
+                            elif recall_bot:
                                 # QQ 平台撤回
-                                await bot.delete_msg(message_id=message_id)
-                            logger.info(f"已定时撤回消息: {message_id}")
+                                await recall_bot.delete_msg(message_id=recall_message_id)
+                            logger.info(f"已定时撤回消息: {recall_message_id}")
                         except Exception as e:
                             logger.error(f"定时撤回消息失败: {e}")
 
@@ -296,7 +332,7 @@ class MessageHelpers:
         except Exception as e:
             logger.error(f"发送处理消息或设置撤回失败: {e}")
 
-        return message_id, bot
+        return message_id, bot or client
 
     @staticmethod
     async def recall_processing_message(
@@ -326,8 +362,14 @@ class MessageHelpers:
             recall_type: 撤回类型
             smart_recall_enabled: 是否启用智能撤回
         """
+        # 获取平台名称
+        platform_name = event.get_platform_name() if hasattr(event, "get_platform_name") else None
+
+        # bot 参数对于 Telegram 平台实际上是 client，这里统一处理
+        # 对于 Telegram 平台，bot 参数是从 send_processing_message 返回的 client
+        # 对于 QQ 平台，bot 参数是真正的 bot 实例
         if not message_id or not bot:
-            logger.warning("无法撤回消息：message_id 或 bot 为空")
+            logger.warning("无法撤回消息：message_id 或 bot/client 为空")
             return
 
         import asyncio
@@ -357,23 +399,23 @@ class MessageHelpers:
 
         for attempt in range(max_retries):
             try:
-                # 获取平台名称
-                platform_name = event.get_platform_name() if hasattr(event, 'get_platform_name') else None
-
                 # 根据平台使用不同的撤回 API
                 if platform_name == "telegram":
                     # Telegram Bot API: deleteMessage(chat_id, message_id)
                     # 获取 chat_id
                     chat_id = None
-                    if hasattr(event, 'get_group_id'):
+                    if hasattr(event, "get_group_id"):
                         chat_id = event.get_group_id()
-                    if not chat_id and hasattr(event, 'get_sender_id'):
+                    if not chat_id and hasattr(event, "get_sender_id"):
                         chat_id = event.get_sender_id()
 
-                    if chat_id and message_id:
+                    if chat_id:
+                        # 处理 topic 群组的 chat_id
+                        if "#" in chat_id:
+                            chat_id = chat_id.split("#")[0]
                         await bot.delete_message(chat_id=int(chat_id), message_id=int(message_id))
                     else:
-                        logger.warning(f"无法获取 Telegram chat_id，跳过撤回消息")
+                        logger.warning("无法获取 Telegram chat_id，跳过撤回消息")
                 else:
                     # QQ 平台: delete_msg(message_id)
                     await bot.delete_msg(message_id=message_id)
