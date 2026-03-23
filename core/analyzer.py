@@ -126,6 +126,8 @@ class WebAnalyzer:
         self.memory_check_interval = 60 * 5  # 内存检查间隔，单位为秒，从60秒延长到5分钟
         # URL处理相关
         self.enable_unified_domain = enable_unified_domain
+        # 存储检测到的浏览器可执行文件路径
+        self._detected_browser_path = None
 
         # 初始化浏览器锁
         if not WebAnalyzer._browser_lock:
@@ -1281,9 +1283,18 @@ class WebAnalyzer:
         install_status = self._load_install_status()
 
         if install_status.get("installed", False):
+            saved_path = install_status.get("install_path", "")
             logger.info(
-                f"浏览器已安装（从持久化记录）: {install_status.get('install_path', '未知路径')}"
+                f"浏览器已安装（从持久化记录）: {saved_path or '未知路径'}"
             )
+            # 恢复保存的浏览器路径
+            if saved_path:
+                import os
+                if os.path.exists(saved_path):
+                    self._detected_browser_path = saved_path
+                    logger.debug(f"从持久化记录恢复浏览器路径: {saved_path}")
+                else:
+                    logger.warning(f"保存的浏览器路径不存在: {saved_path}，将重新检测")
             self._playwright_browser_checked = True
             return
 
@@ -1343,6 +1354,8 @@ class WebAnalyzer:
 
                 if installed:
                     logger.info(f"浏览器已安装: {browser_info}")
+                    # 保存检测到的浏览器路径供启动时使用
+                    self._detected_browser_path = browser_info
                     # 保存安装状态
                     self._save_install_status(
                         {
@@ -1359,17 +1372,22 @@ class WebAnalyzer:
                 logger.info("浏览器未安装，开始自动安装...")
                 install_path = await self._install_browser_async()
 
+                # 安装后重新检测浏览器可执行文件的确切路径
+                installed, browser_executable = await self._check_browser_installed_async()
+                if installed:
+                    self._detected_browser_path = browser_executable
+
                 # 保存安装状态
                 self._save_install_status(
                     {
                         "installed": True,
-                        "install_path": install_path,
+                        "install_path": browser_executable if installed else install_path,
                         "install_time": time.time(),
                         "browser_type": "chromium",
                     }
                 )
 
-                logger.info(f"浏览器安装成功: {install_path}")
+                logger.info(f"浏览器安装成功: {browser_executable if installed else install_path}")
 
             except Exception as e:
                 logger.error(f"浏览器安装失败: {e}")
@@ -1442,23 +1460,31 @@ class WebAnalyzer:
 
         logger.debug("创建新的浏览器实例")
 
-        # 设置环境变量，让 Playwright 使用自定义浏览器路径
-        custom_browser_path = self._get_browser_install_path()
-        os.environ["PLAYWRIGHT_BROWSERS_PATH"] = custom_browser_path
-        logger.debug(f"设置 PLAYWRIGHT_BROWSERS_PATH={custom_browser_path}")
-
         playwright_instance = await async_playwright().start()
 
-        browser = await playwright_instance.chromium.launch(
-            headless=True,
-            timeout=20000,
-            args=[
+        # 构建启动参数
+        launch_args = {
+            "headless": True,
+            "timeout": 20000,
+            "args": [
                 "--no-sandbox",
                 "--disable-setuid-sandbox",
                 "--disable-dev-shm-usage",
                 "--disable-gpu",
             ],
-        )
+        }
+
+        # 如果有检测到的浏览器路径，使用它
+        if self._detected_browser_path and os.path.exists(self._detected_browser_path):
+            launch_args["executable_path"] = self._detected_browser_path
+            logger.debug(f"使用检测到的浏览器路径: {self._detected_browser_path}")
+        else:
+            # 否则使用自定义路径（环境变量方式）
+            custom_browser_path = self._get_browser_install_path()
+            os.environ["PLAYWRIGHT_BROWSERS_PATH"] = custom_browser_path
+            logger.debug(f"设置 PLAYWRIGHT_BROWSERS_PATH={custom_browser_path}")
+
+        browser = await playwright_instance.chromium.launch(**launch_args)
 
         return browser, playwright_instance
 
