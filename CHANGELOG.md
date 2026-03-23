@@ -2,16 +2,21 @@
 
 ### [v1.5.3] - 2026-03-23
 
-#### ✨ 新增功能
-- **新增 Telegram 平台消息撤回支持** - 适配 Telegram Bot API 的 delete_message 接口
-  - 在 `MessageHelpers.recall_processing_message()` 和 `send_processing_message()` 中新增平台识别逻辑
-  - Telegram 平台通过 `chat_id` 和 `message_id` 调用 `delete_message` 接口撤回消息
-  - 保留 QQ 平台原有撤回逻辑，确保向后兼容性
+#### 🐛 Bug修复
+- **优化浏览器路径检测与启动逻辑** (`core/analyzer`)
+  - 新增 `_detected_browser_path` 属性存储检测到的浏览器可执行文件路径
+  - 从持久化记录恢复浏览器路径时，增加路径存在性校验
+  - 安装浏览器后重新检测可执行文件确切路径并保存
+  - 启动浏览器时优先使用检测到的路径，否则回退到环境变量方式
+  - 优化日志输出，明确显示浏览器路径状态
 
 #### 🔧 技术改进
-- **新增平台支持声明** - 在 `metadata.yaml` 中新增 `support_platforms` 字段
-  - 明确声明支持 `aiocqhttp`（QQ 个人号）和 `telegram` 平台
-  - WebUI 插件页将正确显示平台支持信息
+- **增强多平台消息发送与撤回兼容性** (`core/plugin_helpers`)
+  - 新增 Telegram 平台支持，通过 `client` 属性处理消息发送与撤回
+  - 优化平台识别逻辑，使用 `get_platform_name()` 区分 QQ 和 Telegram
+  - 改进消息发送流程，支持 topic 群组的 `chat_id` 处理（去除 `thread_id`）
+  - 增强撤回任务闭包，确保变量正确捕获并支持多平台撤回操作
+  - 更新日志输出，更清晰地反映平台信息和发送状态
 
 ---
 
