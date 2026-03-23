@@ -255,7 +255,21 @@ class MessageHelpers:
                     async def _recall_task():
                         try:
                             await asyncio.sleep(recall_time_s)
-                            await bot.delete_msg(message_id=message_id)
+                            # 获取平台名称
+                            platform_name = event.get_platform_name() if hasattr(event, 'get_platform_name') else None
+
+                            if platform_name == "telegram":
+                                # Telegram 撤回
+                                chat_id = None
+                                if hasattr(event, 'get_group_id'):
+                                    chat_id = event.get_group_id()
+                                if not chat_id and hasattr(event, 'get_sender_id'):
+                                    chat_id = event.get_sender_id()
+                                if chat_id and message_id:
+                                    await bot.delete_message(chat_id=int(chat_id), message_id=int(message_id))
+                            else:
+                                # QQ 平台撤回
+                                await bot.delete_msg(message_id=message_id)
                             logger.info(f"已定时撤回消息: {message_id}")
                         except Exception as e:
                             logger.error(f"定时撤回消息失败: {e}")
@@ -343,8 +357,26 @@ class MessageHelpers:
 
         for attempt in range(max_retries):
             try:
-                # 尝试撤回消息
-                await bot.delete_msg(message_id=message_id)
+                # 获取平台名称
+                platform_name = event.get_platform_name() if hasattr(event, 'get_platform_name') else None
+
+                # 根据平台使用不同的撤回 API
+                if platform_name == "telegram":
+                    # Telegram Bot API: deleteMessage(chat_id, message_id)
+                    # 获取 chat_id
+                    chat_id = None
+                    if hasattr(event, 'get_group_id'):
+                        chat_id = event.get_group_id()
+                    if not chat_id and hasattr(event, 'get_sender_id'):
+                        chat_id = event.get_sender_id()
+
+                    if chat_id and message_id:
+                        await bot.delete_message(chat_id=int(chat_id), message_id=int(message_id))
+                    else:
+                        logger.warning(f"无法获取 Telegram chat_id，跳过撤回消息")
+                else:
+                    # QQ 平台: delete_msg(message_id)
+                    await bot.delete_msg(message_id=message_id)
 
                 if recall_type == "smart" and smart_recall_enabled:
                     logger.info(f"智能撤回成功，已撤回消息: {message_id}")

@@ -1,5 +1,20 @@
 # 更新日志
 
+### [v1.5.3] - 2026-03-23
+
+#### ✨ 新增功能
+- **新增 Telegram 平台消息撤回支持** - 适配 Telegram Bot API 的 delete_message 接口
+  - 在 `MessageHelpers.recall_processing_message()` 和 `send_processing_message()` 中新增平台识别逻辑
+  - Telegram 平台通过 `chat_id` 和 `message_id` 调用 `delete_message` 接口撤回消息
+  - 保留 QQ 平台原有撤回逻辑，确保向后兼容性
+
+#### 🔧 技术改进
+- **新增平台支持声明** - 在 `metadata.yaml` 中新增 `support_platforms` 字段
+  - 明确声明支持 `aiocqhttp`（QQ 个人号）和 `telegram` 平台
+  - WebUI 插件页将正确显示平台支持信息
+
+---
+
 ### [v1.5.2] - 2026-03-05
 
 #### 🐛 Bug修复
