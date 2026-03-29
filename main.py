@@ -85,6 +85,7 @@ class WebAnalyzerPlugin(Star):
             enable_memory_monitor=self.enable_memory_monitor,
             memory_threshold=self.memory_threshold_percent,
             enable_unified_domain=self.enable_unified_domain,
+            hide_ip=self.hide_ip,
         )
 
         # 初始化结果格式化器
