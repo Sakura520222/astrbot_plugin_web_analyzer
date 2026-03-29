@@ -94,6 +94,7 @@ class WebAnalyzer:
         enable_memory_monitor: bool = True,
         memory_threshold: float = 80.0,  # 内存使用阈值百分比
         enable_unified_domain: bool = True,  # 是否启用域名统一处理
+        hide_ip: bool = False,  # 截图时是否隐藏真实IP
     ):
         """初始化网页分析器
 
@@ -115,6 +116,9 @@ class WebAnalyzer:
             or "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
         )
         self.proxy = proxy
+        self.hide_ip = hide_ip
+        if self.hide_ip and not self.proxy:
+            logger.warning("已启用截图隐藏IP，但未配置代理，IP隐藏功能将不会生效")
         self.retry_count = retry_count
         self.retry_delay = retry_delay
         self.client = None
@@ -175,6 +179,19 @@ class WebAnalyzer:
                 WebAnalyzer._browser_install_status_file = str(
                     Path(tempfile.gettempdir()) / "browser_install_status.json"
                 )
+
+    def _apply_ip_hide_args(self, launch_args: dict) -> None:
+        """将IP隐藏相关参数应用到浏览器启动参数中"""
+        if not self.hide_ip or not self.proxy:
+            return
+        launch_args["proxy"] = {"server": self.proxy}
+        launch_args["args"].extend([
+            "--disable-webrtc-hw-encoding",
+            "--disable-webrtc-hw-decoding",
+            "--enforce-webrtc-ip-handling-policy",
+            "--webrtc-ip-handling-policy=disable_non_proxied_udp",
+        ])
+        logger.debug("已启用代理和WebRTC屏蔽以隐藏真实IP")
 
     @staticmethod
     async def _cleanup_browser_pool():
@@ -1474,6 +1491,9 @@ class WebAnalyzer:
             ],
         }
 
+        # 隐藏IP：通过代理启动浏览器并屏蔽WebRTC
+        self._apply_ip_hide_args(launch_args)
+
         # 如果有检测到的浏览器路径，使用它
         if self._detected_browser_path and os.path.exists(self._detected_browser_path):
             launch_args["executable_path"] = self._detected_browser_path
@@ -1519,6 +1539,28 @@ class WebAnalyzer:
             viewport={"width": width, "height": height},
             user_agent=self.user_agent,
         )
+
+        # 隐藏IP：注入脚本屏蔽WebRTC，防止IP泄漏
+        if self.hide_ip and self.proxy:
+            await page.add_init_script("""
+                // 屏蔽WebRTC以防止IP泄漏
+                const originalRTC = window.RTCPeerConnection || window.webkitRTCPeerConnection;
+                if (originalRTC) {
+                    window.RTCPeerConnection = function() {
+                        const pc = new originalRTC(...arguments);
+                        const origSetLocalDescription = pc.setLocalDescription.bind(pc);
+                        pc.setLocalDescription = function(desc) {
+                            if (desc && desc.type === 'offer') {
+                                desc.sdp = desc.sdp.replace(/a=candidate:.+\\r\\n/g, '');
+                            }
+                            return origSetLocalDescription(desc);
+                        };
+                        return pc;
+                    };
+                    window.RTCPeerConnection.prototype = originalRTC.prototype;
+                }
+                Object.defineProperty(navigator, 'connection', { get: () => null });
+            """)
 
         try:
             # 导航到目标URL
@@ -1616,16 +1658,23 @@ class WebAnalyzer:
         from playwright.async_api import async_playwright
 
         new_playwright_instance = await async_playwright().start()
-        new_browser = await new_playwright_instance.chromium.launch(
-            headless=True,
-            timeout=20000,
-            args=[
+
+        # 构建启动参数（与_create_new_browser保持一致）
+        retry_launch_args = {
+            "headless": True,
+            "timeout": 20000,
+            "args": [
                 "--no-sandbox",
                 "--disable-setuid-sandbox",
                 "--disable-dev-shm-usage",
                 "--disable-gpu",
             ],
-        )
+        }
+
+        # 隐藏IP：与主浏览器启动保持一致
+        self._apply_ip_hide_args(retry_launch_args)
+
+        new_browser = await new_playwright_instance.chromium.launch(**retry_launch_args)
 
         try:
             # 使用新浏览器实例重试截图

@@ -17,3 +17,4 @@ logs/
 run_ruff.py
 main_backup.py
 .github/prompts/
+CLAUDE.md

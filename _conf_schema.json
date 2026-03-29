@@ -53,6 +53,12 @@
             "hint": "HTTP代理地址，格式为http://username:password@host:port，留空表示不使用代理",
             "default": ""
           },
+          "hide_ip": {
+            "description": "截图时隐藏真实IP",
+            "type": "bool",
+            "hint": "启用后截图时将通过代理访问并阻止WebRTC泄漏真实IP地址（需配置代理）",
+            "default": false
+          },
           "max_concurrency": {
             "description": "最大并发数",
             "type": "int",

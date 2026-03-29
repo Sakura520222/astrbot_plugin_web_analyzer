@@ -29,7 +29,7 @@ from .core.result_formatter import ResultFormatter
     "astrbot_plugin_web_analyzer",
     "Sakura520222",
     "自动识别网页链接，智能抓取解析内容，集成大语言模型进行深度分析和总结，支持网页截图、缓存机制和多种管理命令",
-    "1.5.3",
+    "1.5.4",
     "https://github.com/Sakura520222/astrbot_plugin_web_analyzer",
 )
 class WebAnalyzerPlugin(Star):
@@ -85,6 +85,7 @@ class WebAnalyzerPlugin(Star):
             enable_memory_monitor=self.enable_memory_monitor,
             memory_threshold=self.memory_threshold_percent,
             enable_unified_domain=self.enable_unified_domain,
+            hide_ip=self.hide_ip,
         )
 
         # 初始化结果格式化器

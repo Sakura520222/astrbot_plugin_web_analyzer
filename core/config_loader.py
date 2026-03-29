@@ -45,6 +45,7 @@ class ConfigLoader:
             "retry_delay_s": "retry_delay_s",
             "user_agent": "user_agent",
             "proxy": "proxy",
+            "hide_ip": "hide_ip",
             "max_concurrency": "max_concurrency",
         },
         "域名管理": {
@@ -206,6 +207,7 @@ class ConfigLoader:
         network_settings["retry_delay_s"] = old_network.get("retry_delay", 2)
         network_settings["user_agent"] = old_network.get("user_agent", "Mozilla/5.0")
         network_settings["proxy"] = old_network.get("proxy", "")
+        network_settings["hide_ip"] = old_network.get("hide_ip", False)
         network_settings["max_concurrency"] = old_network.get("max_concurrency", 5)
 
         # 映射域名设置
@@ -472,6 +474,9 @@ class ConfigLoader:
             config, "基础设置", "网络设置", "proxy", ""
         )
         config_dict["proxy"] = ConfigLoader._validate_proxy(proxy)
+        config_dict["hide_ip"] = ConfigLoader._get_nested_value(
+            config, "基础设置", "网络设置", "hide_ip", False
+        )
         config_dict["max_concurrency"] = ConfigLoader._get_nested_value(
             config, "基础设置", "网络设置", "max_concurrency", 5
         )
