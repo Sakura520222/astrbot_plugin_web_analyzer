@@ -117,6 +117,8 @@ class WebAnalyzer:
         )
         self.proxy = proxy
         self.hide_ip = hide_ip
+        if self.hide_ip and not self.proxy:
+            logger.warning("已启用截图隐藏IP，但未配置代理，IP隐藏功能将不会生效")
         self.retry_count = retry_count
         self.retry_delay = retry_delay
         self.client = None
@@ -177,6 +179,19 @@ class WebAnalyzer:
                 WebAnalyzer._browser_install_status_file = str(
                     Path(tempfile.gettempdir()) / "browser_install_status.json"
                 )
+
+    def _apply_ip_hide_args(self, launch_args: dict) -> None:
+        """将IP隐藏相关参数应用到浏览器启动参数中"""
+        if not self.hide_ip or not self.proxy:
+            return
+        launch_args["proxy"] = {"server": self.proxy}
+        launch_args["args"].extend([
+            "--disable-webrtc-hw-encoding",
+            "--disable-webrtc-hw-decoding",
+            "--enforce-webrtc-ip-handling-policy",
+            "--webrtc-ip-handling-policy=disable_non_proxied_udp",
+        ])
+        logger.debug("已启用代理和WebRTC屏蔽以隐藏真实IP")
 
     @staticmethod
     async def _cleanup_browser_pool():
@@ -1477,15 +1492,7 @@ class WebAnalyzer:
         }
 
         # 隐藏IP：通过代理启动浏览器并屏蔽WebRTC
-        if self.hide_ip and self.proxy:
-            launch_args["proxy"] = {"server": self.proxy}
-            launch_args["args"].extend([
-                "--disable-webrtc-hw-encoding",
-                "--disable-webrtc-hw-decoding",
-                "--enforce-webrtc-ip-handling-policy",
-                "--webrtc-ip-handling-policy=disable_non_proxied_udp",
-            ])
-            logger.debug("已启用代理和WebRTC屏蔽以隐藏真实IP")
+        self._apply_ip_hide_args(launch_args)
 
         # 如果有检测到的浏览器路径，使用它
         if self._detected_browser_path and os.path.exists(self._detected_browser_path):
@@ -1540,7 +1547,7 @@ class WebAnalyzer:
                 const originalRTC = window.RTCPeerConnection || window.webkitRTCPeerConnection;
                 if (originalRTC) {
                     window.RTCPeerConnection = function() {
-                        const pc = new originalRTC(arguments);
+                        const pc = new originalRTC(...arguments);
                         const origSetLocalDescription = pc.setLocalDescription.bind(pc);
                         pc.setLocalDescription = function(desc) {
                             if (desc && desc.type === 'offer') {
@@ -1665,14 +1672,7 @@ class WebAnalyzer:
         }
 
         # 隐藏IP：与主浏览器启动保持一致
-        if self.hide_ip and self.proxy:
-            retry_launch_args["proxy"] = {"server": self.proxy}
-            retry_launch_args["args"].extend([
-                "--disable-webrtc-hw-encoding",
-                "--disable-webrtc-hw-decoding",
-                "--enforce-webrtc-ip-handling-policy",
-                "--webrtc-ip-handling-policy=disable_non_proxied_udp",
-            ])
+        self._apply_ip_hide_args(retry_launch_args)
 
         new_browser = await new_playwright_instance.chromium.launch(**retry_launch_args)
 
