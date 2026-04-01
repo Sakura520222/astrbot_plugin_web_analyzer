@@ -729,7 +729,7 @@ class ConfigLoader:
 
         # 事件传播
         config_dict["allow_llm_propagation"] = ConfigLoader._get_nested_value(
-            config, "消息管理", "事件传播", "allow_llm_propagation", False
+            config, "消息管理", "事件传播", "allow_llm_propagation", True
         )
 
         return config_dict
