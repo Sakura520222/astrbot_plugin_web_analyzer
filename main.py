@@ -442,9 +442,7 @@ class WebAnalyzerPlugin(Star):
                 async for result in self._batch_process_urls(
                     event, allowed_urls, processing_message_id, bot
                 ):
-                    await self.context.send_message(
-                        event.unified_msg_origin, result
-                    )
+                    await self.context.send_message(event.unified_msg_origin, result)
             else:
                 # 默认行为：yield 结果，阻止事件传播到 LLM
                 async for result in self._batch_process_urls(

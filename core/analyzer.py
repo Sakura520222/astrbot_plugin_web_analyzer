@@ -185,12 +185,14 @@ class WebAnalyzer:
         if not self.hide_ip or not self.proxy:
             return
         launch_args["proxy"] = {"server": self.proxy}
-        launch_args["args"].extend([
-            "--disable-webrtc-hw-encoding",
-            "--disable-webrtc-hw-decoding",
-            "--enforce-webrtc-ip-handling-policy",
-            "--webrtc-ip-handling-policy=disable_non_proxied_udp",
-        ])
+        launch_args["args"].extend(
+            [
+                "--disable-webrtc-hw-encoding",
+                "--disable-webrtc-hw-decoding",
+                "--enforce-webrtc-ip-handling-policy",
+                "--webrtc-ip-handling-policy=disable_non_proxied_udp",
+            ]
+        )
         logger.debug("已启用代理和WebRTC屏蔽以隐藏真实IP")
 
     @staticmethod
@@ -1301,12 +1303,11 @@ class WebAnalyzer:
 
         if install_status.get("installed", False):
             saved_path = install_status.get("install_path", "")
-            logger.info(
-                f"浏览器已安装（从持久化记录）: {saved_path or '未知路径'}"
-            )
+            logger.info(f"浏览器已安装（从持久化记录）: {saved_path or '未知路径'}")
             # 恢复保存的浏览器路径
             if saved_path:
                 import os
+
                 if os.path.exists(saved_path):
                     self._detected_browser_path = saved_path
                     logger.debug(f"从持久化记录恢复浏览器路径: {saved_path}")
@@ -1390,7 +1391,10 @@ class WebAnalyzer:
                 install_path = await self._install_browser_async()
 
                 # 安装后重新检测浏览器可执行文件的确切路径
-                installed, browser_executable = await self._check_browser_installed_async()
+                (
+                    installed,
+                    browser_executable,
+                ) = await self._check_browser_installed_async()
                 if installed:
                     self._detected_browser_path = browser_executable
 
@@ -1398,13 +1402,17 @@ class WebAnalyzer:
                 self._save_install_status(
                     {
                         "installed": True,
-                        "install_path": browser_executable if installed else install_path,
+                        "install_path": browser_executable
+                        if installed
+                        else install_path,
                         "install_time": time.time(),
                         "browser_type": "chromium",
                     }
                 )
 
-                logger.info(f"浏览器安装成功: {browser_executable if installed else install_path}")
+                logger.info(
+                    f"浏览器安装成功: {browser_executable if installed else install_path}"
+                )
 
             except Exception as e:
                 logger.error(f"浏览器安装失败: {e}")

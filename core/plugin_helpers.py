@@ -179,7 +179,9 @@ class MessageHelpers:
         import asyncio
 
         # 获取平台名称
-        platform_name = event.get_platform_name() if hasattr(event, "get_platform_name") else None
+        platform_name = (
+            event.get_platform_name() if hasattr(event, "get_platform_name") else None
+        )
 
         # 获取bot/client实例（兼容不同类型的事件）
         bot = event.bot if hasattr(event, "bot") else None
@@ -214,10 +216,7 @@ class MessageHelpers:
                     if "#" in chat_id:
                         chat_id = chat_id.split("#")[0]
                     # Telegram 发送消息并获取 message_id
-                    msg = await client.send_message(
-                        chat_id=int(chat_id),
-                        text=message
-                    )
+                    msg = await client.send_message(chat_id=int(chat_id), text=message)
                     message_id = msg.message_id
                     logger.debug(f"发送 Telegram 处理消息: {message} 到 {chat_id}")
                 else:
@@ -296,16 +295,23 @@ class MessageHelpers:
                                 chat_id = None
                                 if hasattr(recall_event, "get_group_id"):
                                     chat_id = recall_event.get_group_id()
-                                if not chat_id and hasattr(recall_event, "get_sender_id"):
+                                if not chat_id and hasattr(
+                                    recall_event, "get_sender_id"
+                                ):
                                     chat_id = recall_event.get_sender_id()
                                 if chat_id:
                                     # 处理 topic 群组的 chat_id
                                     if "#" in chat_id:
                                         chat_id = chat_id.split("#")[0]
-                                    await recall_client.delete_message(chat_id=int(chat_id), message_id=int(recall_message_id))
+                                    await recall_client.delete_message(
+                                        chat_id=int(chat_id),
+                                        message_id=int(recall_message_id),
+                                    )
                             elif recall_bot:
                                 # QQ 平台撤回
-                                await recall_bot.delete_msg(message_id=recall_message_id)
+                                await recall_bot.delete_msg(
+                                    message_id=recall_message_id
+                                )
                             logger.info(f"已定时撤回消息: {recall_message_id}")
                         except Exception as e:
                             logger.error(f"定时撤回消息失败: {e}")
@@ -363,7 +369,9 @@ class MessageHelpers:
             smart_recall_enabled: 是否启用智能撤回
         """
         # 获取平台名称
-        platform_name = event.get_platform_name() if hasattr(event, "get_platform_name") else None
+        platform_name = (
+            event.get_platform_name() if hasattr(event, "get_platform_name") else None
+        )
 
         # bot 参数对于 Telegram 平台实际上是 client，这里统一处理
         # 对于 Telegram 平台，bot 参数是从 send_processing_message 返回的 client
@@ -413,7 +421,9 @@ class MessageHelpers:
                         # 处理 topic 群组的 chat_id
                         if "#" in chat_id:
                             chat_id = chat_id.split("#")[0]
-                        await bot.delete_message(chat_id=int(chat_id), message_id=int(message_id))
+                        await bot.delete_message(
+                            chat_id=int(chat_id), message_id=int(message_id)
+                        )
                     else:
                         logger.warning("无法获取 Telegram chat_id，跳过撤回消息")
                 else:
