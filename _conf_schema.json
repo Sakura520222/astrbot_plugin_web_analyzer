@@ -530,6 +530,19 @@
             "default": true
           }
         }
+      },
+      "事件传播": {
+        "description": "控制自动分析后的事件传播行为",
+        "type": "object",
+        "hint": "配置插件分析URL后是否允许消息继续传递给LLM处理",
+        "items": {
+          "allow_llm_propagation": {
+            "description": "允许LLM传播",
+            "type": "bool",
+            "hint": "启用后，插件分析完URL不会阻止消息继续传递给LLM，用户会同时收到分析结果和LLM回复",
+            "default": true
+          }
+        }
       }
     }
   }

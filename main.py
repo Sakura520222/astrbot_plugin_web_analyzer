@@ -29,7 +29,7 @@ from .core.result_formatter import ResultFormatter
     "astrbot_plugin_web_analyzer",
     "Sakura520222",
     "自动识别网页链接，智能抓取解析内容，集成大语言模型进行深度分析和总结，支持网页截图、缓存机制和多种管理命令",
-    "1.5.4",
+    "1.5.5",
     "https://github.com/Sakura520222/astrbot_plugin_web_analyzer",
 )
 class WebAnalyzerPlugin(Star):
@@ -436,10 +436,21 @@ class WebAnalyzerPlugin(Star):
             )
 
             # 批量处理所有允许访问的URL
-            async for result in self._batch_process_urls(
-                event, allowed_urls, processing_message_id, bot
-            ):
-                yield result
+            if self.allow_llm_propagation:
+                # 允许事件传播：使用 send_message 直接发送，不 yield
+                # 这样不会设置 event result，事件继续传播到 LLM
+                async for result in self._batch_process_urls(
+                    event, allowed_urls, processing_message_id, bot
+                ):
+                    await self.context.send_message(
+                        event.unified_msg_origin, result
+                    )
+            else:
+                # 默认行为：yield 结果，阻止事件传播到 LLM
+                async for result in self._batch_process_urls(
+                    event, allowed_urls, processing_message_id, bot
+                ):
+                    yield result
 
     @filter.command("web_help", alias={"网页分析帮助", "网页分析命令"})
     async def show_help(self, event: AstrMessageEvent):
@@ -497,6 +508,7 @@ class WebAnalyzerPlugin(Star):
 - 在AstrBot管理面板中可以配置插件的各项功能
 - 支持自定义命令别名
 - 可以调整分析结果模板和显示方式
+- 启用「允许LLM传播」后，自动分析URL不会阻止LLM回复原始消息
 """
 
         yield event.plain_result(help_text)

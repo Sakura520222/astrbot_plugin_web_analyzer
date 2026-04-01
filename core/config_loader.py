@@ -128,6 +128,9 @@ class ConfigLoader:
             "recall_time_s": "recall_time_s",
             "smart_recall_enabled": "smart_recall_enabled",
         },
+        "事件传播": {
+            "allow_llm_propagation": "allow_llm_propagation",
+        },
     }
 
     @staticmethod
@@ -722,6 +725,11 @@ class ConfigLoader:
         )
         config_dict["smart_recall_enabled"] = ConfigLoader._get_nested_value(
             config, "消息管理", "消息撤回", "smart_recall_enabled", True
+        )
+
+        # 事件传播
+        config_dict["allow_llm_propagation"] = ConfigLoader._get_nested_value(
+            config, "消息管理", "事件传播", "allow_llm_propagation", False
         )
 
         return config_dict
