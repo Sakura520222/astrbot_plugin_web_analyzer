@@ -986,6 +986,91 @@ class WebAnalyzer:
         except Exception as e:
             logger.error(f"保存浏览器安装状态失败: {e}")
 
+    @staticmethod
+    def _detect_system_browser() -> tuple[bool, str, str]:
+        """检测系统已安装的 Chromium 内核浏览器
+
+        检测优先级: Chrome > Edge > Chromium
+        支持 Windows 和 Linux
+
+        Returns:
+            tuple: (是否找到, 浏览器路径, 浏览器名称)
+        """
+        import os
+        import platform
+        import subprocess
+
+        system = platform.system()
+        logger.info("开始检测系统已安装的浏览器...")
+
+        # 定义浏览器检测路径
+        browser_paths = []
+
+        if system == "Windows":
+            local_app_data = os.environ.get("LOCALAPPDATA", "")
+            program_files = os.environ.get("ProgramFiles", r"C:\Program Files")
+            program_files_x86 = os.environ.get(
+                "ProgramFiles(x86)", r"C:\Program Files (x86)"
+            )
+
+            browser_paths = [
+                ("Google Chrome", [
+                    os.path.join(program_files, "Google", "Chrome", "Application", "chrome.exe"),
+                    os.path.join(program_files_x86, "Google", "Chrome", "Application", "chrome.exe"),
+                    os.path.join(local_app_data, "Google", "Chrome", "Application", "chrome.exe"),
+                ]),
+                ("Microsoft Edge", [
+                    os.path.join(program_files_x86, "Microsoft", "Edge", "Application", "msedge.exe"),
+                    os.path.join(program_files, "Microsoft", "Edge", "Application", "msedge.exe"),
+                ]),
+            ]
+        elif system == "Linux":
+            browser_paths = [
+                ("Google Chrome", [
+                    "/usr/bin/google-chrome",
+                    "/usr/bin/google-chrome-stable",
+                ]),
+                ("Microsoft Edge", [
+                    "/usr/bin/microsoft-edge",
+                    "/usr/bin/microsoft-edge-stable",
+                ]),
+                ("Chromium", [
+                    "/usr/bin/chromium",
+                    "/usr/bin/chromium-browser",
+                    "/snap/bin/chromium",
+                ]),
+            ]
+
+        for browser_name, paths in browser_paths:
+            for path in paths:
+                exists = os.path.exists(path)
+                logger.debug(
+                    f"检测 {browser_name}: {path} - {'找到!' if exists else '不存在'}"
+                )
+                if exists:
+                    # 尝试获取浏览器版本
+                    version = ""
+                    try:
+                        result = subprocess.run(
+                            [path, "--version"],
+                            capture_output=True,
+                            text=True,
+                            timeout=5,
+                        )
+                        version = result.stdout.strip()
+                    except Exception as e:
+                        logger.debug(f"获取 {browser_name} 版本失败: {e}")
+
+                    version_info = f" (版本: {version})" if version else ""
+                    logger.info(
+                        f"检测到系统已安装的 {browser_name}: {path}{version_info}"
+                    )
+                    logger.info("将使用系统浏览器，跳过 Playwright 自带浏览器的下载安装")
+                    return True, path, browser_name
+
+        logger.debug("未检测到系统已安装的浏览器，将使用 Playwright 自带浏览器")
+        return False, "", ""
+
     async def _check_browser_installed_async(self) -> tuple[bool, str]:
         """异步检查浏览器是否已安装（智能路径探测版本）
 
@@ -994,6 +1079,12 @@ class WebAnalyzer:
         """
         import os
         from pathlib import Path
+
+        # 优先检测系统已安装的浏览器
+        found, sys_path, sys_name = self._detect_system_browser()
+        if found:
+            self._system_browser_name = sys_name
+            return True, sys_path
 
         from playwright.async_api import async_playwright
 
@@ -1311,10 +1402,12 @@ class WebAnalyzer:
                 if os.path.exists(saved_path):
                     self._detected_browser_path = saved_path
                     logger.debug(f"从持久化记录恢复浏览器路径: {saved_path}")
+                    self._playwright_browser_checked = True
+                    return
                 else:
                     logger.warning(f"保存的浏览器路径不存在: {saved_path}，将重新检测")
-            self._playwright_browser_checked = True
-            return
+                    # 清除失效的安装状态，继续走完整检测流程
+                    self._save_install_status({"installed": False})
 
         # 先检查 playwright 是否已安装
         try:
@@ -1374,13 +1467,15 @@ class WebAnalyzer:
                     logger.info(f"浏览器已安装: {browser_info}")
                     # 保存检测到的浏览器路径供启动时使用
                     self._detected_browser_path = browser_info
+                    # 确定浏览器类型
+                    browser_type = getattr(self, "_system_browser_name", "chromium")
                     # 保存安装状态
                     self._save_install_status(
                         {
                             "installed": True,
                             "install_path": browser_info,
                             "install_time": time.time(),
-                            "browser_type": "chromium",
+                            "browser_type": browser_type,
                         }
                     )
                     self._playwright_browser_checked = True

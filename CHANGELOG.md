@@ -1,5 +1,17 @@
 # 更新日志
 
+### [v1.5.6] - 2026-04-01
+
+#### ✨ 功能增强
+
+- **新增系统浏览器自动检测** (`core/analyzer`)
+  - 启动时优先检测系统已安装的 Chromium 内核浏览器（Chrome > Edge > Chromium），找到即直接使用，无需下载 Playwright 自带浏览器
+  - 支持 Windows 和 Linux 常见安装路径
+  - 自动获取并展示检测到的浏览器版本信息
+  - `browser_install_status.json` 中 `browser_type` 字段现记录实际使用的浏览器名称
+
+---
+
 ### [v1.5.5] - 2026-04-01
 
 #### ✨ 功能增强
