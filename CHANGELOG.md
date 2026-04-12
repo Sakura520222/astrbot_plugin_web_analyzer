@@ -1,5 +1,38 @@
 # 更新日志
 
+### [v1.5.7] - 2026-04-12
+
+#### ✨ 功能增强
+
+- **新增网页抓取模式配置** (`core/analyzer`, `_conf_schema.json`)
+  - 新增 `fetch_mode` 配置项，支持 `httpx`（默认）和 `playwright` 两种网页抓取模式
+  - Playwright 模式通过浏览器渲染获取网页内容，支持 JS 动态加载的页面
+  - Playwright 抓取失败时自动回退到 httpx 模式，确保可靠性
+  - 完善浏览器路径配置和重试逻辑
+
+- **新增 LLMTOOL 模式多 URL 处理策略** (`main.py`, `_conf_schema.json`)
+  - 新增 `llmtool_url_strategy` 配置项，支持三种策略：
+    - `auto_analyze`（默认）：自动分析所有检测到的 URL
+    - `llm_hint`：在消息中注入提示，引导 LLM 逐个分析
+    - `batch_tool`：注册批量分析工具供 LLM 自主调用
+  - 新增 `analyze_batch_urls_tool` LLM 工具方法，支持批量 URL 分析
+
+#### 🐛 Bug修复
+
+- **优化浏览器实例回收异常处理** (`core/analyzer`)
+  - 为浏览器实例回收操作添加异常捕获，避免因回收失败导致程序中断
+
+- **增强策略配置校验** (`main.py`)
+  - 为 `llmtool_url_strategy` 配置项增加有效性校验，无效时自动回退至默认值 `auto_analyze`
+  - 移除冗余的兜底日志逻辑，简化策略分支代码
+  - 在错误处理结果中补充 `has_screenshot` 字段，确保返回数据结构一致性
+
+#### 📝 其他
+
+- 更新 LICENSE 版权信息
+
+---
+
 ### [v1.5.6] - 2026-04-01
 
 #### ✨ 功能增强
