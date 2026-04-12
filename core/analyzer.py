@@ -721,7 +721,10 @@ class WebAnalyzer:
                     pass
             # 将浏览器实例放回池中或保存
             if browser:
-                await self._handle_browser_after_use(browser, pw_instance)
+                try:
+                    await self._handle_browser_after_use(browser, pw_instance)
+                except Exception as e:
+                    logger.warning(f"浏览器实例回收失败: {e}")
 
     def extract_content(self, html: str, url: str) -> dict:
         """从HTML中提取结构化的网页内容

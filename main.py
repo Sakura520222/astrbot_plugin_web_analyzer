@@ -496,6 +496,10 @@ class WebAnalyzerPlugin(Star):
         # 根据analysis_mode配置决定是否使用旧版直接分析方式
         if self.analysis_mode == "LLMTOOL":
             strategy = self.llmtool_url_strategy
+            valid_strategies = ["auto_analyze", "llm_hint", "batch_tool"]
+            if strategy not in valid_strategies:
+                logger.warning(f"无效的 llmtool_url_strategy: {strategy}, 使用默认值: auto_analyze")
+                strategy = "auto_analyze"
 
             if strategy == "auto_analyze":
                 # 自动分析所有URL，通过send_message发送结果（不阻塞事件传播给LLM）
@@ -538,13 +542,6 @@ class WebAnalyzerPlugin(Star):
             elif strategy == "batch_tool":
                 # 仅记录日志，LLM通过批量工具自行决定
                 logger.info(f"LLMTOOL批量工具策略，检测到URL: {allowed_urls}")
-                return
-
-            else:
-                # 兜底: 默认行为
-                logger.info(
-                    f"启用了LLM函数工具模式，不自动分析链接: {allowed_urls}"
-                )
                 return
         else:
             # 未启用LLM函数工具模式，使用旧版直接分析方式
@@ -1349,7 +1346,7 @@ class WebAnalyzerPlugin(Star):
             except Exception as e:
                 error_type = PluginHelpers.get_error_type(e)
                 error_msg = PluginHelpers.handle_error(error_type, e, url)
-                results.append({"url": url, "result": error_msg, "screenshot": None})
+                results.append({"url": url, "result": error_msg, "screenshot": None, "has_screenshot": False})
                 self.processing_urls.discard(url)
 
         # 发送所有分析结果
