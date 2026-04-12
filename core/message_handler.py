@@ -291,7 +291,7 @@ class MessageHandler:
         except Exception as e:
             error_type = ErrorHandler.get_error_type(e)
             error_msg = ErrorHandler.handle_error(error_type, e, url)
-            return {"url": url, "result": error_msg, "screenshot": None}
+            return {"url": url, "result": error_msg, "screenshot": None, "has_screenshot": False}
         finally:
             # 释放并发槽位
             self._release_concurrency_slot()
@@ -607,6 +607,7 @@ class MessageHandler:
             return
 
         # 检查是否所有结果都是错误结果
+        # ErrorHandler 输出的错误消息总是以 '❌' 开头，通过前缀匹配避免误判
         all_errors = True
         for result in analysis_results:
             # 在 screenshot_only 模式下，只要 has_screenshot=True 就认为成功
@@ -617,15 +618,21 @@ class MessageHandler:
                 # 没有截图标记，继续检查下一个
                 continue
 
+            # analysis_only 模式：只要有非空文本且不是错误消息就认为成功
+            if self.send_content_type == "analysis_only":
+                result_text = result.get("result", "")
+                if result_text and not result_text.startswith("❌"):
+                    all_errors = False
+                    break
+                continue
+
             # 其他模式：检查是否有截图
             if result.get("screenshot"):
                 all_errors = False
                 break
-            # 检查分析结果文本是否包含错误信息
+            # 检查分析结果文本是否为错误消息（ErrorHandler 输出以 '❌' 开头）
             result_text = result.get("result", "")
-            if not any(
-                keyword in result_text for keyword in ["失败", "错误", "无法", "❌"]
-            ):
+            if not result_text.startswith("❌"):
                 all_errors = False
                 break
 
