@@ -464,7 +464,7 @@ astrbot_plugin_web_analyzer/
 | group_blacklist               | 群聊黑名单，在这些群聊中禁用自动分析功能 | -      |
 | merge_forward_enabled.group   | 群聊启用合并转发功能                     | false  |
 | merge_forward_enabled.private | 私聊启用合并转发功能                     | false  |
-| allow_llm_propagation         | 启用后自动分析URL不阻止消息传递给LLM    | false  |
+| allow_llm_propagation         | 启用后自动分析URL不阻止消息传递给LLM     | false  |
 
 ### 翻译配置
 

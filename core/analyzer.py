@@ -95,6 +95,7 @@ class WebAnalyzer:
         memory_threshold: float = 80.0,  # 内存使用阈值百分比
         enable_unified_domain: bool = True,  # 是否启用域名统一处理
         hide_ip: bool = False,  # 截图时是否隐藏真实IP
+        fetch_mode: str = "httpx",  # 网页抓取模式：httpx 或 playwright
     ):
         """初始化网页分析器
 
@@ -108,6 +109,7 @@ class WebAnalyzer:
             enable_memory_monitor: 是否启用内存监控
             memory_threshold: 内存使用阈值百分比，超过此阈值时自动释放内存
             enable_unified_domain: 是否启用域名统一处理（如google.com和www.google.com视为同一域名）
+            fetch_mode: 网页抓取模式，httpx(轻量快速) 或 playwright(浏览器渲染)
         """
         self.max_content_length = max_content_length
         self.timeout = timeout
@@ -121,6 +123,7 @@ class WebAnalyzer:
             logger.warning("已启用截图隐藏IP，但未配置代理，IP隐藏功能将不会生效")
         self.retry_count = retry_count
         self.retry_delay = retry_delay
+        self.fetch_mode = fetch_mode if fetch_mode in ("httpx", "playwright") else "httpx"
         self.client = None
         self.browser = None
         # 内存监控相关
@@ -555,11 +558,11 @@ class WebAnalyzer:
     async def fetch_webpage(self, url: str) -> str:
         """异步抓取网页HTML内容
 
-        使用异步HTTP客户端抓取网页，支持：
-        - 自定义User-Agent
-        - 自动跟随重定向
-        - 配置的代理设置
-        - 智能重试机制（失败后自动重试）
+        根据配置的抓取模式选择不同的抓取方式：
+        - httpx: 使用HTTP客户端轻量快速抓取
+        - playwright: 使用浏览器渲染抓取，支持JS动态内容
+
+        Playwright模式失败时会自动回退到httpx模式。
 
         Args:
             url: 要抓取的网页URL
@@ -570,10 +573,15 @@ class WebAnalyzer:
         Raises:
             NetworkError: 当网络请求失败时抛出
         """
-        # 构造HTTP请求头，模拟真实浏览器行为
-        headers = self._build_http_headers()
+        # Playwright模式：浏览器渲染抓取，失败时回退到httpx
+        if self.fetch_mode == "playwright":
+            try:
+                return await self._fetch_with_playwright(url)
+            except Exception as e:
+                logger.warning(f"Playwright抓取失败，回退到httpx: {url}, 错误: {e}")
 
-        # 执行带重试机制的HTTP请求
+        # httpx模式：轻量快速HTTP请求
+        headers = self._build_http_headers()
         return await self._fetch_with_retry(url, headers)
 
     def _build_http_headers(self) -> dict:
@@ -633,6 +641,87 @@ class WebAnalyzer:
                         f"抓取网页失败: {url}, 错误: {e} (尝试 {attempt + 1}/{self.retry_count + 1})"
                     )
                     raise NetworkError(f"抓取网页失败: {url}, 错误: {str(e)}") from e
+
+    async def _fetch_with_playwright(self, url: str) -> str:
+        """使用Playwright浏览器抓取网页HTML内容
+
+        通过浏览器渲染获取JavaScript动态生成的内容，可绕过部分反爬机制。
+
+        Args:
+            url: 要抓取的网页URL
+
+        Returns:
+            渲染后的网页HTML文本内容
+
+        Raises:
+            NetworkError: 当浏览器抓取失败时抛出
+        """
+        # 确保浏览器已安装
+        await self._ensure_browser_installed()
+        # 清理浏览器池中的无效实例
+        await self._cleanup_browser_pool()
+
+        browser = None
+        pw_instance = None
+        page = None
+
+        try:
+            # 从池中获取或创建新的浏览器实例
+            browser, pw_instance = await self._get_or_create_browser()
+
+            # 创建新页面
+            page = await browser.new_page(user_agent=self.user_agent)
+
+            # 隐藏IP：注入脚本屏蔽WebRTC，防止IP泄漏
+            if self.hide_ip and self.proxy:
+                await page.add_init_script("""
+                    // 屏蔽WebRTC以防止IP泄漏
+                    const originalRTC = window.RTCPeerConnection || window.webkitRTCPeerConnection;
+                    if (originalRTC) {
+                        window.RTCPeerConnection = function() {
+                            const pc = new originalRTC(...arguments);
+                            const origSetLocalDescription = pc.setLocalDescription.bind(pc);
+                            pc.setLocalDescription = function(desc) {
+                                if (desc && desc.type === 'offer') {
+                                    desc.sdp = desc.sdp.replace(/a=candidate:.+\\r\\n/g, '');
+                                }
+                                return origSetLocalDescription(desc);
+                            };
+                            return pc;
+                        };
+                        window.RTCPeerConnection.prototype = originalRTC.prototype;
+                    }
+                    Object.defineProperty(navigator, 'connection', { get: () => null });
+                """)
+
+            # 导航到目标URL，等待DOM加载完成
+            await page.goto(
+                url, wait_until="domcontentloaded", timeout=self.timeout * 1000
+            )
+
+            # 等待动态内容渲染
+            await page.wait_for_timeout(1000)
+
+            # 获取渲染后的HTML内容
+            html = await page.content()
+
+            logger.info(f"Playwright抓取网页成功: {url}")
+            return html
+
+        except Exception as e:
+            logger.error(f"Playwright抓取网页失败: {url}, 错误: {e}")
+            raise NetworkError(f"Playwright抓取网页失败: {url}, 错误: {str(e)}") from e
+
+        finally:
+            # 确保页面被关闭
+            if page:
+                try:
+                    await page.close()
+                except Exception:
+                    pass
+            # 将浏览器实例放回池中或保存
+            if browser:
+                await self._handle_browser_after_use(browser, pw_instance)
 
     def extract_content(self, html: str, url: str) -> dict:
         """从HTML中提取结构化的网页内容
@@ -1827,6 +1916,17 @@ class WebAnalyzer:
 
         # 隐藏IP：与主浏览器启动保持一致
         self._apply_ip_hide_args(retry_launch_args)
+
+        # 浏览器路径配置：与_create_new_browser保持一致
+        import os
+
+        if self._detected_browser_path and os.path.exists(self._detected_browser_path):
+            retry_launch_args["executable_path"] = self._detected_browser_path
+            logger.debug(f"重试时使用检测到的浏览器路径: {self._detected_browser_path}")
+        else:
+            custom_browser_path = self._get_browser_install_path()
+            os.environ["PLAYWRIGHT_BROWSERS_PATH"] = custom_browser_path
+            logger.debug(f"重试时设置 PLAYWRIGHT_BROWSERS_PATH={custom_browser_path}")
 
         new_browser = await new_playwright_instance.chromium.launch(**retry_launch_args)
 

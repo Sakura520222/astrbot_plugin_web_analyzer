@@ -7,6 +7,7 @@ AstrBot 网页分析插件 - 重构版本
 本版本使用核心模块重构，遵循 PEP 8 规范。
 """
 
+import re
 from typing import Any
 
 from astrbot.api import AstrBotConfig, logger
@@ -29,7 +30,7 @@ from .core.result_formatter import ResultFormatter
     "astrbot_plugin_web_analyzer",
     "Sakura520222",
     "自动识别网页链接，智能抓取解析内容，集成大语言模型进行深度分析和总结，支持网页截图、缓存机制和多种管理命令",
-    "1.5.6",
+    "1.5.7",
     "https://github.com/Sakura520222/astrbot_plugin_web_analyzer",
 )
 class WebAnalyzerPlugin(Star):
@@ -86,6 +87,7 @@ class WebAnalyzerPlugin(Star):
             memory_threshold=self.memory_threshold_percent,
             enable_unified_domain=self.enable_unified_domain,
             hide_ip=self.hide_ip,
+            fetch_mode=self.fetch_mode,
         )
 
         # 初始化结果格式化器
@@ -349,6 +351,88 @@ class WebAnalyzerPlugin(Star):
             self.message_handler.send_content_type = original_send_content_type
             logger.info(f"恢复send_content_type为: {original_send_content_type}")
 
+    @filter.llm_tool(name="analyze_batch_urls")
+    async def analyze_batch_urls_tool(
+        self, event: AstrMessageEvent, urls: str, return_type: str = "both"
+    ) -> Any:
+        """批量网页分析工具，一次分析多个URL
+
+        Args:
+            urls(string): 要分析的网页URL列表，多个URL用逗号或空格分隔
+            return_type(string): 返回结果类型，可选值：analysis_only（仅分析结果）、screenshot_only（仅截图）、both（两者都返回），默认为both
+        """
+        # 仅在LLMTOOL模式下启用
+        if self.analysis_mode != "LLMTOOL":
+            logger.info(
+                f"当前未启用LLMTOOL模式，拒绝analyze_batch_urls_tool调用: {urls}"
+            )
+            yield event.plain_result("当前未启用网页分析工具模式")
+            return
+
+        logger.info(
+            f"收到analyze_batch_urls_tool调用，原始URL: {urls}，返回类型: {return_type}"
+        )
+
+        # 验证返回类型
+        valid_return_types = ["analysis_only", "screenshot_only", "both"]
+        if return_type not in valid_return_types:
+            logger.warning(f"无效的返回类型: {return_type}，使用默认值: both")
+            return_type = "both"
+
+        # 解析URL列表（支持逗号、中文逗号、空格分隔）
+        raw_urls = [
+            u.strip().strip("`")
+            for u in re.split(r"[,，\s]+", urls)
+            if u.strip().strip("`")
+        ]
+
+        if not raw_urls:
+            yield event.plain_result("未提供有效的URL")
+            return
+
+        # 验证和规范化每个URL
+        valid_urls = []
+        for url in raw_urls:
+            if not url.startswith(("http://", "https://")):
+                url = f"{self.default_protocol}://{url}"
+            normalized = self.analyzer.normalize_url(url)
+            if self.analyzer.is_valid_url(normalized) and PluginHelpers.is_domain_allowed(
+                normalized, self.allowed_domains, self.blocked_domains
+            ):
+                valid_urls.append(normalized)
+            else:
+                logger.warning(f"批量分析中跳过无效或不允许的URL: {url}")
+
+        if not valid_urls:
+            yield event.plain_result("所有URL均无效或不在允许的域名列表中")
+            return
+
+        # 发送处理提示
+        message = f"正在批量分析{len(valid_urls)}个网页链接..."
+        processing_message_id, bot = await MessageHelpers.send_processing_message(
+            event,
+            message,
+            self.enable_recall,
+            self.recall_type,
+            self.recall_time_s,
+            self.smart_recall_enabled,
+            self.recall_tasks,
+        )
+
+        # 保存原始配置
+        original_send_content_type = self.message_handler.send_content_type
+        try:
+            self.message_handler.send_content_type = return_type
+            logger.info(f"临时设置send_content_type为: {return_type}")
+
+            async for result in self._batch_process_urls(
+                event, valid_urls, processing_message_id, bot
+            ):
+                yield result
+        finally:
+            self.message_handler.send_content_type = original_send_content_type
+            logger.info(f"恢复send_content_type为: {original_send_content_type}")
+
     @filter.event_message_type(filter.EventMessageType.ALL)
     async def auto_detect_urls(self, event: AstrMessageEvent):
         """自动检测消息中的URL链接并进行分析"""
@@ -411,11 +495,57 @@ class WebAnalyzerPlugin(Star):
 
         # 根据analysis_mode配置决定是否使用旧版直接分析方式
         if self.analysis_mode == "LLMTOOL":
-            # 启用了LLM函数工具模式，不使用旧版直接分析
-            logger.info(
-                f"启用了LLM函数工具模式，不自动分析链接，让LLM自己决定: {allowed_urls}"
-            )
-            return
+            strategy = self.llmtool_url_strategy
+
+            if strategy == "auto_analyze":
+                # 自动分析所有URL，通过send_message发送结果（不阻塞事件传播给LLM）
+                logger.info(
+                    f"LLMTOOL自动分析策略，处理 {len(allowed_urls)} 个URL: {allowed_urls}"
+                )
+                if len(allowed_urls) == 1:
+                    message = f"检测到网页链接，正在分析: {allowed_urls[0]}"
+                else:
+                    message = f"检测到{len(allowed_urls)}个网页链接，正在分析..."
+                processing_message_id, bot = (
+                    await MessageHelpers.send_processing_message(
+                        event,
+                        message,
+                        self.enable_recall,
+                        self.recall_type,
+                        self.recall_time_s,
+                        self.smart_recall_enabled,
+                        self.recall_tasks,
+                    )
+                )
+                async for result in self._batch_process_urls(
+                    event, allowed_urls, processing_message_id, bot
+                ):
+                    await self.context.send_message(event.unified_msg_origin, result)
+                return
+
+            elif strategy == "llm_hint":
+                # 通过event注入提示，引导LLM分析所有URL
+                logger.info(
+                    f"LLMTOOL提示策略，检测到 {len(allowed_urls)} 个URL: {allowed_urls}"
+                )
+                url_list = "\n".join(
+                    f"  {i + 1}. {url}" for i, url in enumerate(allowed_urls)
+                )
+                hint = f"\n\n[系统提示：检测到以下网页链接：\n{url_list}\n请使用 analyze_webpage 或 analyze_webpage_with_decision 工具逐一分析这些链接。]"
+                event.message_str = event.message_str + hint
+                return
+
+            elif strategy == "batch_tool":
+                # 仅记录日志，LLM通过批量工具自行决定
+                logger.info(f"LLMTOOL批量工具策略，检测到URL: {allowed_urls}")
+                return
+
+            else:
+                # 兜底: 默认行为
+                logger.info(
+                    f"启用了LLM函数工具模式，不自动分析链接: {allowed_urls}"
+                )
+                return
         else:
             # 未启用LLM函数工具模式，使用旧版直接分析方式
             # 发送处理提示消息，告知用户正在分析

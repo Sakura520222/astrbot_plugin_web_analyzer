@@ -66,6 +66,14 @@
             "default": 5,
             "minimum": 1,
             "maximum": 20
+          },
+          "fetch_mode": {
+            "description": "网页抓取模式",
+            "type": "string",
+            "hint": "httpx-轻量快速(默认)；playwright-浏览器渲染，支持JS动态内容，绕过反爬",
+            "default": "httpx",
+            "_special": "select",
+            "options": ["httpx", "playwright"]
           }
         }
       },
@@ -172,6 +180,14 @@
         "default": "auto",
         "_special": "select",
         "options": ["auto", "manual", "hybrid", "LLMTOOL"]
+      },
+      "llmtool_url_strategy": {
+        "description": "LLMTOOL模式多URL处理策略",
+        "type": "string",
+        "hint": "auto_analyze-自动分析所有URL并让LLM回复；llm_hint-注入URL列表提示引导LLM；batch_tool-提供批量分析工具让LLM调用",
+        "default": "auto_analyze",
+        "_special": "select",
+        "options": ["auto_analyze", "llm_hint", "batch_tool"]
       },
       "max_summary_length": {
         "description": "最大摘要长度",

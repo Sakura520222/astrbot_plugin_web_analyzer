@@ -47,6 +47,7 @@ class ConfigLoader:
             "proxy": "proxy",
             "hide_ip": "hide_ip",
             "max_concurrency": "max_concurrency",
+            "fetch_mode": "fetch_mode",
         },
         "域名管理": {
             "enable_unified_domain": "enable_unified_domain",
@@ -66,6 +67,7 @@ class ConfigLoader:
         },
         "分析设置": {
             "analysis_mode": "analysis_mode",
+            "llmtool_url_strategy": "llmtool_url_strategy",
             "max_summary_length": "max_summary_length",
             "enable_emoji": "enable_emoji",
             "enable_statistics": "enable_statistics",
@@ -212,6 +214,7 @@ class ConfigLoader:
         network_settings["proxy"] = old_network.get("proxy", "")
         network_settings["hide_ip"] = old_network.get("hide_ip", False)
         network_settings["max_concurrency"] = old_network.get("max_concurrency", 5)
+        network_settings["fetch_mode"] = old_network.get("fetch_mode", "httpx")
 
         # 映射域名设置
         domain_settings = {}
@@ -483,6 +486,9 @@ class ConfigLoader:
         config_dict["max_concurrency"] = ConfigLoader._get_nested_value(
             config, "基础设置", "网络设置", "max_concurrency", 5
         )
+        config_dict["fetch_mode"] = ConfigLoader._get_nested_value(
+            config, "基础设置", "网络设置", "fetch_mode", "httpx"
+        )
 
         # 域名管理
         allowed_text = ConfigLoader._get_nested_value(
@@ -537,6 +543,9 @@ class ConfigLoader:
             config, "分析设置", "analysis_mode", "auto"
         )
         config_dict["auto_analyze"] = config_dict["analysis_mode"] == "auto"
+        config_dict["llmtool_url_strategy"] = ConfigLoader._get_direct_value(
+            config, "分析设置", "llmtool_url_strategy", "auto_analyze"
+        )
         config_dict["max_summary_length"] = ConfigLoader._get_direct_value(
             config, "分析设置", "max_summary_length", 2000
         )
