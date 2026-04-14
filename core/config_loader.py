@@ -8,6 +8,7 @@
 import sys
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlparse
 
 # 确保父目录在 Python 路径中
 parent_dir = Path(__file__).parent.parent
@@ -96,8 +97,6 @@ class ConfigLoader:
         "网页截图": {
             "enable_screenshot": "enable_screenshot",
             "screenshot_quality": "screenshot_quality",
-            "screenshot_width": "screenshot_width",
-            "screenshot_height": "screenshot_height",
             "screenshot_full_page": "screenshot_full_page",
             "screenshot_wait_ms": "screenshot_wait_ms",
             "screenshot_format": "screenshot_format",
@@ -325,8 +324,10 @@ class ConfigLoader:
         screenshot = {}
         screenshot["enable_screenshot"] = old_screenshot.get("enable_screenshot", True)
         screenshot["screenshot_quality"] = old_screenshot.get("screenshot_quality", 80)
-        screenshot["screenshot_width"] = old_screenshot.get("screenshot_width", 1280)
-        screenshot["screenshot_height"] = old_screenshot.get("screenshot_height", 720)
+        screenshot["截图尺寸"] = {
+            "screenshot_width": old_screenshot.get("screenshot_width", 1280),
+            "screenshot_height": old_screenshot.get("screenshot_height", 720),
+        }
         screenshot["screenshot_full_page"] = old_screenshot.get(
             "screenshot_full_page", False
         )
@@ -629,12 +630,9 @@ class ConfigLoader:
         config_dict["screenshot_quality"] = ConfigLoader._get_nested_value(
             config, "展示设置", "网页截图", "screenshot_quality", 80
         )
-        config_dict["screenshot_width"] = ConfigLoader._get_nested_value(
-            config, "展示设置", "网页截图", "screenshot_width", 1280
-        )
-        config_dict["screenshot_height"] = ConfigLoader._get_nested_value(
-            config, "展示设置", "网页截图", "screenshot_height", 720
-        )
+        size_sub = config.get("展示设置", {}).get("网页截图", {}).get("截图尺寸", {})
+        config_dict["screenshot_width"] = size_sub.get("screenshot_width", 1280)
+        config_dict["screenshot_height"] = size_sub.get("screenshot_height", 720)
         config_dict["screenshot_full_page"] = ConfigLoader._get_nested_value(
             config, "展示设置", "网页截图", "screenshot_full_page", False
         )
@@ -744,20 +742,32 @@ class ConfigLoader:
         return config_dict
 
     @staticmethod
+    def _mask_proxy(proxy: str) -> str:
+        """脱敏代理URL，隐藏认证信息"""
+        try:
+            parsed = urlparse(proxy)
+            if parsed.username:
+                safe_netloc = f"{parsed.username}:****@{parsed.hostname}"
+                if parsed.port:
+                    safe_netloc += f":{parsed.port}"
+                return parsed._replace(netloc=safe_netloc).geturl()
+            return proxy
+        except Exception:
+            return "***"
+
+    @staticmethod
     def _validate_proxy(proxy: str) -> str:
         """验证代理格式是否正确"""
         if not proxy:
             return ""
 
         try:
-            from urllib.parse import urlparse
-
             parsed = urlparse(proxy)
             if not all([parsed.scheme, parsed.netloc]):
-                logger.warning(f"无效的代理格式: {proxy}，将忽略代理设置")
+                logger.warning(f"无效的代理格式: {ConfigLoader._mask_proxy(proxy)}，将忽略代理设置")
                 return ""
         except Exception as e:
-            logger.warning(f"解析代理失败: {proxy}，将忽略代理设置，错误: {e}")
+            logger.warning(f"解析代理失败: {ConfigLoader._mask_proxy(proxy)}，将忽略代理设置，错误: {e}")
             return ""
 
         return proxy

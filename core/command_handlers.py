@@ -14,6 +14,7 @@ from astrbot.api.event import AstrMessageEvent, filter
 from astrbot.api.message_components import File, Node, Nodes, Plain
 
 from .plugin_helpers import PluginHelpers
+from .utils import WebAnalyzerUtils
 
 
 class CommandMixin:
@@ -578,8 +579,10 @@ class CommandMixin:
             # 使用自定义翻译提示词或默认提示词
             if self.custom_translation_prompt:
                 # 替换自定义提示词中的变量
+                # 对用户可控内容进行花括号转义，防止 format() 异常
+                safe_content = WebAnalyzerUtils.escape_format_braces(content)
                 prompt = self.custom_translation_prompt.format(
-                    content=content, target_language=self.target_language
+                    content=safe_content, target_language=self.target_language
                 )
             else:
                 # 默认翻译提示词

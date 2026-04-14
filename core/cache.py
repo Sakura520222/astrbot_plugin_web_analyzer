@@ -139,7 +139,7 @@ class CacheManager:
     def _get_cache_file_path(self, url: str, file_type: str = "json") -> str:
         """根据URL生成唯一的缓存文件路径
 
-        为了避免URL中的特殊字符导致的文件名问题，我们使用URL的MD5哈希值作为文件名。
+        为了避免URL中的特殊字符导致的文件名问题，我们使用URL的SHA-256哈希值作为文件名。
 
         Args:
             url: 网页的完整URL
@@ -148,8 +148,8 @@ class CacheManager:
         Returns:
             完整的缓存文件路径
         """
-        # 使用URL的MD5哈希作为文件名
-        url_hash = hashlib.md5(url.encode("utf-8")).hexdigest()
+        # 使用URL的SHA-256哈希前32位作为文件名
+        url_hash = hashlib.sha256(url.encode("utf-8")).hexdigest()[:32]
         if file_type == "screenshot":
             return os.path.join(self.cache_dir, f"{url_hash}_screenshot.bin")
         return os.path.join(self.cache_dir, f"{url_hash}.json")
