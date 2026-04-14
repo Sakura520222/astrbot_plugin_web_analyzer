@@ -13,6 +13,7 @@
 
 import gc
 import io
+import ipaddress
 import re
 import time
 from urllib.parse import urljoin, urlparse
@@ -342,12 +343,8 @@ class WebAnalyzer:
             try:
                 import asyncio
 
-                loop = asyncio.get_event_loop()
-                if loop.is_running():
-                    loop.create_task(self._optimize_browser_pool())
-                else:
-                    # 如果事件循环未运行，记录警告但不抛出异常
-                    logger.warning("事件循环未运行，跳过浏览器实例池优化")
+                loop = asyncio.get_running_loop()
+                loop.create_task(self._optimize_browser_pool())
             except Exception as e:
                 logger.error(f"执行浏览器实例池优化失败: {e}")
         except Exception as e:
@@ -366,7 +363,11 @@ class WebAnalyzer:
             返回WebAnalyzer实例自身，用于上下文管理
         """
         # 配置客户端参数
-        client_params = {"timeout": self.timeout}
+        client_params = {
+            "timeout": self.timeout,
+            # 限制最大响应体为10MB，防止超大响应导致OOM
+            "limits": httpx.Limits(max_response_size=10 * 1024 * 1024),
+        }
 
         # 添加代理配置（如果有）
         if self.proxy:
@@ -492,9 +493,10 @@ class WebAnalyzer:
         """验证URL格式是否有效
 
         检查URL是否符合基本格式要求：
-        - 必须包含有效的协议（http/https）
+        - 必须包含有效的协议（仅允许 http/https）
         - 必须包含有效的域名或IP地址
-        - 必须能被正确解析
+        - URL中直接使用的IP地址不能是私有/回环地址（防止SSRF）
+        - 注意：不检查DNS解析结果，因为本地代理工具会劫持DNS
 
         Args:
             url: 要验证的URL字符串
@@ -504,8 +506,27 @@ class WebAnalyzer:
         """
         try:
             result = urlparse(url)
-            return all([result.scheme, result.netloc])
+            # 协议白名单，仅允许 http 和 https
+            if result.scheme.lower() not in ('http', 'https'):
+                return False
+            if not result.netloc:
+                return False
+            # 提取主机名
+            hostname = result.hostname
+            if not hostname:
+                return False
+            # 检查URL中直接使用的IP地址是否为私有/回环地址
+            # 仅检查字面IP，不检查DNS解析结果（代理工具会劫持DNS）
+            try:
+                addr = ipaddress.ip_address(hostname)
+                if addr.is_private or addr.is_loopback or addr.is_link_local or addr.is_reserved:
+                    return False
+            except ValueError:
+                # 域名（非IP地址），直接通过
+                pass
+            return True
         except Exception:
+            return False
             return False
 
     def normalize_url(self, url: str) -> str:
@@ -1726,6 +1747,9 @@ class WebAnalyzer:
         playwright_instance = await async_playwright().start()
 
         # 构建启动参数
+        # 注意：--no-sandbox 和 --disable-setuid-sandbox 会降低浏览器安全隔离级别。
+        # 这些参数在容器/Docker环境中通常是必需的。如果运行在有适当隔离的环境中，
+        # 可以在有 root 权限时移除这些参数以恢复沙箱保护。
         launch_args = {
             "headless": True,
             "timeout": 20000,

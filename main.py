@@ -1147,8 +1147,10 @@ class WebAnalyzerPlugin(Star):
             # 使用自定义翻译提示词或默认提示词
             if self.custom_translation_prompt:
                 # 替换自定义提示词中的变量
+                # 对用户可控内容进行花括号转义，防止 format() 异常
+                safe_content = content.replace('{', '{{').replace('}', '}}')
                 prompt = self.custom_translation_prompt.format(
-                    content=content, target_language=self.target_language
+                    content=safe_content, target_language=self.target_language
                 )
             else:
                 # 默认翻译提示词
@@ -1340,13 +1342,12 @@ class WebAnalyzerPlugin(Star):
                 )
                 results.append(result)
 
-                # 从处理中集合移除URL
-                self.processing_urls.discard(url)
-
             except Exception as e:
                 error_type = PluginHelpers.get_error_type(e)
                 error_msg = PluginHelpers.handle_error(error_type, e, url)
                 results.append({"url": url, "result": error_msg, "screenshot": None, "has_screenshot": False})
+            finally:
+                # 确保在任何情况下都从处理中集合移除URL
                 self.processing_urls.discard(url)
 
         # 发送所有分析结果

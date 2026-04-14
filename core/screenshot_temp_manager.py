@@ -58,9 +58,6 @@ class ScreenshotTempManager:
         # 清理任务引用
         self._cleanup_task: asyncio.Task | None = None
 
-        # 启动后台清理任务
-        self._start_cleanup_task()
-
         logger.info(
             f"ScreenshotTempManager 初始化完成: "
             f"temp_dir={self.temp_dir}, ttl={ttl}s, "
@@ -86,11 +83,18 @@ class ScreenshotTempManager:
 
         return temp_dir
 
-    def _start_cleanup_task(self):
-        """启动后台清理任务"""
+    def _ensure_cleanup_task(self):
+        """确保后台清理任务已启动（懒初始化）
+
+        在没有运行事件循环的环境下不会抛出异常，延迟到下次调用时重试。
+        """
         if self._cleanup_task is None or self._cleanup_task.done():
-            self._cleanup_task = asyncio.create_task(self._cleanup_loop())
-            logger.info("后台清理任务已启动")
+            try:
+                self._cleanup_task = asyncio.create_task(self._cleanup_loop())
+                logger.info("后台清理任务已启动")
+            except RuntimeError:
+                # 没有运行的事件循环，延迟到下次调用时重试
+                pass
 
     async def _cleanup_loop(self):
         """后台清理循环，定期清理过期的临时文件"""
@@ -251,6 +255,8 @@ class ScreenshotTempManager:
         # 缓存文件不存在，如果有截图数据则创建缓存文件
         if screenshot:
             try:
+                # 确保清理任务已启动
+                self._ensure_cleanup_task()
                 # 写入缓存文件
                 with open(cache_screenshot_path, "wb") as f:
                     f.write(screenshot)

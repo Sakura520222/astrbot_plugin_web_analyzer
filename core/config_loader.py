@@ -741,6 +741,22 @@ class ConfigLoader:
         return config_dict
 
     @staticmethod
+    def _mask_proxy(proxy: str) -> str:
+        """脱敏代理URL，隐藏认证信息"""
+        try:
+            from urllib.parse import urlparse
+
+            parsed = urlparse(proxy)
+            if parsed.username:
+                safe_netloc = f"{parsed.hostname}:****"
+                if parsed.port:
+                    safe_netloc += f":{parsed.port}"
+                return parsed._replace(netloc=safe_netloc).geturl()
+            return proxy
+        except Exception:
+            return "***"
+
+    @staticmethod
     def _validate_proxy(proxy: str) -> str:
         """验证代理格式是否正确"""
         if not proxy:
@@ -751,10 +767,10 @@ class ConfigLoader:
 
             parsed = urlparse(proxy)
             if not all([parsed.scheme, parsed.netloc]):
-                logger.warning(f"无效的代理格式: {proxy}，将忽略代理设置")
+                logger.warning(f"无效的代理格式: {ConfigLoader._mask_proxy(proxy)}，将忽略代理设置")
                 return ""
         except Exception as e:
-            logger.warning(f"解析代理失败: {proxy}，将忽略代理设置，错误: {e}")
+            logger.warning(f"解析代理失败: {ConfigLoader._mask_proxy(proxy)}，将忽略代理设置，错误: {e}")
             return ""
 
         return proxy

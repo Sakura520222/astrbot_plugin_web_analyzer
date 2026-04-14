@@ -211,6 +211,8 @@ class WebAnalyzerUtils:
     def _is_domain_blocked(domain: str, blocked_domains: list[str]) -> bool:
         """检查域名是否被阻止
 
+        使用后缀匹配，避免子字符串绕过（如 'evil.com' 不会误匹配 'notevil.com'）
+
         Args:
             domain: 要检查的域名（小写）
             blocked_domains: 禁止的域名列表
@@ -221,13 +223,18 @@ class WebAnalyzerUtils:
         if not blocked_domains:
             return False
 
-        return any(
-            blocked_domain.lower() in domain for blocked_domain in blocked_domains
-        )
+        domain = domain.lower().rstrip('.')
+        for blocked_domain in blocked_domains:
+            blocked = blocked_domain.lower().rstrip('.')
+            if domain == blocked or domain.endswith('.' + blocked):
+                return True
+        return False
 
     @staticmethod
     def _is_domain_allowed_in_list(domain: str, allowed_domains: list[str]) -> bool:
         """检查域名是否在允许列表中
+
+        使用后缀匹配，确保子域名也能匹配（如 'sub.example.com' 匹配 'example.com'）
 
         Args:
             domain: 要检查的域名（小写）
@@ -236,9 +243,12 @@ class WebAnalyzerUtils:
         Returns:
             True表示在允许列表中，False表示不在
         """
-        return any(
-            allowed_domain.lower() in domain for allowed_domain in allowed_domains
-        )
+        domain = domain.lower().rstrip('.')
+        for allowed_domain in allowed_domains:
+            allowed = allowed_domain.lower().rstrip('.')
+            if domain == allowed or domain.endswith('.' + allowed):
+                return True
+        return False
 
     @staticmethod
     def get_url_priority(url: str) -> int:

@@ -86,10 +86,14 @@ class LLMAnalyzer:
 
         if self.custom_prompt:
             # 使用自定义提示词，替换变量
+            # 对用户可控内容进行花括号转义，防止 format() 异常
+            safe_title = title.replace('{', '{{').replace('}', '}}')
+            safe_url = url.replace('{', '{{').replace('}', '}}')
+            safe_content = content.replace('{', '{{').replace('}', '}}')
             return self.custom_prompt.format(
-                title=title,
-                url=url,
-                content=content,
+                title=safe_title,
+                url=safe_url,
+                content=safe_content,
                 max_length=self.max_summary_length,
                 content_type=content_type,
             )
@@ -99,7 +103,10 @@ class LLMAnalyzer:
                 content_type, emoji_prefix, self.max_summary_length
             )
             # 替换模板中的变量
-            return template.format(title=title, url=url, content=content)
+            safe_title = title.replace('{', '{{').replace('}', '}}')
+            safe_url = url.replace('{', '{{').replace('}', '}}')
+            safe_content = content.replace('{', '{{').replace('}', '}}')
+            return template.format(title=safe_title, url=safe_url, content=safe_content)
 
     def _get_analysis_template(
         self, content_type: str, emoji_prefix: str, max_length: int
