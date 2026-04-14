@@ -96,8 +96,6 @@ class ConfigLoader:
         "网页截图": {
             "enable_screenshot": "enable_screenshot",
             "screenshot_quality": "screenshot_quality",
-            "screenshot_width": "screenshot_width",
-            "screenshot_height": "screenshot_height",
             "screenshot_full_page": "screenshot_full_page",
             "screenshot_wait_ms": "screenshot_wait_ms",
             "screenshot_format": "screenshot_format",
@@ -325,8 +323,10 @@ class ConfigLoader:
         screenshot = {}
         screenshot["enable_screenshot"] = old_screenshot.get("enable_screenshot", True)
         screenshot["screenshot_quality"] = old_screenshot.get("screenshot_quality", 80)
-        screenshot["screenshot_width"] = old_screenshot.get("screenshot_width", 1280)
-        screenshot["screenshot_height"] = old_screenshot.get("screenshot_height", 720)
+        screenshot["截图尺寸"] = {
+            "screenshot_width": old_screenshot.get("screenshot_width", 1280),
+            "screenshot_height": old_screenshot.get("screenshot_height", 720),
+        }
         screenshot["screenshot_full_page"] = old_screenshot.get(
             "screenshot_full_page", False
         )
@@ -629,12 +629,9 @@ class ConfigLoader:
         config_dict["screenshot_quality"] = ConfigLoader._get_nested_value(
             config, "展示设置", "网页截图", "screenshot_quality", 80
         )
-        config_dict["screenshot_width"] = ConfigLoader._get_nested_value(
-            config, "展示设置", "网页截图", "screenshot_width", 1280
-        )
-        config_dict["screenshot_height"] = ConfigLoader._get_nested_value(
-            config, "展示设置", "网页截图", "screenshot_height", 720
-        )
+        size_sub = config.get("展示设置", {}).get("网页截图", {}).get("截图尺寸", {})
+        config_dict["screenshot_width"] = size_sub.get("screenshot_width", 1280)
+        config_dict["screenshot_height"] = size_sub.get("screenshot_height", 720)
         config_dict["screenshot_full_page"] = ConfigLoader._get_nested_value(
             config, "展示设置", "网页截图", "screenshot_full_page", False
         )
