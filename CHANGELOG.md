@@ -1,5 +1,56 @@
 # 更新日志
 
+### [v1.5.8] - 2026-04-14
+
+#### 🔒 安全修复
+
+- **修复 SSRF 漏洞** (`core/analyzer`, `core/utils.py`)
+  - 限制 URL 协议仅为 http/https，阻止其他协议（如 file、ftp 等）
+  - 新增私有/回环 IP 地址检测，使用 `ipaddress` 模块阻止对内网地址的访问
+  - 影响文件：`core/analyzer.py`、`core/utils.py`、`main.py`
+
+- **限制 HTTP 响应体大小** (`core/analyzer`)
+  - 限制 httpx 客户端最大响应体为 10MB，防止超大响应导致内存溢出
+  - 结合 `max_content_length` 配置实现双层防护
+
+- **代理配置日志脱敏** (`core/config_loader`)
+  - 代理配置校验日志中对 URL 认证信息进行脱敏处理，防止凭据泄露
+
+- **修复字符串格式化注入** (`core/command_handlers`, `core/llm_analyzer`, `core/config_loader`, `core/utils.py`)
+  - 对用户可控内容进行花括号转义，防止 `str.format()` 异常和信息注入
+  - 影响文件：`command_handlers.py`、`llm_analyzer.py`、`config_loader.py`、`utils.py`
+
+- **缓存文件命名升级** (`core/cache`)
+  - 缓存文件哈希算法从 MD5 升级为 SHA-256，提升安全性
+
+#### 🔄 重构
+
+- **截图配置结构重构** (`core/config_loader`)
+  - 将独立的 `screenshot_width` 和 `screenshot_height` 配置合并为嵌套的 `截图尺寸` 对象
+  - 更新配置兼容性映射以支持新的嵌套结构
+  - 保持默认值（1280x720）和向后兼容性
+
+#### 🐛 Bug修复
+
+- **优化浏览器池事件循环处理** (`core/analyzer`)
+  - 使用 `asyncio.get_running_loop()` 替代 `asyncio.get_event_loop()`，避免弃用警告
+
+- **移除潜在异步冲突** (`core/screenshot_temp_manager`)
+  - 移除 ScreenshotTempManager 中的自动清理任务启动，避免潜在的异步冲突
+
+#### 📁 文件修改
+
+- `core/analyzer.py` - SSRF 防护、响应大小限制、浏览器池优化
+- `core/cache.py` - 缓存哈希算法升级
+- `core/command_handlers.py` - 字符串格式化安全
+- `core/config_loader.py` - 截图配置重构、代理日志脱敏
+- `core/llm_analyzer.py` - 字符串格式化安全
+- `core/screenshot_temp_manager.py` - 移除潜在异步冲突
+- `core/utils.py` - URL 验证安全增强、字符串格式化安全
+- `main.py` - SSRF 防护集成
+
+---
+
 ### [v1.5.7] - 2026-04-12
 
 #### ✨ 功能增强
