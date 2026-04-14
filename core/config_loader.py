@@ -8,6 +8,7 @@
 import sys
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlparse
 
 # 确保父目录在 Python 路径中
 parent_dir = Path(__file__).parent.parent
@@ -744,11 +745,9 @@ class ConfigLoader:
     def _mask_proxy(proxy: str) -> str:
         """脱敏代理URL，隐藏认证信息"""
         try:
-            from urllib.parse import urlparse
-
             parsed = urlparse(proxy)
             if parsed.username:
-                safe_netloc = f"{parsed.hostname}:****"
+                safe_netloc = f"{parsed.username}:****@{parsed.hostname}"
                 if parsed.port:
                     safe_netloc += f":{parsed.port}"
                 return parsed._replace(netloc=safe_netloc).geturl()
@@ -763,8 +762,6 @@ class ConfigLoader:
             return ""
 
         try:
-            from urllib.parse import urlparse
-
             parsed = urlparse(proxy)
             if not all([parsed.scheme, parsed.netloc]):
                 logger.warning(f"无效的代理格式: {ConfigLoader._mask_proxy(proxy)}，将忽略代理设置")

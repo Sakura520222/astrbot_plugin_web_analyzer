@@ -24,6 +24,7 @@ from .core.llm_analyzer import LLMAnalyzer
 from .core.message_handler import MessageHandler
 from .core.plugin_helpers import MessageHelpers, PluginHelpers
 from .core.result_formatter import ResultFormatter
+from .core.utils import WebAnalyzerUtils
 
 
 @register(
@@ -1148,7 +1149,7 @@ class WebAnalyzerPlugin(Star):
             if self.custom_translation_prompt:
                 # 替换自定义提示词中的变量
                 # 对用户可控内容进行花括号转义，防止 format() 异常
-                safe_content = content.replace('{', '{{').replace('}', '}}')
+                safe_content = WebAnalyzerUtils.escape_format_braces(content)
                 prompt = self.custom_translation_prompt.format(
                     content=safe_content, target_language=self.target_language
                 )

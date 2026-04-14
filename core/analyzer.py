@@ -520,13 +520,14 @@ class WebAnalyzer:
             try:
                 addr = ipaddress.ip_address(hostname)
                 if addr.is_private or addr.is_loopback or addr.is_link_local or addr.is_reserved:
+                    # 阻止内网/回环/链路本地地址；is_reserved 额外拦截 IANA 保留地址（如 IETF 协议保留、
+                    # 广播地址等），防止通过保留地址段绕过 SSRF 防护
                     return False
             except ValueError:
                 # 域名（非IP地址），直接通过
                 pass
             return True
         except Exception:
-            return False
             return False
 
     def normalize_url(self, url: str) -> str:

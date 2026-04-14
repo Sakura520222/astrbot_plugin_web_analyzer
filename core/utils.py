@@ -15,6 +15,18 @@ class WebAnalyzerUtils:
     """
 
     @staticmethod
+    def escape_format_braces(text: str) -> str:
+        """转义花括号，防止 str.format() 将用户内容中的花括号当作占位符
+
+        Args:
+            text: 需要转义的文本
+
+        Returns:
+            转义后的文本（{ → {{, } → }}）
+        """
+        return text.replace('{', '{{').replace('}', '}}')
+
+    @staticmethod
     def get_current_time() -> str:
         """获取当前时间的格式化字符串
 
