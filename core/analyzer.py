@@ -647,8 +647,11 @@ class WebAnalyzer:
                 # 检查响应大小，防止超大响应导致OOM（10MB限制）
                 content_length = response.headers.get("content-length")
                 if content_length:
-                    content_length_int = int(content_length)
-                    if content_length_int > 10 * 1024 * 1024:
+                    try:
+                        content_length_int = int(content_length)
+                    except ValueError:
+                        content_length_int = None
+                    if content_length_int and content_length_int > 10 * 1024 * 1024:
                         raise NetworkError(f"响应体过大({content_length_int}字节)，已跳过: {url}")
 
                 logger.info(

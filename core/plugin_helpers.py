@@ -228,8 +228,6 @@ class MessageHelpers:
 
             # QQ 平台发送消息
             elif bot and (group_id or user_id or is_private):
-                if not user_id and hasattr(event, "get_sender_id"):
-                    user_id = event.get_sender_id()
                 # 优先使用 bot API 发送以获取 message_id（支持自动撤回）
                 if group_id and hasattr(bot, "send_group_msg"):
                     send_result = await bot.send_group_msg(
@@ -246,7 +244,7 @@ class MessageHelpers:
                     response = event.plain_result(message)
                     if hasattr(event, "send"):
                         await event.send(response)
-                    target = f"群 {group_id}" if group_id else f"用户 {user_id or '(未知ID)'}"
+                    target = f"群 {group_id}" if group_id else f"用户 {user_id or '(未知ID)'} (is_private={is_private})"
                     logger.debug(f"使用 event.send 发送处理消息: {message} 到{target}")
                     return None, bot
             else:
