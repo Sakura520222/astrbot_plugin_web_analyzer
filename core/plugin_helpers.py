@@ -226,30 +226,16 @@ class MessageHelpers:
                         await event.send(response)
                     return None, client
 
-            # QQ 平台发送消息
-            elif bot and group_id:
-                # 群聊消息
-                send_result = await bot.send_group_msg(
-                    group_id=group_id, message=message
-                )
-                logger.debug(f"发送群聊处理消息: {message} 到群 {group_id}")
-            elif bot and (user_id or is_private):
-                # 私聊消息
+            # QQ 平台发送消息（新版平台适配器不支持 bot API，统一使用 event.send）
+            elif bot and (group_id or user_id or is_private):
                 if not user_id and hasattr(event, "get_sender_id"):
                     user_id = event.get_sender_id()
-
-                if user_id:
-                    send_result = await bot.send_private_msg(
-                        user_id=user_id, message=message
-                    )
-                    logger.debug(f"发送私聊处理消息: {message} 到用户 {user_id}")
-                else:
-                    # 无法获取user_id，使用原始方式发送
-                    logger.warning(f"无法获取user_id，使用原始方式发送消息: {message}")
-                    response = event.plain_result(message)
-                    if hasattr(event, "send"):
-                        await event.send(response)
-                    return None, bot
+                response = event.plain_result(message)
+                if hasattr(event, "send"):
+                    await event.send(response)
+                target = f"群 {group_id}" if group_id else f"用户 {user_id}"
+                logger.debug(f"使用 event.send 发送处理消息: {message} 到{target}")
+                return None, bot
             else:
                 # 无法确定消息类型或没有bot/client实例，使用原始方式发送并记录详细信息
                 logger.debug(
