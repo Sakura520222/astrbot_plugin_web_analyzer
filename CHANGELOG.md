@@ -9,13 +9,14 @@
   - 改为在 `_fetch_with_retry` 中通过 `Content-Length` 响应头检查响应大小（10MB 限制），防止超大响应导致 OOM
 
 - **修复新版平台适配器消息发送兼容性** (`core/plugin_helpers`)
-  - 新版平台适配器不再支持 `bot.send_group_msg` 和 `bot.send_private_msg` 方法
-  - 统一替换为 `event.send()` 发送消息，兼容新版适配器
+  - 优先使用 `bot.send_group_msg`/`bot.send_private_msg` 发送消息以获取 `message_id`（支持自动撤回）
+  - 使用 `hasattr` 检查 bot API 可用性，不可用时自动回退到 `event.send()`
+  - 移除 `send_result` 死代码，修正 `user_id` 为空时的日志显示
 
 #### 📁 文件修改
 
 - `core/analyzer.py` - 移除无效 httpx.Limits 参数，添加 Content-Length 响应大小检查
-- `core/plugin_helpers.py` - 替换 bot API 为 event.send() 通用消息发送方法
+- `core/plugin_helpers.py` - 优化 QQ 平台消息发送逻辑，优先使用 bot API 支持撤回，添加回退机制
 - `metadata.yaml` - 版本升级至 v1.5.9
 
 ---

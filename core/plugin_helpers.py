@@ -226,16 +226,29 @@ class MessageHelpers:
                         await event.send(response)
                     return None, client
 
-            # QQ 平台发送消息（新版平台适配器不支持 bot API，统一使用 event.send）
+            # QQ 平台发送消息
             elif bot and (group_id or user_id or is_private):
                 if not user_id and hasattr(event, "get_sender_id"):
                     user_id = event.get_sender_id()
-                response = event.plain_result(message)
-                if hasattr(event, "send"):
-                    await event.send(response)
-                target = f"群 {group_id}" if group_id else f"用户 {user_id}"
-                logger.debug(f"使用 event.send 发送处理消息: {message} 到{target}")
-                return None, bot
+                # 优先使用 bot API 发送以获取 message_id（支持自动撤回）
+                if group_id and hasattr(bot, "send_group_msg"):
+                    send_result = await bot.send_group_msg(
+                        group_id=group_id, message=message
+                    )
+                    logger.debug(f"发送群聊处理消息: {message} 到群 {group_id}")
+                elif user_id and hasattr(bot, "send_private_msg"):
+                    send_result = await bot.send_private_msg(
+                        user_id=user_id, message=message
+                    )
+                    logger.debug(f"发送私聊处理消息: {message} 到用户 {user_id}")
+                else:
+                    # bot 不支持 send API，回退到 event.send()（无法撤回）
+                    response = event.plain_result(message)
+                    if hasattr(event, "send"):
+                        await event.send(response)
+                    target = f"群 {group_id}" if group_id else f"用户 {user_id or '(未知ID)'}"
+                    logger.debug(f"使用 event.send 发送处理消息: {message} 到{target}")
+                    return None, bot
             else:
                 # 无法确定消息类型或没有bot/client实例，使用原始方式发送并记录详细信息
                 logger.debug(
@@ -248,7 +261,7 @@ class MessageHelpers:
                     await event.send(response)
                 return None, bot or client
 
-            # 检查send_result是否包含message_id（QQ 平台）
+            # 从 send_result 中提取 message_id（QQ 平台通过 bot API 发送时）
             if send_result is not None:
                 if isinstance(send_result, dict):
                     message_id = send_result.get("message_id")
