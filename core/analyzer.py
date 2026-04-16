@@ -365,8 +365,6 @@ class WebAnalyzer:
         # 配置客户端参数
         client_params = {
             "timeout": self.timeout,
-            # 限制最大响应体为10MB，防止超大响应导致OOM
-            "limits": httpx.Limits(max_response_size=10 * 1024 * 1024),
         }
 
         # 添加代理配置（如果有）
@@ -645,6 +643,16 @@ class WebAnalyzer:
                     url, headers=headers, follow_redirects=True
                 )
                 response.raise_for_status()
+
+                # 检查响应大小，防止超大响应导致OOM（10MB限制）
+                content_length = response.headers.get("content-length")
+                if content_length:
+                    try:
+                        content_length_int = int(content_length)
+                    except ValueError:
+                        content_length_int = None
+                    if content_length_int and content_length_int > 10 * 1024 * 1024:
+                        raise NetworkError(f"响应体过大({content_length_int}字节)，已跳过: {url}")
 
                 logger.info(
                     f"抓取网页成功: {url} (尝试 {attempt + 1}/{self.retry_count + 1})"

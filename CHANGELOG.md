@@ -1,5 +1,26 @@
 # 更新日志
 
+### [v1.5.9] - 2026-04-16
+
+#### 🐛 Bug修复
+
+- **修复 httpx.Limits 参数错误导致 TypeError 崩溃** (`core/analyzer`)
+  - `httpx.Limits` 不支持 `max_response_size` 参数，移除该无效参数
+  - 改为在 `_fetch_with_retry` 中通过 `Content-Length` 响应头检查响应大小（10MB 限制），防止超大响应导致 OOM
+
+- **修复新版平台适配器消息发送兼容性** (`core/plugin_helpers`)
+  - 优先使用 `bot.send_group_msg`/`bot.send_private_msg` 发送消息以获取 `message_id`（支持自动撤回）
+  - 使用 `hasattr` 检查 bot API 可用性，不可用时自动回退到 `event.send()`
+  - 移除 `send_result` 死代码，修正 `user_id` 为空时的日志显示
+
+#### 📁 文件修改
+
+- `core/analyzer.py` - 移除无效 httpx.Limits 参数，添加 Content-Length 响应大小检查
+- `core/plugin_helpers.py` - 优化 QQ 平台消息发送逻辑，优先使用 bot API 支持撤回，添加回退机制
+- `metadata.yaml` - 版本升级至 v1.5.9
+
+---
+
 ### [v1.5.8] - 2026-04-14
 
 #### 🔒 安全修复
