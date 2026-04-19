@@ -1,5 +1,35 @@
 # 更新日志
 
+### [v1.6.0] - 2026-04-19
+
+#### 🐛 Bug修复
+
+- **修复 Playwright 浏览器路径检测缺失** (`core/analyzer`)
+  - `_check_browser_installed_async` 的 `possible_exec_paths` 补充 `chrome-linux64/chrome` 和 `chrome-headless-shell-linux64/chrome-headless-shell` 路径
+  - 新版 Playwright 使用 `chrome-linux64` 替代旧版 `chrome-linux`，安装后检测会因路径不匹配而返回 False
+  - `common_paths` 列表同步补充 `chrome-linux64` 变体路径
+
+- **修复 `PLAYWRIGHT_BROWSERS_PATH` 环境变量设置时序错误** (`core/analyzer`)
+  - 将环境变量设置从 `async_playwright().start()` 之后移到之前
+  - Playwright 在初始化时即确定浏览器搜索路径，后续设置环境变量无效
+
+- **修复持久化路径误判目录为可执行文件** (`core/analyzer`)
+  - `_ensure_browser_installed` 中使用 `os.path.isfile()` 替代 `os.path.exists()`
+  - 防止目录路径（如 `playwright_browsers/`）被当作浏览器可执行文件路径，触发 EACCES 错误
+  - 安装后检测失败时不再保存目录路径到安装状态，仅在确认找到可执行文件时才标记 `installed: True`
+
+- **新增 Linux 环境浏览器系统依赖自动安装** (`core/analyzer`)
+  - 浏览器二进制安装成功后，在 Linux 环境下自动运行 `playwright install-deps chromium`
+  - 解决 Docker 环境缺少 `libnspr4.so` 等系统依赖库导致浏览器启动失败的问题
+  - 依赖安装失败不阻断主流程，仅记录警告日志
+
+#### 📁 文件修改
+
+- `core/analyzer.py` - 修复路径检测、环境变量时序、持久化路径校验、新增系统依赖安装
+- `metadata.yaml` - 版本升级至 v1.6.0
+
+---
+
 ### [v1.5.9] - 2026-04-16
 
 #### 🐛 Bug修复
