@@ -1282,6 +1282,10 @@ class WebAnalyzer:
                             # 尝试多个可能的可执行文件路径
                             possible_exec_paths = [
                                 latest_dir / "chrome-linux" / "chrome",
+                                latest_dir / "chrome-linux64" / "chrome",
+                                latest_dir
+                                / "chrome-headless-shell-linux64"
+                                / "chrome-headless-shell",
                                 latest_dir / "chrome" / "chrome",
                                 latest_dir / "chrome.exe",
                                 latest_dir / "msedge" / "msedge",
@@ -1301,7 +1305,16 @@ class WebAnalyzer:
                     / "chromium-*"
                     / "chrome-linux"
                     / "chrome",
+                    Path.home()
+                    / ".cache"
+                    / "ms-playwright"
+                    / "chromium-*"
+                    / "chrome-linux64"
+                    / "chrome",
                     Path("/root/.cache/ms-playwright/chromium-*/chrome-linux/chrome"),
+                    Path(
+                        "/root/.cache/ms-playwright/chromium-*/chrome-linux64/chrome"
+                    ),
                     # Windows 系统路径
                     Path.home()
                     / "AppData"
@@ -1462,6 +1475,32 @@ class WebAnalyzer:
                     install_success = False
                     install_reason = f"进程返回码: {process.returncode}, 存在实际错误"
 
+            # 在 Linux 环境下安装系统依赖（如 libnspr4 等）
+            if install_success and sys.platform == "linux":
+                try:
+                    logger.info("正在安装浏览器系统依赖（install-deps）...")
+                    deps_process = await asyncio.create_subprocess_exec(
+                        sys.executable,
+                        "-m",
+                        "playwright",
+                        "install-deps",
+                        "chromium",
+                        stdout=asyncio.subprocess.PIPE,
+                        stderr=asyncio.subprocess.PIPE,
+                        env=env,
+                    )
+                    deps_stdout, deps_stderr = await asyncio.wait_for(
+                        deps_process.communicate(),
+                        timeout=300,
+                    )
+                    if deps_process.returncode == 0:
+                        logger.info("浏览器系统依赖安装成功")
+                    else:
+                        deps_err = deps_stderr.decode("utf-8", errors="replace")
+                        logger.warning(f"安装系统依赖失败（非致命）: {deps_err}")
+                except Exception as deps_error:
+                    logger.warning(f"安装系统依赖异常（非致命）: {deps_error}")
+
             # 验证浏览器可执行文件是否真实存在（使用自定义路径验证）
             if install_success:
                 try:
@@ -1566,7 +1605,7 @@ class WebAnalyzer:
             if saved_path:
                 import os
 
-                if os.path.exists(saved_path):
+                if os.path.isfile(saved_path):
                     self._detected_browser_path = saved_path
                     logger.debug(f"从持久化记录恢复浏览器路径: {saved_path}")
                     self._playwright_browser_checked = True
@@ -1669,10 +1708,8 @@ class WebAnalyzer:
                 # 保存安装状态
                 self._save_install_status(
                     {
-                        "installed": True,
-                        "install_path": browser_executable
-                        if installed
-                        else install_path,
+                        "installed": installed,
+                        "install_path": browser_executable if installed else "",
                         "install_time": time.time(),
                         "browser_type": "chromium",
                     }
@@ -1753,6 +1790,15 @@ class WebAnalyzer:
 
         logger.debug("创建新的浏览器实例")
 
+        # 如果有检测到的浏览器路径，使用它
+        if self._detected_browser_path and os.path.exists(self._detected_browser_path):
+            pass
+        else:
+            # 否则使用自定义路径（必须在 start() 之前设置环境变量）
+            custom_browser_path = self._get_browser_install_path()
+            os.environ["PLAYWRIGHT_BROWSERS_PATH"] = custom_browser_path
+            logger.debug(f"设置 PLAYWRIGHT_BROWSERS_PATH={custom_browser_path}")
+
         playwright_instance = await async_playwright().start()
 
         # 构建启动参数
@@ -1773,15 +1819,10 @@ class WebAnalyzer:
         # 隐藏IP：通过代理启动浏览器并屏蔽WebRTC
         self._apply_ip_hide_args(launch_args)
 
-        # 如果有检测到的浏览器路径，使用它
+        # 使用检测到的浏览器路径（如果有）
         if self._detected_browser_path and os.path.exists(self._detected_browser_path):
             launch_args["executable_path"] = self._detected_browser_path
             logger.debug(f"使用检测到的浏览器路径: {self._detected_browser_path}")
-        else:
-            # 否则使用自定义路径（环境变量方式）
-            custom_browser_path = self._get_browser_install_path()
-            os.environ["PLAYWRIGHT_BROWSERS_PATH"] = custom_browser_path
-            logger.debug(f"设置 PLAYWRIGHT_BROWSERS_PATH={custom_browser_path}")
 
         browser = await playwright_instance.chromium.launch(**launch_args)
 
