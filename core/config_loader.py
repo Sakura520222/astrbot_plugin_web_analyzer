@@ -639,6 +639,9 @@ class ConfigLoader:
         config_dict["screenshot_wait_ms"] = ConfigLoader._get_nested_value(
             config, "展示设置", "网页截图", "screenshot_wait_ms", 2000
         )
+        config_dict["screenshot_wait_strategy"] = ConfigLoader._get_nested_value(
+            config, "展示设置", "网页截图", "screenshot_wait_strategy", "fixed"
+        )
         config_dict["screenshot_format"] = ConfigLoader._get_nested_value(
             config, "展示设置", "网页截图", "screenshot_format", "jpeg"
         )

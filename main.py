@@ -31,7 +31,7 @@ from .core.utils import WebAnalyzerUtils
     "astrbot_plugin_web_analyzer",
     "Sakura520222",
     "自动识别网页链接，智能抓取解析内容，集成大语言模型进行深度分析和总结，支持网页截图、缓存机制和多种管理命令",
-    "1.6.0",
+    "1.6.1",
     "https://github.com/Sakura520222/astrbot_plugin_web_analyzer",
 )
 class WebAnalyzerPlugin(Star):
@@ -120,6 +120,7 @@ class WebAnalyzerPlugin(Star):
             screenshot_height=self.screenshot_height,
             screenshot_full_page=self.screenshot_full_page,
             screenshot_wait_ms=self.screenshot_wait_ms,
+            screenshot_wait_strategy=self.screenshot_wait_strategy,
             enable_crop=self.enable_crop,
             crop_area=self.crop_area,
             merge_forward_group=self.merge_forward_group,
