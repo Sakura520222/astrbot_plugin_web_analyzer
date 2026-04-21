@@ -1896,12 +1896,12 @@ class WebAnalyzer:
                 try:
                     await page.wait_for_load_state("networkidle", timeout=wait_time if wait_time > 0 else 30000)
                 except Exception:
-                    logger.debug("networkidle等待超时，继续截图")
+                    logger.info("networkidle等待超时，继续截图")
             elif wait_strategy == "smart":
                 try:
                     await page.wait_for_load_state("networkidle", timeout=min(wait_time if wait_time > 0 else 5000, 5000))
                 except Exception:
-                    logger.debug("smart模式networkidle超时，使用固定等待")
+                    logger.info("smart模式networkidle超时，使用固定等待")
                 await page.wait_for_timeout(500)
             else:  # fixed
                 await page.wait_for_timeout(wait_time)
