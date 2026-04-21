@@ -369,7 +369,7 @@ class WebAnalyzer:
 
         # 添加代理配置（如果有）
         if self.proxy:
-            client_params["proxies"] = {"http://": self.proxy, "https://": self.proxy}
+            client_params["proxy"] = self.proxy
 
         self.client = httpx.AsyncClient(**client_params)
         return self
@@ -951,6 +951,7 @@ class WebAnalyzer:
         height: int = 720,
         full_page: bool = False,
         wait_time: int = 2000,
+        wait_strategy: str = "fixed",
         format: str = "jpeg",
     ) -> bytes:
         """使用Playwright捕获网页截图
@@ -996,6 +997,7 @@ class WebAnalyzer:
                     quality=quality,
                     full_page=full_page,
                     wait_time=wait_time,
+                    wait_strategy=wait_strategy,
                     format=format,
                 )
 
@@ -1016,6 +1018,7 @@ class WebAnalyzer:
                     quality=quality,
                     full_page=full_page,
                     wait_time=wait_time,
+                    wait_strategy=wait_strategy,
                     format=format,
                 )
                 return screenshot_bytes
@@ -1837,7 +1840,8 @@ class WebAnalyzer:
         quality: int,
         full_page: bool,
         wait_time: int,
-        format: str,
+        wait_strategy: str = "fixed",
+        format: str = "jpeg",
     ) -> bytes:
         """执行实际的截图操作
 
@@ -1849,6 +1853,7 @@ class WebAnalyzer:
             quality: 截图质量
             full_page: 是否全页截图
             wait_time: 等待时间（毫秒）
+            wait_strategy: 等待策略(fixed/networkidle/smart)
             format: 截图格式
 
         Returns:
@@ -1886,8 +1891,20 @@ class WebAnalyzer:
             # 导航到目标URL
             await page.goto(url, wait_until="domcontentloaded", timeout=60000)
 
-            # 等待页面加载完成
-            await page.wait_for_timeout(wait_time)
+            # 根据策略等待页面加载
+            if wait_strategy == "networkidle":
+                try:
+                    await page.wait_for_load_state("networkidle", timeout=wait_time if wait_time > 0 else 30000)
+                except Exception:
+                    logger.debug("networkidle等待超时，继续截图")
+            elif wait_strategy == "smart":
+                try:
+                    await page.wait_for_load_state("networkidle", timeout=min(wait_time if wait_time > 0 else 5000, 5000))
+                except Exception:
+                    logger.debug("smart模式networkidle超时，使用固定等待")
+                await page.wait_for_timeout(500)
+            else:  # fixed
+                await page.wait_for_timeout(wait_time)
 
             # 构建截图参数
             screenshot_params = {
@@ -1938,7 +1955,8 @@ class WebAnalyzer:
         quality: int,
         full_page: bool,
         wait_time: int,
-        format: str,
+        wait_strategy: str = "fixed",
+        format: str = "jpeg",
     ) -> bytes:
         """处理截图过程中的错误
 
@@ -2017,6 +2035,7 @@ class WebAnalyzer:
                 quality=quality,
                 full_page=full_page,
                 wait_time=wait_time,
+                wait_strategy=wait_strategy,
                 format=format,
             )
 

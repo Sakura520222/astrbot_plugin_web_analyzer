@@ -1,5 +1,33 @@
 # 更新日志
 
+### [v1.6.1] - 2026-04-21
+
+#### 🐛 Bug修复
+
+- **修复 httpx 代理参数废弃导致的 TypeError** (`core/analyzer`)
+  - `httpx>=0.24.0` 中 `proxies` (dict) 参数已废弃，改为 `proxy` (str) 参数
+  - 修复用户配置代理后因 API 不兼容导致请求失败的问题
+
+#### ✨ 功能增强
+
+- **新增智能截图等待策略** (`core/analyzer`, `_conf_schema.json`)
+  - 新增 `screenshot_wait_strategy` 配置项，支持三种等待策略：
+    - `fixed`：固定等待时间（默认，保持原有行为）
+    - `networkidle`：等待网络空闲后再截图，适应不同页面加载速度
+    - `smart`：先等待网络空闲（上限 5s），再附加 500ms 缓冲（推荐）
+  - 截图重试路径同样支持等待策略，确保一致性
+
+#### 📁 文件修改
+
+- `core/analyzer.py` - 修复代理参数、实现智能等待策略逻辑
+- `core/config_loader.py` - 加载 `screenshot_wait_strategy` 配置
+- `core/message_handler.py` - 传递等待策略到截图方法
+- `main.py` - 传递新配置到 MessageHandler
+- `_conf_schema.json` - 新增 `screenshot_wait_strategy` 配置项
+- `metadata.yaml` - 版本升级至 v1.6.1
+
+---
+
 ### [v1.6.0] - 2026-04-19
 
 #### 🐛 Bug修复

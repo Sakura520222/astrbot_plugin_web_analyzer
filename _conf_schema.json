@@ -376,6 +376,14 @@
             "minimum": 0,
             "maximum": 10000
           },
+          "screenshot_wait_strategy": {
+            "description": "截图等待策略",
+            "type": "string",
+            "hint": "fixed-固定等待时间；networkidle-等待网络空闲；smart-网络空闲+短等待(推荐)",
+            "default": "fixed",
+            "_special": "select",
+            "options": ["fixed", "networkidle", "smart"]
+          },
           "screenshot_format": {
             "description": "截图格式",
             "type": "string",

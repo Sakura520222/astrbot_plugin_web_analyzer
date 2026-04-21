@@ -40,6 +40,7 @@ class MessageHandler:
         screenshot_height: int = 720,
         screenshot_full_page: bool = False,
         screenshot_wait_ms: int = 2000,
+        screenshot_wait_strategy: str = "fixed",
         enable_crop: bool = False,
         crop_area: list = None,
         merge_forward_group: bool = False,
@@ -75,6 +76,7 @@ class MessageHandler:
         self.screenshot_height = screenshot_height
         self.screenshot_full_page = screenshot_full_page
         self.screenshot_wait_ms = screenshot_wait_ms
+        self.screenshot_wait_strategy = screenshot_wait_strategy
         self.enable_crop = enable_crop
         self.crop_area = crop_area if crop_area is not None else [0, 0, 1280, 720]
         self.merge_forward_group = merge_forward_group
@@ -402,6 +404,7 @@ class MessageHandler:
                 height=self.screenshot_height,
                 full_page=self.screenshot_full_page,
                 wait_time=self.screenshot_wait_ms,
+                wait_strategy=self.screenshot_wait_strategy,
                 format=self.screenshot_format,
             )
 
@@ -570,6 +573,7 @@ class MessageHandler:
                 height=self.screenshot_height,
                 full_page=self.screenshot_full_page,
                 wait_time=self.screenshot_wait_ms,
+                wait_strategy=self.screenshot_wait_strategy,
                 format=self.screenshot_format,
             )
 
