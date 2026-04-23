@@ -25,6 +25,8 @@ from PIL import Image
 
 from astrbot.api import logger
 
+from .utils import WebAnalyzerUtils
+
 
 # 自定义异常类
 class WebAnalyzerException(Exception):
@@ -112,6 +114,7 @@ class WebAnalyzer:
             memory_threshold: 内存使用阈值百分比，超过此阈值时自动释放内存
             enable_unified_domain: 是否启用域名统一处理（如google.com和www.google.com视为同一域名）
             fetch_mode: 网页抓取模式，httpx(轻量快速) 或 playwright(浏览器渲染)
+            sandbox_mode: 浏览器沙箱模式，auto(自动检测) / always_disabled(始终禁用) / always_enabled(始终启用)
         """
         self.max_content_length = max_content_length
         self.timeout = timeout
@@ -211,7 +214,6 @@ class WebAnalyzer:
         if self.sandbox_mode == "always_enabled":
             return False
         # auto 模式：检测运行环境
-        from .utils import WebAnalyzerUtils
         is_container = WebAnalyzerUtils.is_container_environment()
         if is_container:
             logger.info("检测到容器环境，将禁用浏览器沙箱")

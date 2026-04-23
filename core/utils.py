@@ -59,22 +59,26 @@ class WebAnalyzerUtils:
         try:
             with open("/proc/self/uid_map") as f:
                 uid_map = f.read().strip()
-            # 默认宿主机映射: "         0          0          4294967295"
-            # 如果不是这个模式，说明在用户命名空间中（容器）
-            if uid_map and not uid_map.startswith("         0          0"):
+            # 默认宿主机映射：4294967295 个 UID 从 0 映射到 0
+            # 非默认映射说明在用户命名空间中（容器）
+            parts = uid_map.split()
+            if len(parts) >= 2 and (parts[0] != "0" or parts[1] != "0"):
                 return True
         except OSError:
             pass
 
-        # systemd-nspawn
+        # systemd-nspawn 及其他容器运行时
         try:
-            container_id = os.environ.get("container", "")
-            if container_id:
+            container_env = os.environ.get("container", "")
+            # 仅匹配已知容器运行时标识，避免误判自定义环境
+            known_container_types = ("docker", "lxc", "lxc-libvirt", "systemd-nspawn", "podman")
+            if container_env and container_env in known_container_types:
                 return True
             if os.path.exists("/run/systemd/container"):
                 with open("/run/systemd/container") as f:
-                    if f.read().strip():
-                        return True
+                    content = f.read().strip()
+                if content and content in known_container_types:
+                    return True
         except OSError:
             pass
 
