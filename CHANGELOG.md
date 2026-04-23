@@ -1,5 +1,29 @@
 # 更新日志
 
+### [v1.6.2] - 2026-04-23
+
+#### 🔒 安全增强
+
+- **新增浏览器沙箱模式配置** (`core/analyzer`, `_conf_schema.json`, `core/config_loader.py`, `core/utils.py`)
+  - 新增 `sandbox_mode` 配置项（基础设置 > 浏览器设置），支持三种模式：
+    - `auto`（默认）：自动检测容器/root/namespace 环境，动态决定是否禁用沙箱
+    - `always_disabled`：始终禁用沙箱（等同旧版行为）
+    - `always_enabled`：始终启用沙箱（仅在安全环境可用）
+  - 消除 `--no-sandbox` 和 `--disable-setuid-sandbox` 的硬编码
+  - 新增 `is_container_environment()` 工具函数，检测 Docker/Kubernetes/root用户/用户命名空间/systemd-nspawn 环境
+  - 提取 `_build_browser_launch_args()` 方法，统一所有浏览器启动位置的参数构建
+
+#### 📁 文件修改
+
+- `core/utils.py` - 新增 `is_container_environment()` 环境检测函数
+- `_conf_schema.json` - 新增「浏览器设置」子类别含 `sandbox_mode` 配置项
+- `core/config_loader.py` - 加载 `sandbox_mode` 配置并校验有效性
+- `core/analyzer.py` - 新增沙箱控制逻辑，消除两处硬编码启动参数
+- `main.py` - 传递 `sandbox_mode` 到 WebAnalyzer
+- `metadata.yaml` - 版本升级至 v1.6.2
+
+---
+
 ### [v1.6.1] - 2026-04-21
 
 #### 🐛 Bug修复

@@ -165,6 +165,21 @@
             "maximum": 100.0
           }
         }
+      },
+      "浏览器设置": {
+        "description": "浏览器启动参数配置",
+        "type": "object",
+        "hint": "控制浏览器沙箱策略，影响安全隔离级别",
+        "items": {
+          "sandbox_mode": {
+            "description": "浏览器沙箱模式",
+            "type": "string",
+            "hint": "auto-自动检测环境(默认，容器内禁用沙箱)；always_disabled-始终禁用沙箱；always_enabled-始终启用沙箱",
+            "default": "auto",
+            "_special": "select",
+            "options": ["auto", "always_disabled", "always_enabled"]
+          }
+        }
       }
     }
   },
