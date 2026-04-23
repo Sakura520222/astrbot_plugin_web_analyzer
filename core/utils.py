@@ -4,6 +4,8 @@
 包含各种通用工具函数和辅助方法，用于支持插件的核心功能。
 """
 
+import os
+import sys
 from datetime import datetime
 from urllib.parse import urlparse
 
@@ -13,6 +15,70 @@ class WebAnalyzerUtils:
 
     包含各种通用工具函数和辅助方法，用于支持插件的核心功能。
     """
+
+    @staticmethod
+    def is_container_environment() -> bool:
+        """检测当前是否运行在容器或需要禁用沙箱的环境中
+
+        检测顺序：Docker → Kubernetes → root用户 → 用户命名空间 → systemd-nspawn。
+        首次匹配即返回。Windows 平台直接返回 False。
+
+        Returns:
+            True 表示检测到容器/受限环境（应禁用沙箱），False 表示正常环境
+        """
+        # Windows 没有 /proc 文件系统，无法进行容器检测
+        if sys.platform == "win32":
+            return False
+
+        # Docker: /.dockerenv 文件
+        if os.path.exists("/.dockerenv"):
+            return True
+
+        # Docker / Kubernetes / LXC: /proc/1/cgroup
+        try:
+            with open("/proc/1/cgroup") as f:
+                cgroup_content = f.read().lower()
+            container_keywords = ("docker", "containerd", "lxc", "kubepods")
+            if any(kw in cgroup_content for kw in container_keywords):
+                return True
+        except OSError:
+            pass
+
+        # Kubernetes: 环境变量
+        if os.environ.get("KUBERNETES_SERVICE_HOST"):
+            return True
+
+        # Root 用户：以 root 运行时 Chromium 需要 --no-sandbox
+        try:
+            if os.getuid() == 0:
+                return True
+        except AttributeError:
+            pass
+
+        # 用户命名空间：非默认映射表示在容器中
+        try:
+            with open("/proc/self/uid_map") as f:
+                uid_map = f.read().strip()
+            # 默认宿主机映射: "         0          0          4294967295"
+            # 如果不是这个模式，说明在用户命名空间中（容器）
+            if uid_map and not uid_map.startswith("         0          0"):
+                return True
+        except OSError:
+            pass
+
+        # systemd-nspawn
+        try:
+            container_id = os.environ.get("container", "")
+            if container_id:
+                return True
+            if os.path.exists("/run/systemd/container"):
+                with open("/run/systemd/container") as f:
+                    if f.read().strip():
+                        return True
+        except OSError:
+            pass
+
+        return False
 
     @staticmethod
     def escape_format_braces(text: str) -> str:
