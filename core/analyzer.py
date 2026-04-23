@@ -25,6 +25,8 @@ from PIL import Image
 
 from astrbot.api import logger
 
+from .utils import WebAnalyzerUtils
+
 
 # 自定义异常类
 class WebAnalyzerException(Exception):
@@ -97,6 +99,7 @@ class WebAnalyzer:
         enable_unified_domain: bool = True,  # 是否启用域名统一处理
         hide_ip: bool = False,  # 截图时是否隐藏真实IP
         fetch_mode: str = "httpx",  # 网页抓取模式：httpx 或 playwright
+        sandbox_mode: str = "auto",  # 浏览器沙箱模式：auto / always_disabled / always_enabled
     ):
         """初始化网页分析器
 
@@ -111,6 +114,7 @@ class WebAnalyzer:
             memory_threshold: 内存使用阈值百分比，超过此阈值时自动释放内存
             enable_unified_domain: 是否启用域名统一处理（如google.com和www.google.com视为同一域名）
             fetch_mode: 网页抓取模式，httpx(轻量快速) 或 playwright(浏览器渲染)
+            sandbox_mode: 浏览器沙箱模式，auto(自动检测) / always_disabled(始终禁用) / always_enabled(始终启用)
         """
         self.max_content_length = max_content_length
         self.timeout = timeout
@@ -125,6 +129,10 @@ class WebAnalyzer:
         self.retry_count = retry_count
         self.retry_delay = retry_delay
         self.fetch_mode = fetch_mode if fetch_mode in ("httpx", "playwright") else "httpx"
+        # 沙箱模式
+        valid_modes = ("auto", "always_disabled", "always_enabled")
+        self.sandbox_mode = sandbox_mode if sandbox_mode in valid_modes else "auto"
+        self._sandbox_disabled = self._resolve_sandbox_disabled()
         self.client = None
         self.browser = None
         # 内存监控相关
@@ -198,6 +206,29 @@ class WebAnalyzer:
             ]
         )
         logger.debug("已启用代理和WebRTC屏蔽以隐藏真实IP")
+
+    def _resolve_sandbox_disabled(self) -> bool:
+        """根据 sandbox_mode 配置决定是否禁用浏览器沙箱"""
+        if self.sandbox_mode == "always_disabled":
+            return True
+        if self.sandbox_mode == "always_enabled":
+            return False
+        # auto 模式：检测运行环境
+        is_container = WebAnalyzerUtils.is_container_environment()
+        if is_container:
+            logger.info("检测到容器环境，将禁用浏览器沙箱")
+        else:
+            logger.debug("检测到非容器环境，将启用浏览器沙箱")
+        return is_container
+
+    def _build_browser_launch_args(self) -> dict:
+        """构建浏览器启动参数，统一所有启动位置的参数构建逻辑"""
+        args = ["--disable-dev-shm-usage", "--disable-gpu"]
+        if self._sandbox_disabled:
+            args = ["--no-sandbox", "--disable-setuid-sandbox"] + args
+        launch_args = {"headless": True, "timeout": 20000, "args": args}
+        self._apply_ip_hide_args(launch_args)
+        return launch_args
 
     @staticmethod
     async def _cleanup_browser_pool():
@@ -1805,22 +1836,7 @@ class WebAnalyzer:
         playwright_instance = await async_playwright().start()
 
         # 构建启动参数
-        # 注意：--no-sandbox 和 --disable-setuid-sandbox 会降低浏览器安全隔离级别。
-        # 这些参数在容器/Docker环境中通常是必需的。如果运行在有适当隔离的环境中，
-        # 可以在有 root 权限时移除这些参数以恢复沙箱保护。
-        launch_args = {
-            "headless": True,
-            "timeout": 20000,
-            "args": [
-                "--no-sandbox",
-                "--disable-setuid-sandbox",
-                "--disable-dev-shm-usage",
-                "--disable-gpu",
-            ],
-        }
-
-        # 隐藏IP：通过代理启动浏览器并屏蔽WebRTC
-        self._apply_ip_hide_args(launch_args)
+        launch_args = self._build_browser_launch_args()
 
         # 使用检测到的浏览器路径（如果有）
         if self._detected_browser_path and os.path.exists(self._detected_browser_path):
@@ -1998,19 +2014,7 @@ class WebAnalyzer:
         new_playwright_instance = await async_playwright().start()
 
         # 构建启动参数（与_create_new_browser保持一致）
-        retry_launch_args = {
-            "headless": True,
-            "timeout": 20000,
-            "args": [
-                "--no-sandbox",
-                "--disable-setuid-sandbox",
-                "--disable-dev-shm-usage",
-                "--disable-gpu",
-            ],
-        }
-
-        # 隐藏IP：与主浏览器启动保持一致
-        self._apply_ip_hide_args(retry_launch_args)
+        retry_launch_args = self._build_browser_launch_args()
 
         # 浏览器路径配置：与_create_new_browser保持一致
         import os

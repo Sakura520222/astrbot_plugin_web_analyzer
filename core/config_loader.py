@@ -66,6 +66,9 @@ class ConfigLoader:
             "enable_memory_monitor": "enable_memory_monitor",
             "memory_threshold_percent": "memory_threshold_percent",
         },
+        "浏览器设置": {
+            "sandbox_mode": "sandbox_mode",
+        },
         "分析设置": {
             "analysis_mode": "analysis_mode",
             "llmtool_url_strategy": "llmtool_url_strategy",
@@ -532,6 +535,17 @@ class ConfigLoader:
         config_dict["memory_threshold_percent"] = ConfigLoader._get_nested_value(
             config, "基础设置", "资源管理", "memory_threshold_percent", 80.0
         )
+
+        # 浏览器设置
+        config_dict["sandbox_mode"] = ConfigLoader._get_nested_value(
+            config, "基础设置", "浏览器设置", "sandbox_mode", "auto"
+        )
+        valid_sandbox_modes = ("auto", "always_disabled", "always_enabled")
+        if config_dict["sandbox_mode"] not in valid_sandbox_modes:
+            logger.warning(
+                f"无效的沙箱模式: {config_dict['sandbox_mode']}，将使用默认值 'auto'"
+            )
+            config_dict["sandbox_mode"] = "auto"
 
         return config_dict
 
