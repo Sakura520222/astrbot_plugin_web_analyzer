@@ -359,9 +359,9 @@ class MessageHandler:
 
                 return result_data
             else:
-                # 截图失败
+                # 截图失败 - 传递原始信息以便日志记录有意义的详情
                 error_msg = ErrorHandler.handle_error(
-                    ErrorType.SCREENSHOT_ERROR, Exception("截图生成失败"), url
+                    ErrorType.SCREENSHOT_ERROR, Exception("截图生成失败：页面可能加载超时或渲染异常"), url
                 )
                 return {
                     "url": url,
