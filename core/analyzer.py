@@ -1905,7 +1905,7 @@ class WebAnalyzer:
 
         try:
             # 导航到目标URL
-            await page.goto(url, wait_until="domcontentloaded", timeout=60000)
+            await page.goto(url, wait_until="domcontentloaded", timeout=self.timeout * 1000)
 
             # 根据策略等待页面加载
             if wait_strategy == "networkidle":
