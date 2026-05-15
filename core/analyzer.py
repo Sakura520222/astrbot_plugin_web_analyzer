@@ -1771,6 +1771,175 @@ class WebAnalyzer:
         # 标记已检查浏览器
         self._playwright_browser_checked = True
 
+    async def uninstall_browser(self) -> dict:
+        """卸载通过插件自动安装的 Playwright 浏览器（Chromium）
+
+        执行步骤：
+        1. 检查是否正在安装浏览器，若正在安装则拒绝卸载
+        2. 关闭浏览器实例池中的所有浏览器实例
+        3. 删除浏览器安装目录（playwright_browsers）
+        4. 清除安装状态文件
+        5. 重置相关类级别状态
+
+        Returns:
+            dict: 卸载结果，包含 success(bool)、message(str)、detail(str)
+        """
+        import shutil
+        from pathlib import Path
+
+        result = {"success": False, "message": "", "detail": ""}
+
+        # 1. 检查是否正在安装浏览器
+        if WebAnalyzer._is_installing:
+            result["message"] = "浏览器正在安装中，无法执行卸载操作，请等待安装完成后再试"
+            logger.warning("卸载浏览器失败：浏览器正在安装中")
+            return result
+
+        # 获取安装锁，防止卸载过程中触发新的安装
+        async with WebAnalyzer._browser_install_lock:
+            try:
+                # 2. 关闭浏览器实例池中的所有浏览器实例
+                closed_count = 0
+                async with WebAnalyzer._browser_lock:
+                    while WebAnalyzer._browser_pool:
+                        browser = WebAnalyzer._browser_pool.pop(0)
+                        try:
+                            if browser.is_connected():
+                                await browser.close()
+                                closed_count += 1
+                        except Exception as e:
+                            logger.warning(f"关闭浏览器实例失败（继续卸载）: {e}")
+                            try:
+                                await browser.close()
+                                closed_count += 1
+                            except Exception:
+                                pass
+
+                WebAnalyzer._browser_last_used.clear()
+                logger.info(f"已关闭 {closed_count} 个浏览器实例")
+
+                # 3. 删除浏览器安装目录
+                install_path = self._get_browser_install_path()
+                install_dir = Path(install_path)
+                deleted_files = False
+
+                if install_dir.exists():
+                    try:
+                        # 统计目录大小用于报告
+                        total_size = sum(
+                            f.stat().st_size for f in install_dir.rglob("*") if f.is_file()
+                        )
+                        size_mb = total_size / (1024 * 1024)
+
+                        shutil.rmtree(install_dir)
+                        deleted_files = True
+                        logger.info(
+                            f"已删除浏览器安装目录: {install_dir}（释放 {size_mb:.1f} MB 空间）"
+                        )
+                        result["detail"] = f"已释放 {size_mb:.1f} MB 磁盘空间"
+                    except PermissionError as e:
+                        result["message"] = (
+                            f"删除浏览器目录失败（权限不足）: {install_dir}\n"
+                            f"错误: {e}\n"
+                            f"请手动删除该目录，或使用管理员权限运行"
+                        )
+                        logger.error(f"删除浏览器目录权限不足: {e}")
+                        return result
+                    except Exception as e:
+                        result["message"] = (
+                            f"删除浏览器目录失败: {install_dir}\n"
+                            f"错误: {e}\n"
+                            f"请手动删除该目录"
+                        )
+                        logger.error(f"删除浏览器目录失败: {e}")
+                        return result
+                else:
+                    logger.info("浏览器安装目录不存在，跳过删除")
+                    result["detail"] = "浏览器安装目录不存在（可能未安装或已被手动清理）"
+
+                # 4. 清除安装状态文件
+                status_file = Path(WebAnalyzer._browser_install_status_file)
+                if status_file.exists():
+                    try:
+                        status_file.unlink()
+                        logger.info(f"已删除安装状态文件: {status_file}")
+                    except Exception as e:
+                        logger.warning(f"删除安装状态文件失败（非致命）: {e}")
+
+                # 5. 重置相关状态
+                self._detected_browser_path = None
+                if hasattr(self, "_playwright_browser_checked"):
+                    delattr(self, "_playwright_browser_checked")
+                if hasattr(self, "_system_browser_name"):
+                    delattr(self, "_system_browser_name")
+
+                result["success"] = True
+                if deleted_files:
+                    result["message"] = "✅ 浏览器卸载成功"
+                else:
+                    result["message"] = "✅ 浏览器状态已清理（未发现需要删除的浏览器文件）"
+
+                logger.info("浏览器卸载操作完成")
+
+            except Exception as e:
+                result["message"] = f"卸载浏览器时发生意外错误: {str(e)}"
+                logger.error(f"卸载浏览器时发生意外错误: {e}")
+
+        return result
+
+    async def get_browser_status(self) -> dict:
+        """获取浏览器安装和运行状态
+
+        Returns:
+            dict: 浏览器状态信息
+        """
+        from pathlib import Path
+
+        status_info = {
+            "installed": False,
+            "install_path": "",
+            "install_time": "",
+            "browser_type": "",
+            "browser_pool_size": 0,
+            "is_installing": WebAnalyzer._is_installing,
+            "install_dir_exists": False,
+            "install_dir_size_mb": 0.0,
+        }
+
+        # 读取持久化的安装状态
+        install_status = self._load_install_status()
+        if install_status.get("installed", False):
+            status_info["installed"] = True
+            status_info["install_path"] = install_status.get("install_path", "未知")
+            install_time = install_status.get("install_time")
+            if install_time:
+                import time as _time
+
+                status_info["install_time"] = _time.strftime(
+                    "%Y-%m-%d %H:%M:%S", _time.localtime(install_time)
+                )
+            status_info["browser_type"] = install_status.get("browser_type", "未知")
+
+        # 检查安装目录
+        install_path = self._get_browser_install_path()
+        install_dir = Path(install_path)
+        status_info["install_dir_exists"] = install_dir.exists()
+        if install_dir.exists():
+            try:
+                total_size = sum(
+                    f.stat().st_size for f in install_dir.rglob("*") if f.is_file()
+                )
+                status_info["install_dir_size_mb"] = round(
+                    total_size / (1024 * 1024), 1
+                )
+            except Exception:
+                pass
+
+        # 浏览器池状态
+        status_info["browser_pool_size"] = len(WebAnalyzer._browser_pool)
+
+        return status_info
+
     async def _get_or_create_browser(self) -> tuple:
         """从池中获取或创建新的浏览器实例
 
