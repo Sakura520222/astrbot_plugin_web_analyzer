@@ -1,5 +1,50 @@
 # 更新日志
 
+### [v1.7.0] - 2026-05-15
+
+#### ✨ 新功能
+
+- **新增浏览器管理命令** (`main.py`, `core/analyzer.py`, `core/command_handlers.py`)
+  - 新增 `/web_browser` 命令（别名：`/浏览器管理`、`/网页浏览器`），仅管理员可用
+  - 支持查看浏览器安装和运行状态（安装路径、安装时间、浏览器类型、安装目录大小、实例池数量等）
+  - 支持卸载浏览器（关闭所有浏览器实例、删除浏览器安装目录、清理安装状态文件）
+  - 新增 `get_browser_status()` 方法：获取浏览器安装和运行状态信息
+  - 新增 `uninstall_browser()` 方法：完整的浏览器卸载流程，含并发保护和权限错误处理
+
+- **改进浏览器安装路径查询** (`core/analyzer.py`)
+  - `_get_browser_install_path()` 新增 `ensure_exists` 参数，查询状态时不再自动创建目录
+
+#### 🐛 Bug修复
+
+- **修复浏览器检查标记作用域错误** (`core/analyzer.py`)
+  - 将 `_playwright_browser_checked` 从实例属性改为类级别属性
+  - 此前多个 `WebAnalyzer` 实例会各自重复执行浏览器检测，导致不必要的重复检查
+
+#### 🎨 代码重构
+
+- **全局代码格式化** (`core/analyzer.py`, `core/command_handlers.py`, `core/config_loader.py`, `core/message_handler.py`, `core/plugin_helpers.py`, `core/utils.py`, `main.py`)
+  - 统一应用 Ruff 代码格式化规范
+  - 长行拆分、引号统一、元组/字典/参数换行格式优化
+
+#### 📝 文档
+
+- **更新命令文档** (`wiki/Commands.md`)
+  - 新增浏览器管理命令的使用说明和示例
+
+#### 📁 文件修改
+
+- `main.py` - 新增浏览器管理命令处理器、版本升级至 v1.7.0
+- `core/analyzer.py` - 新增浏览器状态查询和卸载方法、修复浏览器检查标记作用域
+- `core/command_handlers.py` - 新增浏览器管理命令文档
+- `core/config_loader.py` - 代码格式化
+- `core/message_handler.py` - 代码格式化
+- `core/plugin_helpers.py` - 代码格式化
+- `core/utils.py` - 代码格式化
+- `metadata.yaml` - 版本升级至 v1.7.0
+- `wiki/Commands.md` - 新增浏览器管理命令文档
+
+---
+
 ### [v1.6.3] - 2026-05-05
 
 #### 🐛 Bug修复
