@@ -85,6 +85,7 @@ class WebAnalyzer:
     _browser_install_lock = None  # 浏览器安装进程锁
     _browser_install_status_file = None  # 浏览器安装状态文件路径
     _is_installing = False  # 是否正在安装浏览器
+    _playwright_browser_checked = False  # 类级别标记：浏览器是否已检查
 
     def __init__(
         self,
@@ -128,7 +129,9 @@ class WebAnalyzer:
             logger.warning("已启用截图隐藏IP，但未配置代理，IP隐藏功能将不会生效")
         self.retry_count = retry_count
         self.retry_delay = retry_delay
-        self.fetch_mode = fetch_mode if fetch_mode in ("httpx", "playwright") else "httpx"
+        self.fetch_mode = (
+            fetch_mode if fetch_mode in ("httpx", "playwright") else "httpx"
+        )
         # 沙箱模式
         valid_modes = ("auto", "always_disabled", "always_enabled")
         self.sandbox_mode = sandbox_mode if sandbox_mode in valid_modes else "auto"
@@ -536,7 +539,7 @@ class WebAnalyzer:
         try:
             result = urlparse(url)
             # 协议白名单，仅允许 http 和 https
-            if result.scheme.lower() not in ('http', 'https'):
+            if result.scheme.lower() not in ("http", "https"):
                 return False
             if not result.netloc:
                 return False
@@ -548,7 +551,12 @@ class WebAnalyzer:
             # 仅检查字面IP，不检查DNS解析结果（代理工具会劫持DNS）
             try:
                 addr = ipaddress.ip_address(hostname)
-                if addr.is_private or addr.is_loopback or addr.is_link_local or addr.is_reserved:
+                if (
+                    addr.is_private
+                    or addr.is_loopback
+                    or addr.is_link_local
+                    or addr.is_reserved
+                ):
                     # 阻止内网/回环/链路本地地址；is_reserved 额外拦截 IANA 保留地址（如 IETF 协议保留、
                     # 广播地址等），防止通过保留地址段绕过 SSRF 防护
                     return False
@@ -683,7 +691,9 @@ class WebAnalyzer:
                     except ValueError:
                         content_length_int = None
                     if content_length_int and content_length_int > 10 * 1024 * 1024:
-                        raise NetworkError(f"响应体过大({content_length_int}字节)，已跳过: {url}")
+                        raise NetworkError(
+                            f"响应体过大({content_length_int}字节)，已跳过: {url}"
+                        )
 
                 logger.info(
                     f"抓取网页成功: {url} (尝试 {attempt + 1}/{self.retry_count + 1})"
@@ -1063,8 +1073,11 @@ class WebAnalyzer:
             logger.error(f"捕获网页截图失败: {url}, 错误: {e}")
             raise ScreenshotError(f"捕获网页截图失败: {url}, 错误: {str(e)}") from e
 
-    def _get_browser_install_path(self) -> str:
+    def _get_browser_install_path(self, ensure_exists: bool = True) -> str:
         """获取浏览器安装路径
+
+        Args:
+            ensure_exists: 是否确保目录存在（默认 True）
 
         Returns:
             str: 浏览器安装路径
@@ -1088,8 +1101,8 @@ class WebAnalyzer:
                 / "astrbot_plugin_web_analyzer"
                 / "playwright_browsers"
             )
-            # 确保目录存在
-            browser_path.mkdir(parents=True, exist_ok=True)
+            if ensure_exists:
+                browser_path.mkdir(parents=True, exist_ok=True)
             logger.debug(f"浏览器安装路径: {browser_path}")
             return str(browser_path)
         except Exception as e:
@@ -1177,9 +1190,7 @@ class WebAnalyzer:
         browser_candidates: list[tuple[str, str, list[str]]] = []
 
         if system == "Windows":
-            local_app_data = os.environ.get(
-                "LOCALAPPDATA"
-            ) or os.path.join(
+            local_app_data = os.environ.get("LOCALAPPDATA") or os.path.join(
                 os.environ.get("USERPROFILE", ""), "AppData", "Local"
             )
             program_files = os.environ.get("ProgramFiles", r"C:\Program Files")
@@ -1188,44 +1199,106 @@ class WebAnalyzer:
             )
 
             browser_candidates = [
-                ("Google Chrome", "chrome", [
-                    os.path.join(program_files, "Google", "Chrome", "Application", "chrome.exe"),
-                    os.path.join(program_files_x86, "Google", "Chrome", "Application", "chrome.exe"),
-                    os.path.join(local_app_data, "Google", "Chrome", "Application", "chrome.exe"),
-                ]),
-                ("Microsoft Edge", "msedge", [
-                    os.path.join(program_files_x86, "Microsoft", "Edge", "Application", "msedge.exe"),
-                    os.path.join(program_files, "Microsoft", "Edge", "Application", "msedge.exe"),
-                ]),
+                (
+                    "Google Chrome",
+                    "chrome",
+                    [
+                        os.path.join(
+                            program_files,
+                            "Google",
+                            "Chrome",
+                            "Application",
+                            "chrome.exe",
+                        ),
+                        os.path.join(
+                            program_files_x86,
+                            "Google",
+                            "Chrome",
+                            "Application",
+                            "chrome.exe",
+                        ),
+                        os.path.join(
+                            local_app_data,
+                            "Google",
+                            "Chrome",
+                            "Application",
+                            "chrome.exe",
+                        ),
+                    ],
+                ),
+                (
+                    "Microsoft Edge",
+                    "msedge",
+                    [
+                        os.path.join(
+                            program_files_x86,
+                            "Microsoft",
+                            "Edge",
+                            "Application",
+                            "msedge.exe",
+                        ),
+                        os.path.join(
+                            program_files,
+                            "Microsoft",
+                            "Edge",
+                            "Application",
+                            "msedge.exe",
+                        ),
+                    ],
+                ),
             ]
         elif system == "Linux":
             browser_candidates = [
-                ("Google Chrome", "google-chrome", [
-                    "/usr/bin/google-chrome",
-                    "/usr/bin/google-chrome-stable",
-                    "/opt/google/chrome/google-chrome",
-                ]),
-                ("Microsoft Edge", "microsoft-edge", [
-                    "/usr/bin/microsoft-edge",
-                    "/usr/bin/microsoft-edge-stable",
-                ]),
-                ("Chromium", "chromium", [
-                    "/usr/bin/chromium",
-                    "/usr/bin/chromium-browser",
-                    "/snap/bin/chromium",
-                ]),
+                (
+                    "Google Chrome",
+                    "google-chrome",
+                    [
+                        "/usr/bin/google-chrome",
+                        "/usr/bin/google-chrome-stable",
+                        "/opt/google/chrome/google-chrome",
+                    ],
+                ),
+                (
+                    "Microsoft Edge",
+                    "microsoft-edge",
+                    [
+                        "/usr/bin/microsoft-edge",
+                        "/usr/bin/microsoft-edge-stable",
+                    ],
+                ),
+                (
+                    "Chromium",
+                    "chromium",
+                    [
+                        "/usr/bin/chromium",
+                        "/usr/bin/chromium-browser",
+                        "/snap/bin/chromium",
+                    ],
+                ),
             ]
         elif system == "Darwin":
             browser_candidates = [
-                ("Google Chrome", "Google Chrome", [
-                    "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
-                ]),
-                ("Microsoft Edge", "Microsoft Edge", [
-                    "/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge",
-                ]),
-                ("Chromium", "Chromium", [
-                    "/Applications/Chromium.app/Contents/MacOS/Chromium",
-                ]),
+                (
+                    "Google Chrome",
+                    "Google Chrome",
+                    [
+                        "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+                    ],
+                ),
+                (
+                    "Microsoft Edge",
+                    "Microsoft Edge",
+                    [
+                        "/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge",
+                    ],
+                ),
+                (
+                    "Chromium",
+                    "Chromium",
+                    [
+                        "/Applications/Chromium.app/Contents/MacOS/Chromium",
+                    ],
+                ),
             ]
 
         for browser_name, command, paths in browser_candidates:
@@ -1346,9 +1419,7 @@ class WebAnalyzer:
                     / "chrome-linux64"
                     / "chrome",
                     Path("/root/.cache/ms-playwright/chromium-*/chrome-linux/chrome"),
-                    Path(
-                        "/root/.cache/ms-playwright/chromium-*/chrome-linux64/chrome"
-                    ),
+                    Path("/root/.cache/ms-playwright/chromium-*/chrome-linux64/chrome"),
                     # Windows 系统路径
                     Path.home()
                     / "AppData"
@@ -1625,8 +1696,8 @@ class WebAnalyzer:
         """
         import asyncio
 
-        # 检查当前实例是否已检查过
-        if hasattr(self, "_playwright_browser_checked"):
+        # 检查浏览器是否已在类级别标记为已检查
+        if WebAnalyzer._playwright_browser_checked:
             return
 
         # 加载持久化的安装状态
@@ -1642,7 +1713,7 @@ class WebAnalyzer:
                 if os.path.isfile(saved_path):
                     self._detected_browser_path = saved_path
                     logger.debug(f"从持久化记录恢复浏览器路径: {saved_path}")
-                    self._playwright_browser_checked = True
+                    WebAnalyzer._playwright_browser_checked = True
                     return
                 else:
                     logger.warning(f"保存的浏览器路径不存在: {saved_path}，将重新检测")
@@ -1676,7 +1747,7 @@ class WebAnalyzer:
                 logger.info(
                     f"浏览器已在其他实例中安装: {install_status.get('install_path', '未知路径')}"
                 )
-                self._playwright_browser_checked = True
+                WebAnalyzer._playwright_browser_checked = True
                 return
 
             # 检查是否正在安装
@@ -1688,7 +1759,7 @@ class WebAnalyzer:
                     install_status = self._load_install_status()
                     if install_status.get("installed", False):
                         logger.info("浏览器安装完成")
-                        self._playwright_browser_checked = True
+                        WebAnalyzer._playwright_browser_checked = True
                         return
                 # 超时
                 error_msg = "等待浏览器安装超时"
@@ -1724,7 +1795,7 @@ class WebAnalyzer:
                             "browser_type": browser_type,
                         }
                     )
-                    self._playwright_browser_checked = True
+                    WebAnalyzer._playwright_browser_checked = True
                     return
 
                 # 浏览器未安装，开始安装
@@ -1769,7 +1840,7 @@ class WebAnalyzer:
                 WebAnalyzer._is_installing = False
 
         # 标记已检查浏览器
-        self._playwright_browser_checked = True
+        WebAnalyzer._playwright_browser_checked = True
 
     async def uninstall_browser(self) -> dict:
         """卸载通过插件自动安装的 Playwright 浏览器（Chromium）
@@ -1791,7 +1862,9 @@ class WebAnalyzer:
 
         # 1. 检查是否正在安装浏览器
         if WebAnalyzer._is_installing:
-            result["message"] = "浏览器正在安装中，无法执行卸载操作，请等待安装完成后再试"
+            result["message"] = (
+                "浏览器正在安装中，无法执行卸载操作，请等待安装完成后再试"
+            )
             logger.warning("卸载浏览器失败：浏览器正在安装中")
             return result
 
@@ -1827,7 +1900,9 @@ class WebAnalyzer:
                     try:
                         # 统计目录大小用于报告
                         total_size = sum(
-                            f.stat().st_size for f in install_dir.rglob("*") if f.is_file()
+                            f.stat().st_size
+                            for f in install_dir.rglob("*")
+                            if f.is_file()
                         )
                         size_mb = total_size / (1024 * 1024)
 
@@ -1855,7 +1930,9 @@ class WebAnalyzer:
                         return result
                 else:
                     logger.info("浏览器安装目录不存在，跳过删除")
-                    result["detail"] = "浏览器安装目录不存在（可能未安装或已被手动清理）"
+                    result["detail"] = (
+                        "浏览器安装目录不存在（可能未安装或已被手动清理）"
+                    )
 
                 # 4. 清除安装状态文件
                 status_file = Path(WebAnalyzer._browser_install_status_file)
@@ -1865,11 +1942,15 @@ class WebAnalyzer:
                         logger.info(f"已删除安装状态文件: {status_file}")
                     except Exception as e:
                         logger.warning(f"删除安装状态文件失败（非致命）: {e}")
+                        try:
+                            self._save_install_status({"installed": False})
+                            logger.info("已降级写入安装状态为未安装")
+                        except Exception as write_err:
+                            logger.warning(f"降级写入安装状态也失败: {write_err}")
 
                 # 5. 重置相关状态
                 self._detected_browser_path = None
-                if hasattr(self, "_playwright_browser_checked"):
-                    delattr(self, "_playwright_browser_checked")
+                WebAnalyzer._playwright_browser_checked = False
                 if hasattr(self, "_system_browser_name"):
                     delattr(self, "_system_browser_name")
 
@@ -1877,7 +1958,9 @@ class WebAnalyzer:
                 if deleted_files:
                     result["message"] = "✅ 浏览器卸载成功"
                 else:
-                    result["message"] = "✅ 浏览器状态已清理（未发现需要删除的浏览器文件）"
+                    result["message"] = (
+                        "✅ 浏览器状态已清理（未发现需要删除的浏览器文件）"
+                    )
 
                 logger.info("浏览器卸载操作完成")
 
@@ -1920,8 +2003,8 @@ class WebAnalyzer:
                 )
             status_info["browser_type"] = install_status.get("browser_type", "未知")
 
-        # 检查安装目录
-        install_path = self._get_browser_install_path()
+        # 检查安装目录（不触发目录创建）
+        install_path = self._get_browser_install_path(ensure_exists=False)
         install_dir = Path(install_path)
         status_info["install_dir_exists"] = install_dir.exists()
         if install_dir.exists():
@@ -2074,17 +2157,24 @@ class WebAnalyzer:
 
         try:
             # 导航到目标URL
-            await page.goto(url, wait_until="domcontentloaded", timeout=self.timeout * 1000)
+            await page.goto(
+                url, wait_until="domcontentloaded", timeout=self.timeout * 1000
+            )
 
             # 根据策略等待页面加载
             if wait_strategy == "networkidle":
                 try:
-                    await page.wait_for_load_state("networkidle", timeout=wait_time if wait_time > 0 else 30000)
+                    await page.wait_for_load_state(
+                        "networkidle", timeout=wait_time if wait_time > 0 else 30000
+                    )
                 except Exception:
                     logger.info("networkidle等待超时，继续截图")
             elif wait_strategy == "smart":
                 try:
-                    await page.wait_for_load_state("networkidle", timeout=min(wait_time if wait_time > 0 else 5000, 5000))
+                    await page.wait_for_load_state(
+                        "networkidle",
+                        timeout=min(wait_time if wait_time > 0 else 5000, 5000),
+                    )
                 except Exception:
                     logger.info("smart模式networkidle超时，使用固定等待")
                 await page.wait_for_timeout(500)

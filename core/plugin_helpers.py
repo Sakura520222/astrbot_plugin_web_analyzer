@@ -244,7 +244,11 @@ class MessageHelpers:
                     response = event.plain_result(message)
                     if hasattr(event, "send"):
                         await event.send(response)
-                    target = f"群 {group_id}" if group_id else f"用户 {user_id or '(未知ID)'} (is_private={is_private})"
+                    target = (
+                        f"群 {group_id}"
+                        if group_id
+                        else f"用户 {user_id or '(未知ID)'} (is_private={is_private})"
+                    )
                     logger.debug(f"使用 event.send 发送处理消息: {message} 到{target}")
                     return None, bot
             else:

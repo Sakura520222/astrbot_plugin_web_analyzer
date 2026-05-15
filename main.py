@@ -399,7 +399,9 @@ class WebAnalyzerPlugin(Star):
             if not url.startswith(("http://", "https://")):
                 url = f"{self.default_protocol}://{url}"
             normalized = self.analyzer.normalize_url(url)
-            if self.analyzer.is_valid_url(normalized) and PluginHelpers.is_domain_allowed(
+            if self.analyzer.is_valid_url(
+                normalized
+            ) and PluginHelpers.is_domain_allowed(
                 normalized, self.allowed_domains, self.blocked_domains
             ):
                 valid_urls.append(normalized)
@@ -501,7 +503,9 @@ class WebAnalyzerPlugin(Star):
             strategy = self.llmtool_url_strategy
             valid_strategies = ["auto_analyze", "llm_hint", "batch_tool"]
             if strategy not in valid_strategies:
-                logger.warning(f"无效的 llmtool_url_strategy: {strategy}, 使用默认值: auto_analyze")
+                logger.warning(
+                    f"无效的 llmtool_url_strategy: {strategy}, 使用默认值: auto_analyze"
+                )
                 strategy = "auto_analyze"
 
             if strategy == "auto_analyze":
@@ -513,16 +517,17 @@ class WebAnalyzerPlugin(Star):
                     message = f"检测到网页链接，正在分析: {allowed_urls[0]}"
                 else:
                     message = f"检测到{len(allowed_urls)}个网页链接，正在分析..."
-                processing_message_id, bot = (
-                    await MessageHelpers.send_processing_message(
-                        event,
-                        message,
-                        self.enable_recall,
-                        self.recall_type,
-                        self.recall_time_s,
-                        self.smart_recall_enabled,
-                        self.recall_tasks,
-                    )
+                (
+                    processing_message_id,
+                    bot,
+                ) = await MessageHelpers.send_processing_message(
+                    event,
+                    message,
+                    self.enable_recall,
+                    self.recall_type,
+                    self.recall_time_s,
+                    self.smart_recall_enabled,
+                    self.recall_tasks,
                 )
                 async for result in self._batch_process_urls(
                     event, allowed_urls, processing_message_id, bot
@@ -919,7 +924,9 @@ class WebAnalyzerPlugin(Star):
             status = await self.analyzer.get_browser_status()
 
             status_text = "**浏览器状态信息**\n\n"
-            status_text += f"- 安装状态: {'✅ 已安装' if status['installed'] else '❌ 未安装'}\n"
+            status_text += (
+                f"- 安装状态: {'✅ 已安装' if status['installed'] else '❌ 未安装'}\n"
+            )
 
             if status["installed"]:
                 status_text += f"- 浏览器路径: {status['install_path']}\n"
@@ -940,7 +947,7 @@ class WebAnalyzerPlugin(Star):
             return
 
         # 解析操作类型
-        action = message_parts[1].lower() if len(message_parts) > 1 else ""
+        action = message_parts[1].lower()
 
         if action == "uninstall":
             # 确认卸载（需要用户在命令中明确指定 uninstall）
@@ -957,7 +964,9 @@ class WebAnalyzerPlugin(Star):
             return
 
         # 无效操作
-        yield event.plain_result("无效的操作，请使用: uninstall\n示例: /web_browser uninstall")
+        yield event.plain_result(
+            "无效的操作，请使用: uninstall\n示例: /web_browser uninstall"
+        )
 
     @filter.command("web_export", alias={"导出分析结果", "网页导出"})
     async def export_analysis_result(self, event: AstrMessageEvent):
@@ -1411,7 +1420,14 @@ class WebAnalyzerPlugin(Star):
             except Exception as e:
                 error_type = PluginHelpers.get_error_type(e)
                 error_msg = PluginHelpers.handle_error(error_type, e, url)
-                results.append({"url": url, "result": error_msg, "screenshot": None, "has_screenshot": False})
+                results.append(
+                    {
+                        "url": url,
+                        "result": error_msg,
+                        "screenshot": None,
+                        "has_screenshot": False,
+                    }
+                )
             finally:
                 # 确保在任何情况下都从处理中集合移除URL
                 self.processing_urls.discard(url)

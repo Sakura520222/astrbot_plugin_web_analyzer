@@ -781,10 +781,14 @@ class ConfigLoader:
         try:
             parsed = urlparse(proxy)
             if not all([parsed.scheme, parsed.netloc]):
-                logger.warning(f"无效的代理格式: {ConfigLoader._mask_proxy(proxy)}，将忽略代理设置")
+                logger.warning(
+                    f"无效的代理格式: {ConfigLoader._mask_proxy(proxy)}，将忽略代理设置"
+                )
                 return ""
         except Exception as e:
-            logger.warning(f"解析代理失败: {ConfigLoader._mask_proxy(proxy)}，将忽略代理设置，错误: {e}")
+            logger.warning(
+                f"解析代理失败: {ConfigLoader._mask_proxy(proxy)}，将忽略代理设置，错误: {e}"
+            )
             return ""
 
         return proxy
