@@ -6,6 +6,161 @@
 
 from typing import Any
 
+# WebRTC IP 隐藏脚本：用于注入浏览器页面，防止通过 WebRTC 泄露真实 IP
+WEBRTC_BLOCK_SCRIPT = """
+    // 屏蔽WebRTC以防止IP泄漏
+    const originalRTC = window.RTCPeerConnection || window.webkitRTCPeerConnection;
+    if (originalRTC) {
+        window.RTCPeerConnection = function() {
+            const pc = new originalRTC(...arguments);
+            const origSetLocalDescription = pc.setLocalDescription.bind(pc);
+            pc.setLocalDescription = function(desc) {
+                if (desc && desc.type === 'offer') {
+                    desc.sdp = desc.sdp.replace(/a=candidate:.+\\r\\n/g, '');
+                }
+                return origSetLocalDescription(desc);
+            };
+            return pc;
+        };
+        window.RTCPeerConnection.prototype = originalRTC.prototype;
+    }
+    Object.defineProperty(navigator, 'connection', { get: () => null });
+"""
+
+# 统一的内容类型检测规则
+CONTENT_TYPE_RULES: dict[str, list[str]] = {
+    "新闻资讯": [
+        "新闻",
+        "资讯",
+        "报道",
+        "快讯",
+        "时事",
+        "热点",
+        "头条",
+        "要闻",
+        "消息",
+        "事件",
+    ],
+    "教程指南": [
+        "教程",
+        "指南",
+        "教学",
+        "学习",
+        "如何",
+        "步骤",
+        "方法",
+        "技巧",
+        "攻略",
+        "怎样",
+        "实战",
+    ],
+    "个人博客": [
+        "博客",
+        "日志",
+        "随笔",
+        "感悟",
+        "分享",
+        "思考",
+        "心得",
+        "个人",
+        "观点",
+        "感想",
+        "日记",
+    ],
+    "产品介绍": [
+        "产品",
+        "服务",
+        "功能",
+        "特性",
+        "优势",
+        "价格",
+        "购买",
+        "下载",
+        "优惠",
+        "参数",
+        "规格",
+        "评测",
+    ],
+    "技术文档": [
+        "技术",
+        "开发",
+        "编程",
+        "代码",
+        "API",
+        "SDK",
+        "文档",
+        "说明",
+        "框架",
+        "库",
+    ],
+    "学术论文": [
+        "论文",
+        "研究",
+        "实验",
+        "结果",
+        "结论",
+        "摘要",
+        "引言",
+        "方法",
+        "分析",
+        "关键词",
+        "引用",
+        "参考文献",
+    ],
+    "商业分析": [
+        "商业",
+        "分析",
+        "市场",
+        "行业",
+        "趋势",
+        "报告",
+        "数据",
+        "统计",
+        "调研",
+        "预测",
+    ],
+    "娱乐资讯": [
+        "娱乐",
+        "明星",
+        "影视",
+        "电影",
+        "音乐",
+        "综艺",
+        "游戏",
+        "动漫",
+        "追星",
+        "演唱会",
+        "首映",
+        "新歌",
+    ],
+    "体育新闻": [
+        "体育",
+        "足球",
+        "篮球",
+        "赛事",
+        "比赛",
+        "比分",
+        "运动员",
+        "冠军",
+        "亚军",
+        "季军",
+        "健身",
+        "运动",
+    ],
+    "教育资讯": [
+        "教育",
+        "学校",
+        "招生",
+        "考试",
+        "培训",
+        "学习",
+        "课程",
+        "教材",
+        "升学",
+        "留学",
+    ],
+}
+
 
 class ErrorType:
     """错误类型枚举"""

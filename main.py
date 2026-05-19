@@ -7,6 +7,7 @@ AstrBot 网页分析插件 - 重构版本
 本版本使用核心模块重构，遵循 PEP 8 规范。
 """
 
+import asyncio
 import re
 from typing import Any
 
@@ -51,6 +52,7 @@ class WebAnalyzerPlugin(Star):
 
         # URL处理标志集合：用于避免重复处理同一URL
         self.processing_urls = set()
+        self._processing_urls_lock = asyncio.Lock()
 
         # 初始化核心组件
         self._init_components(context, config_dict)
@@ -1188,7 +1190,7 @@ class WebAnalyzerPlugin(Star):
 
         except Exception as e:
             logger.error(f"导出分析结果失败: {e}")
-            yield event.plain_result(f"❌ 导出分析结果失败: {str(e)}")
+            yield event.plain_result("❌ 导出分析结果失败，请查看日志获取详细信息")
 
     async def _translate_content(self, event: AstrMessageEvent, content: str) -> str:
         """翻译网页内容
@@ -1402,7 +1404,8 @@ class WebAnalyzerPlugin(Star):
         for url in urls:
             try:
                 # 标记URL正在处理中
-                self.processing_urls.add(url)
+                async with self._processing_urls_lock:
+                    self.processing_urls.add(url)
 
                 # 使用消息处理器处理单个URL
                 result = await self.message_handler.process_single_url(
@@ -1430,7 +1433,8 @@ class WebAnalyzerPlugin(Star):
                 )
             finally:
                 # 确保在任何情况下都从处理中集合移除URL
-                self.processing_urls.discard(url)
+                async with self._processing_urls_lock:
+                    self.processing_urls.discard(url)
 
         # 发送所有分析结果
         if results:
@@ -1452,4 +1456,11 @@ class WebAnalyzerPlugin(Star):
 
     async def terminate(self):
         """插件卸载时的清理工作"""
+        # 关闭截图临时文件管理器的后台清理任务
+        try:
+            if hasattr(self, "message_handler") and self.message_handler is not None:
+                await self.message_handler.screenshot_temp_manager.shutdown()
+        except Exception as e:
+            logger.error(f"关闭截图临时文件管理器失败: {e}")
+
         logger.info("网页分析插件已卸载")

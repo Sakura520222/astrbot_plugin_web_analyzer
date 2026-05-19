@@ -25,6 +25,7 @@ from PIL import Image
 
 from astrbot.api import logger
 
+from .constants import WEBRTC_BLOCK_SCRIPT
 from .utils import WebAnalyzerUtils
 
 
@@ -378,7 +379,13 @@ class WebAnalyzer:
                 import asyncio
 
                 loop = asyncio.get_running_loop()
-                loop.create_task(self._optimize_browser_pool())
+                task = loop.create_task(self._optimize_browser_pool())
+                task.add_done_callback(
+                    lambda t: (
+                        t.exception() is not None
+                        and logger.error(f"浏览器池优化任务异常: {t.exception()}")
+                    )
+                )
             except Exception as e:
                 logger.error(f"执行浏览器实例池优化失败: {e}")
         except Exception as e:
@@ -745,25 +752,7 @@ class WebAnalyzer:
 
             # 隐藏IP：注入脚本屏蔽WebRTC，防止IP泄漏
             if self.hide_ip and self.proxy:
-                await page.add_init_script("""
-                    // 屏蔽WebRTC以防止IP泄漏
-                    const originalRTC = window.RTCPeerConnection || window.webkitRTCPeerConnection;
-                    if (originalRTC) {
-                        window.RTCPeerConnection = function() {
-                            const pc = new originalRTC(...arguments);
-                            const origSetLocalDescription = pc.setLocalDescription.bind(pc);
-                            pc.setLocalDescription = function(desc) {
-                                if (desc && desc.type === 'offer') {
-                                    desc.sdp = desc.sdp.replace(/a=candidate:.+\\r\\n/g, '');
-                                }
-                                return origSetLocalDescription(desc);
-                            };
-                            return pc;
-                        };
-                        window.RTCPeerConnection.prototype = originalRTC.prototype;
-                    }
-                    Object.defineProperty(navigator, 'connection', { get: () => null });
-                """)
+                await page.add_init_script(WEBRTC_BLOCK_SCRIPT)
 
             # 导航到目标URL，等待DOM加载完成
             await page.goto(
@@ -2135,25 +2124,7 @@ class WebAnalyzer:
 
         # 隐藏IP：注入脚本屏蔽WebRTC，防止IP泄漏
         if self.hide_ip and self.proxy:
-            await page.add_init_script("""
-                // 屏蔽WebRTC以防止IP泄漏
-                const originalRTC = window.RTCPeerConnection || window.webkitRTCPeerConnection;
-                if (originalRTC) {
-                    window.RTCPeerConnection = function() {
-                        const pc = new originalRTC(...arguments);
-                        const origSetLocalDescription = pc.setLocalDescription.bind(pc);
-                        pc.setLocalDescription = function(desc) {
-                            if (desc && desc.type === 'offer') {
-                                desc.sdp = desc.sdp.replace(/a=candidate:.+\\r\\n/g, '');
-                            }
-                            return origSetLocalDescription(desc);
-                        };
-                        return pc;
-                    };
-                    window.RTCPeerConnection.prototype = originalRTC.prototype;
-                }
-                Object.defineProperty(navigator, 'connection', { get: () => null });
-            """)
+            await page.add_init_script(WEBRTC_BLOCK_SCRIPT)
 
         try:
             # 导航到目标URL

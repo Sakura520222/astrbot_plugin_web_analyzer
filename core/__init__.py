@@ -5,7 +5,7 @@
 from .analyzer import WebAnalyzer
 from .cache import CacheManager
 from .config_loader import ConfigLoader
-from .constants import *
+from .constants import CONTENT_TYPE_RULES, WEBRTC_BLOCK_SCRIPT
 from .error_handler import ERROR_MESSAGES, ErrorSeverity, ErrorType
 from .llm_analyzer import LLMAnalyzer
 from .message_handler import MessageHandler
@@ -20,6 +20,8 @@ __all__ = [
     "ErrorType",
     "ErrorSeverity",
     "ERROR_MESSAGES",
+    "CONTENT_TYPE_RULES",
+    "WEBRTC_BLOCK_SCRIPT",
     "LLMAnalyzer",
     "MessageHandler",
     "PluginHelpers",

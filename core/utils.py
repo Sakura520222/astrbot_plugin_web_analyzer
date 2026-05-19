@@ -9,6 +9,8 @@ import sys
 from datetime import datetime
 from urllib.parse import urlparse
 
+from .constants import CONTENT_TYPE_RULES
+
 
 class WebAnalyzerUtils:
     """网页分析插件工具类
@@ -451,105 +453,7 @@ class WebAnalyzerUtils:
         """
         content_lower = content.lower()
 
-        content_type_rules = WebAnalyzerUtils._get_content_type_rules()
-        return WebAnalyzerUtils._match_content_type(content_lower, content_type_rules)
-
-    @staticmethod
-    def _get_content_type_rules() -> dict[str, list[str]]:
-        """获取内容类型检测规则"""
-        return {
-            "新闻资讯": ["新闻", "资讯", "报道", "快讯", "时事", "热点", "头条"],
-            "教程指南": [
-                "教程",
-                "指南",
-                "学习",
-                "如何",
-                "步骤",
-                "方法",
-                "技巧",
-                "实战",
-            ],
-            "个人博客": ["博客", "日志", "随笔", "感悟", "分享", "思考", "心得"],
-            "产品介绍": [
-                "产品",
-                "服务",
-                "功能",
-                "特性",
-                "优势",
-                "价格",
-                "购买",
-                "下载",
-            ],
-            "技术文档": [
-                "文档",
-                "API",
-                "SDK",
-                "开发",
-                "技术",
-                "编程",
-                "代码",
-                "框架",
-                "库",
-            ],
-            "学术论文": [
-                "论文",
-                "研究",
-                "实验",
-                "结果",
-                "结论",
-                "摘要",
-                "引言",
-                "方法",
-                "分析",
-            ],
-            "娱乐资讯": [
-                "娱乐",
-                "明星",
-                "影视",
-                "音乐",
-                "综艺",
-                "游戏",
-                "动漫",
-                "追星",
-            ],
-            "体育新闻": [
-                "体育",
-                "足球",
-                "篮球",
-                "赛事",
-                "比赛",
-                "运动员",
-                "健身",
-                "运动",
-            ],
-            "教育资讯": [
-                "教育",
-                "培训",
-                "学校",
-                "课程",
-                "招生",
-                "升学",
-                "考试",
-                "留学",
-            ],
-            "商业分析": [
-                "商业",
-                "分析",
-                "市场",
-                "行业",
-                "趋势",
-                "报告",
-                "数据",
-                "调研",
-            ],
-        }
-
-    @staticmethod
-    def _match_content_type(
-        content_lower: str, content_type_rules: dict[str, list[str]]
-    ) -> str:
-        """匹配内容类型"""
-        for content_type, keywords in content_type_rules.items():
+        for content_type, keywords in CONTENT_TYPE_RULES.items():
             if any(keyword in content_lower for keyword in keywords):
                 return content_type
-        return "新闻资讯"
+        return "其他"

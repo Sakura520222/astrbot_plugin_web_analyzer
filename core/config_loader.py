@@ -557,7 +557,7 @@ class ConfigLoader:
         config_dict["analysis_mode"] = ConfigLoader._get_direct_value(
             config, "分析设置", "analysis_mode", "auto"
         )
-        config_dict["auto_analyze"] = config_dict["analysis_mode"] == "auto"
+        config_dict["auto_analyze"] = config_dict["analysis_mode"] in ("auto", "hybrid")
         config_dict["llmtool_url_strategy"] = ConfigLoader._get_direct_value(
             config, "分析设置", "llmtool_url_strategy", "auto_analyze"
         )
@@ -797,7 +797,9 @@ class ConfigLoader:
     def _validate_crop_area(crop_area_str: str, default_area: list) -> list:
         """验证和处理裁剪区域配置"""
         try:
-            crop_area = eval(crop_area_str)
+            import ast
+
+            crop_area = ast.literal_eval(crop_area_str)
             if isinstance(crop_area, list) and len(crop_area) == 4:
                 return crop_area
             else:
