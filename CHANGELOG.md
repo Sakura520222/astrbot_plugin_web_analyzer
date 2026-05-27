@@ -1,6 +1,6 @@
 # 更新日志
 
-### [v1.7.0] - 2026-05-15
+### [v1.6.4] - 2026-05-15
 
 #### ✨ 新功能
 
@@ -33,14 +33,14 @@
 
 #### 📁 文件修改
 
-- `main.py` - 新增浏览器管理命令处理器、版本升级至 v1.7.0
+- `main.py` - 新增浏览器管理命令处理器、版本升级至 v1.6.4
 - `core/analyzer.py` - 新增浏览器状态查询和卸载方法、修复浏览器检查标记作用域
 - `core/command_handlers.py` - 新增浏览器管理命令文档
 - `core/config_loader.py` - 代码格式化
 - `core/message_handler.py` - 代码格式化
 - `core/plugin_helpers.py` - 代码格式化
 - `core/utils.py` - 代码格式化
-- `metadata.yaml` - 版本升级至 v1.7.0
+- `metadata.yaml` - 版本升级至 v1.6.4
 - `wiki/Commands.md` - 新增浏览器管理命令文档
 
 ---

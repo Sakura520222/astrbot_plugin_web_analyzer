@@ -1892,7 +1892,7 @@ class WebAnalyzer:
                 logger.info(f"已关闭 {closed_count} 个浏览器实例")
 
                 # 3. 删除浏览器安装目录
-                install_path = self._get_browser_install_path()
+                install_path = self._get_browser_install_path(ensure_exists=False)
                 install_dir = Path(install_path)
                 deleted_files = False
 

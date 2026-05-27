@@ -31,7 +31,7 @@ from .core.utils import WebAnalyzerUtils
     "astrbot_plugin_web_analyzer",
     "Sakura520222",
     "自动识别网页链接，智能抓取解析内容，集成大语言模型进行深度分析和总结，支持网页截图、缓存机制和多种管理命令",
-    "1.7.0",
+    "1.6.4",
     "https://github.com/Sakura520222/astrbot_plugin_web_analyzer",
 )
 class WebAnalyzerPlugin(Star):
@@ -844,7 +844,7 @@ class WebAnalyzerPlugin(Star):
             return
 
         # 解析操作类型
-        action = message_parts[1].lower() if len(message_parts) > 1 else ""
+        action = message_parts[1].lower()
 
         # 清空缓存操作
         if action == "clear":
