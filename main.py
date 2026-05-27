@@ -31,7 +31,7 @@ from .core.utils import WebAnalyzerUtils
     "astrbot_plugin_web_analyzer",
     "Sakura520222",
     "自动识别网页链接，智能抓取解析内容，集成大语言模型进行深度分析和总结，支持网页截图、缓存机制和多种管理命令",
-    "1.6.3",
+    "1.6.4",
     "https://github.com/Sakura520222/astrbot_plugin_web_analyzer",
 )
 class WebAnalyzerPlugin(Star):
@@ -399,7 +399,9 @@ class WebAnalyzerPlugin(Star):
             if not url.startswith(("http://", "https://")):
                 url = f"{self.default_protocol}://{url}"
             normalized = self.analyzer.normalize_url(url)
-            if self.analyzer.is_valid_url(normalized) and PluginHelpers.is_domain_allowed(
+            if self.analyzer.is_valid_url(
+                normalized
+            ) and PluginHelpers.is_domain_allowed(
                 normalized, self.allowed_domains, self.blocked_domains
             ):
                 valid_urls.append(normalized)
@@ -501,7 +503,9 @@ class WebAnalyzerPlugin(Star):
             strategy = self.llmtool_url_strategy
             valid_strategies = ["auto_analyze", "llm_hint", "batch_tool"]
             if strategy not in valid_strategies:
-                logger.warning(f"无效的 llmtool_url_strategy: {strategy}, 使用默认值: auto_analyze")
+                logger.warning(
+                    f"无效的 llmtool_url_strategy: {strategy}, 使用默认值: auto_analyze"
+                )
                 strategy = "auto_analyze"
 
             if strategy == "auto_analyze":
@@ -513,16 +517,17 @@ class WebAnalyzerPlugin(Star):
                     message = f"检测到网页链接，正在分析: {allowed_urls[0]}"
                 else:
                     message = f"检测到{len(allowed_urls)}个网页链接，正在分析..."
-                processing_message_id, bot = (
-                    await MessageHelpers.send_processing_message(
-                        event,
-                        message,
-                        self.enable_recall,
-                        self.recall_type,
-                        self.recall_time_s,
-                        self.smart_recall_enabled,
-                        self.recall_tasks,
-                    )
+                (
+                    processing_message_id,
+                    bot,
+                ) = await MessageHelpers.send_processing_message(
+                    event,
+                    message,
+                    self.enable_recall,
+                    self.recall_type,
+                    self.recall_time_s,
+                    self.smart_recall_enabled,
+                    self.recall_tasks,
                 )
                 async for result in self._batch_process_urls(
                     event, allowed_urls, processing_message_id, bot
@@ -616,6 +621,14 @@ class WebAnalyzerPlugin(Star):
 📤 /web_export - 导出分析结果
    别名：/导出分析结果, /网页导出
    示例：/web_export
+
+📋 浏览器管理命令
+🌐 /web_browser [uninstall] - 管理 Playwright 浏览器
+   别名：/浏览器管理, /网页浏览器
+   选项：
+     - (空): 查看浏览器状态
+     - uninstall: 卸载浏览器
+   示例：/web_browser uninstall
 
 📋 测试功能命令
 📋 /test_merge - 测试合并转发功能
@@ -831,7 +844,7 @@ class WebAnalyzerPlugin(Star):
             return
 
         # 解析操作类型
-        action = message_parts[1].lower() if len(message_parts) > 1 else ""
+        action = message_parts[1].lower()
 
         # 清空缓存操作
         if action == "clear":
@@ -895,6 +908,65 @@ class WebAnalyzerPlugin(Star):
             logger.error(f"保存分析模式配置失败: {e}")
 
         yield event.plain_result(f"✅ 已切换到 {mode} 模式")
+
+    @filter.permission_type(filter.PermissionType.ADMIN)
+    @filter.command("web_browser", alias={"浏览器管理", "网页浏览器"})
+    async def manage_browser(self, event: AstrMessageEvent):
+        """管理插件自动安装的 Playwright 浏览器
+
+        支持查看浏览器状态、卸载浏览器等操作。
+        """
+        # 解析命令参数
+        message_parts = event.message_str.strip().split()
+
+        # 如果没有参数，显示浏览器状态
+        if len(message_parts) <= 1:
+            status = await self.analyzer.get_browser_status()
+
+            status_text = "**浏览器状态信息**\n\n"
+            status_text += (
+                f"- 安装状态: {'✅ 已安装' if status['installed'] else '❌ 未安装'}\n"
+            )
+
+            if status["installed"]:
+                status_text += f"- 浏览器路径: {status['install_path']}\n"
+                if status["install_time"]:
+                    status_text += f"- 安装时间: {status['install_time']}\n"
+                status_text += f"- 浏览器类型: {status['browser_type']}\n"
+
+            if status["install_dir_exists"]:
+                status_text += f"- 安装目录大小: {status['install_dir_size_mb']} MB\n"
+
+            status_text += f"- 浏览器实例池: {status['browser_pool_size']} 个实例\n"
+            status_text += f"- 正在安装: {'是' if status['is_installing'] else '否'}\n"
+
+            status_text += "\n使用 `/web_browser uninstall` 卸载浏览器"
+            status_text += "\n⚠️ 卸载后将无法使用截图功能，直到下次自动重新安装"
+
+            yield event.plain_result(status_text)
+            return
+
+        # 解析操作类型
+        action = message_parts[1].lower()
+
+        if action == "uninstall":
+            # 确认卸载（需要用户在命令中明确指定 uninstall）
+            result = await self.analyzer.uninstall_browser()
+
+            if result["success"]:
+                msg = result["message"]
+                if result["detail"]:
+                    msg += f"\n{result['detail']}"
+                msg += "\n\n💡 提示：下次使用截图功能时，浏览器将自动重新安装"
+                yield event.plain_result(msg)
+            else:
+                yield event.plain_result(f"❌ {result['message']}")
+            return
+
+        # 无效操作
+        yield event.plain_result(
+            "无效的操作，请使用: uninstall\n示例: /web_browser uninstall"
+        )
 
     @filter.command("web_export", alias={"导出分析结果", "网页导出"})
     async def export_analysis_result(self, event: AstrMessageEvent):
@@ -1348,7 +1420,14 @@ class WebAnalyzerPlugin(Star):
             except Exception as e:
                 error_type = PluginHelpers.get_error_type(e)
                 error_msg = PluginHelpers.handle_error(error_type, e, url)
-                results.append({"url": url, "result": error_msg, "screenshot": None, "has_screenshot": False})
+                results.append(
+                    {
+                        "url": url,
+                        "result": error_msg,
+                        "screenshot": None,
+                        "has_screenshot": False,
+                    }
+                )
             finally:
                 # 确保在任何情况下都从处理中集合移除URL
                 self.processing_urls.discard(url)

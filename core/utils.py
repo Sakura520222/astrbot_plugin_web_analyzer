@@ -71,7 +71,13 @@ class WebAnalyzerUtils:
         try:
             container_env = os.environ.get("container", "")
             # 仅匹配已知容器运行时标识，避免误判自定义环境
-            known_container_types = ("docker", "lxc", "lxc-libvirt", "systemd-nspawn", "podman")
+            known_container_types = (
+                "docker",
+                "lxc",
+                "lxc-libvirt",
+                "systemd-nspawn",
+                "podman",
+            )
             if container_env and container_env in known_container_types:
                 return True
             if os.path.exists("/run/systemd/container"):
@@ -94,7 +100,7 @@ class WebAnalyzerUtils:
         Returns:
             转义后的文本（{ → {{, } → }}）
         """
-        return text.replace('{', '{{').replace('}', '}}')
+        return text.replace("{", "{{").replace("}", "}}")
 
     @staticmethod
     def get_current_time() -> str:
@@ -305,10 +311,10 @@ class WebAnalyzerUtils:
         if not blocked_domains:
             return False
 
-        domain = domain.lower().rstrip('.')
+        domain = domain.lower().rstrip(".")
         for blocked_domain in blocked_domains:
-            blocked = blocked_domain.lower().rstrip('.')
-            if domain == blocked or domain.endswith('.' + blocked):
+            blocked = blocked_domain.lower().rstrip(".")
+            if domain == blocked or domain.endswith("." + blocked):
                 return True
         return False
 
@@ -325,10 +331,10 @@ class WebAnalyzerUtils:
         Returns:
             True表示在允许列表中，False表示不在
         """
-        domain = domain.lower().rstrip('.')
+        domain = domain.lower().rstrip(".")
         for allowed_domain in allowed_domains:
-            allowed = allowed_domain.lower().rstrip('.')
-            if domain == allowed or domain.endswith('.' + allowed):
+            allowed = allowed_domain.lower().rstrip(".")
+            if domain == allowed or domain.endswith("." + allowed):
                 return True
         return False
 

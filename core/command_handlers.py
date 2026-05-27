@@ -61,6 +61,14 @@ class CommandMixin:
    别名：/导出分析结果, /网页导出
    示例：/web_export
 
+📋 浏览器管理命令
+🌐 /web_browser [uninstall] - 管理 Playwright 浏览器
+   别名：/浏览器管理, /网页浏览器
+   选项：
+     - (空): 查看浏览器状态
+     - uninstall: 卸载浏览器
+   示例：/web_browser uninstall
+
 📋 测试功能命令
 📋 /test_merge - 测试合并转发功能
    别名：/测试合并转发, /测试转发

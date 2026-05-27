@@ -293,7 +293,12 @@ class MessageHandler:
         except Exception as e:
             error_type = ErrorHandler.get_error_type(e)
             error_msg = ErrorHandler.handle_error(error_type, e, url)
-            return {"url": url, "result": error_msg, "screenshot": None, "has_screenshot": False}
+            return {
+                "url": url,
+                "result": error_msg,
+                "screenshot": None,
+                "has_screenshot": False,
+            }
         finally:
             # 释放并发槽位
             self._release_concurrency_slot()
@@ -361,7 +366,9 @@ class MessageHandler:
             else:
                 # 截图失败 - 传递原始信息以便日志记录有意义的详情
                 error_msg = ErrorHandler.handle_error(
-                    ErrorType.SCREENSHOT_ERROR, Exception("截图生成失败：页面可能加载超时或渲染异常"), url
+                    ErrorType.SCREENSHOT_ERROR,
+                    Exception("截图生成失败：页面可能加载超时或渲染异常"),
+                    url,
                 )
                 return {
                     "url": url,
