@@ -246,12 +246,14 @@ class CommandMixin:
         try:
             # 将群聊列表转换为文本格式，每行一个群聊ID
             group_text = "\n".join(self.group_blacklist)
-            # 获取当前group_settings配置
-            group_settings = self.config.get("group_settings", {})
-            # 更新group_blacklist
+            # 保存到新配置格式路径：消息管理 > 群聊设置 > group_blacklist
+            msg_mgmt = self.config.setdefault("消息管理", {})
+            group_settings = msg_mgmt.setdefault("群聊设置", {})
             group_settings["group_blacklist"] = group_text
-            # 更新配置并保存到文件
-            self.config["group_settings"] = group_settings
+            # 同时更新旧格式路径以保持兼容性
+            old_group_settings = self.config.get("group_settings", {})
+            old_group_settings["group_blacklist"] = group_text
+            self.config["group_settings"] = old_group_settings
             self.config.save_config()
         except Exception as e:
             logger.error(f"保存群聊黑名单失败: {e}")

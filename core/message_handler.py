@@ -763,7 +763,7 @@ class MessageHandler:
 
         try:
             # 生成临时文件名
-            url_hash = hashlib.md5(url.encode("utf-8")).hexdigest()
+            url_hash = hashlib.sha256(url.encode("utf-8")).hexdigest()
             ext = f".{self.screenshot_format}"
             temp_path = os.path.join(
                 self.screenshot_temp_manager.temp_dir, f"{url_hash}{ext}"
@@ -966,7 +966,7 @@ class MessageHandler:
             import hashlib
 
             # 计算截图文件路径
-            url_hash = hashlib.md5(url.encode("utf-8")).hexdigest()
+            url_hash = hashlib.sha256(url.encode("utf-8")).hexdigest()
             screenshot_path = os.path.join(cache_dir, f"{url_hash}_screenshot.bin")
 
             # 检查文件是否存在
