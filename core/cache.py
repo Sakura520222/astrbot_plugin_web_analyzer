@@ -200,9 +200,9 @@ class CacheManager:
             content: 要计算哈希的内容
 
         Returns:
-            内容的MD5哈希值
+            内容的SHA-256哈希值
         """
-        return hashlib.md5(content.encode("utf-8")).hexdigest()
+        return hashlib.sha256(content.encode("utf-8")).hexdigest()
 
     def _get_cache_file_for_url(self, url: str, cache_files: list) -> str | None:
         """获取指定URL对应的缓存文件路径"""

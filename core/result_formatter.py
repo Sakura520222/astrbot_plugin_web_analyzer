@@ -6,6 +6,8 @@
 
 from datetime import datetime
 
+from .utils import WebAnalyzerUtils  # noqa: E402
+
 
 class ResultFormatter:
     """结果格式化器类"""
@@ -184,114 +186,7 @@ class ResultFormatter:
 
     def _detect_content_type(self, content: str) -> str:
         """智能检测内容类型"""
-        content_lower = content.lower()
-        rules = self._get_content_type_rules()
-
-        for type_name, keywords in rules.items():
-            if any(keyword in content_lower for keyword in keywords):
-                return type_name
-        return "文章"
-
-    def _get_content_type_rules(self) -> dict[str, list[str]]:
-        """获取内容类型检测规则"""
-        return {
-            "新闻资讯": [
-                "新闻",
-                "报道",
-                "消息",
-                "时事",
-                "快讯",
-                "头条",
-                "要闻",
-                "热点",
-                "事件",
-            ],
-            "教程指南": [
-                "教程",
-                "指南",
-                "教学",
-                "步骤",
-                "方法",
-                "如何",
-                "怎样",
-                "攻略",
-                "技巧",
-            ],
-            "个人博客": [
-                "博客",
-                "随笔",
-                "日记",
-                "个人",
-                "观点",
-                "感想",
-                "感悟",
-                "思考",
-                "分享",
-            ],
-            "产品介绍": [
-                "产品",
-                "服务",
-                "购买",
-                "价格",
-                "优惠",
-                "功能",
-                "特性",
-                "参数",
-                "规格",
-                "评测",
-            ],
-            "技术文档": ["技术", "开发", "编程", "代码", "API", "SDK", "文档", "说明"],
-            "学术论文": [
-                "论文",
-                "研究",
-                "实验",
-                "结论",
-                "摘要",
-                "关键词",
-                "引用",
-                "参考文献",
-            ],
-            "商业分析": [
-                "分析",
-                "报告",
-                "数据",
-                "统计",
-                "趋势",
-                "预测",
-                "市场",
-                "行业",
-            ],
-            "娱乐资讯": [
-                "娱乐",
-                "明星",
-                "电影",
-                "音乐",
-                "综艺",
-                "演唱会",
-                "首映",
-                "新歌",
-            ],
-            "体育新闻": [
-                "体育",
-                "比赛",
-                "赛事",
-                "比分",
-                "运动员",
-                "冠军",
-                "亚军",
-                "季军",
-            ],
-            "教育资讯": [
-                "教育",
-                "学校",
-                "招生",
-                "考试",
-                "培训",
-                "学习",
-                "课程",
-                "教材",
-            ],
-        }
+        return WebAnalyzerUtils.detect_content_type(content)
 
     def build_enhanced_analysis(self, content_data: dict) -> str:
         """构建增强版基础分析结果

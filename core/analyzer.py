@@ -1351,11 +1351,15 @@ class WebAnalyzer:
         Returns:
             tuple: (是否已安装, 浏览器路径或错误信息)
         """
+        import asyncio
         import os
         from pathlib import Path
 
-        # 优先检测系统已安装的浏览器
-        found, sys_path, sys_name = self._detect_system_browser()
+        # 优先检测系统已安装的浏览器（使用线程池避免阻塞事件循环）
+        loop = asyncio.get_event_loop()
+        found, sys_path, sys_name = await loop.run_in_executor(
+            None, self._detect_system_browser
+        )
         if found:
             self._system_browser_name = sys_name
             return True, sys_path
@@ -1696,31 +1700,7 @@ class WebAnalyzer:
         """
         import asyncio
 
-        # 检查浏览器是否已在类级别标记为已检查
-        if WebAnalyzer._playwright_browser_checked:
-            return
-
-        # 加载持久化的安装状态
-        install_status = self._load_install_status()
-
-        if install_status.get("installed", False):
-            saved_path = install_status.get("install_path", "")
-            logger.info(f"浏览器已安装（从持久化记录）: {saved_path or '未知路径'}")
-            # 恢复保存的浏览器路径
-            if saved_path:
-                import os
-
-                if os.path.isfile(saved_path):
-                    self._detected_browser_path = saved_path
-                    logger.debug(f"从持久化记录恢复浏览器路径: {saved_path}")
-                    WebAnalyzer._playwright_browser_checked = True
-                    return
-                else:
-                    logger.warning(f"保存的浏览器路径不存在: {saved_path}，将重新检测")
-                    # 清除失效的安装状态，继续走完整检测流程
-                    self._save_install_status({"installed": False})
-
-        # 先检查 playwright 是否已安装
+        # 先检查 playwright 是否已安装（模块级检查，无竞态）
         try:
             import importlib.util
 
@@ -1739,8 +1719,33 @@ class WebAnalyzer:
             logger.error(error_msg)
             raise ScreenshotError(error_msg) from None
 
-        # 获取安装锁，防止并发安装
+        # 获取安装锁，所有浏览器检查和安装状态的读写均在锁保护下
         async with WebAnalyzer._browser_install_lock:
+            # 检查浏览器是否已在类级别标记为已检查
+            if WebAnalyzer._playwright_browser_checked:
+                return
+
+            # 加载持久化的安装状态
+            install_status = self._load_install_status()
+
+            if install_status.get("installed", False):
+                saved_path = install_status.get("install_path", "")
+                logger.info(f"浏览器已安装（从持久化记录）: {saved_path or '未知路径'}")
+                # 恢复保存的浏览器路径
+                if saved_path:
+                    import os
+
+                    if os.path.isfile(saved_path):
+                        self._detected_browser_path = saved_path
+                        logger.debug(f"从持久化记录恢复浏览器路径: {saved_path}")
+                        WebAnalyzer._playwright_browser_checked = True
+                        return
+                    else:
+                        logger.warning(
+                            f"保存的浏览器路径不存在: {saved_path}，将重新检测"
+                        )
+                        # 清除失效的安装状态，继续走完整检测流程
+                        self._save_install_status({"installed": False})
             # 双重检查：可能在等待锁的过程中已被其他实例安装
             install_status = self._load_install_status()
             if install_status.get("installed", False):

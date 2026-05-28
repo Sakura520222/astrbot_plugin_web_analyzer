@@ -811,12 +811,14 @@ class WebAnalyzerPlugin(Star):
         try:
             # 将群聊列表转换为文本格式，每行一个群聊ID
             group_text = "\n".join(self.group_blacklist)
-            # 获取当前group_settings配置
-            group_settings = self.config.get("group_settings", {})
-            # 更新group_blacklist
+            # 保存到新配置格式路径：消息管理 > 群聊设置 > group_blacklist
+            msg_mgmt = self.config.setdefault("消息管理", {})
+            group_settings = msg_mgmt.setdefault("群聊设置", {})
             group_settings["group_blacklist"] = group_text
-            # 更新配置并保存到文件
-            self.config["group_settings"] = group_settings
+            # 同时更新旧格式路径以保持兼容性
+            old_group_settings = self.config.get("group_settings", {})
+            old_group_settings["group_blacklist"] = group_text
+            self.config["group_settings"] = old_group_settings
             self.config.save_config()
         except Exception as e:
             logger.error(f"保存群聊黑名单失败: {e}")
@@ -1937,4 +1939,41 @@ class WebAnalyzerPlugin(Star):
 
     async def terminate(self):
         """插件卸载时的清理工作"""
+        logger.info("网页分析插件正在卸载，执行资源清理...")
+
+        # 取消所有撤回任务
+        for task in self.recall_tasks:
+            if not task.done():
+                task.cancel()
+        self.recall_tasks.clear()
+
+        # 清空处理中的URL集合
+        self.processing_urls.clear()
+
+        # 关闭浏览器实例池
+        try:
+            while WebAnalyzer._browser_pool:
+                browser = WebAnalyzer._browser_pool.pop(0)
+                try:
+                    await browser.close()
+                except Exception:
+                    pass
+            logger.info("浏览器实例池已清空")
+        except Exception as e:
+            logger.debug(f"清理浏览器池时出错（可忽略）: {e}")
+
+        # 关闭HTTP客户端
+        try:
+            if hasattr(self, "analyzer") and self.analyzer.client:
+                await self.analyzer.client.aclose()
+        except Exception as e:
+            logger.debug(f"关闭HTTP客户端时出错（可忽略）: {e}")
+
+        # 清理截图临时文件
+        try:
+            if hasattr(self, "message_handler"):
+                await self.message_handler.screenshot_temp_manager.shutdown()
+        except Exception as e:
+            logger.debug(f"清理截图临时文件时出错（可忽略）: {e}")
+
         logger.info("网页分析插件已卸载")
