@@ -152,11 +152,11 @@ function renderCacheTable(items) {
       (item, idx) => `
     <tr>
       <td>${idx + 1}</td>
-      <td class="url-cell" title="${escapeHtml(item.url)}">${truncateUrl(item.url, 50)}</td>
+      <td class="url-cell" title="${escapeAttr(item.url)}">${truncateUrl(item.url, 50)}</td>
       <td><span class="badge badge-${item.expired ? "warning" : "success"}">${item.expired ? "已过期" : "有效"}</span></td>
       <td>${item.has_screenshot ? "📷" : "—"}</td>
       <td>${formatTime(item.timestamp)}</td>
-      <td><button class="btn btn-sm btn-danger btn-delete-cache" data-url="${escapeHtml(item.url)}">删除</button></td>
+      <td><button class="btn btn-sm btn-danger btn-delete-cache" data-url="${escapeAttr(item.url)}">删除</button></td>
     </tr>`
     )
     .join("");
@@ -200,7 +200,7 @@ function renderTagList(containerId, items, type) {
       (item) => `
     <span class="tag ${type === "blocked" ? "tag-danger" : "tag-success"}">
       ${escapeHtml(item)}
-      <span class="tag-remove" data-type="${type}" data-value="${escapeHtml(item)}">&times;</span>
+      <span class="tag-remove" data-type="${type}" data-value="${escapeAttr(item)}">&times;</span>
     </span>`
     )
     .join("");
@@ -242,7 +242,7 @@ function renderGroupList(items) {
       (item) => `
     <span class="tag tag-danger">
       ${escapeHtml(item)}
-      <span class="tag-remove" data-group-id="${escapeHtml(item)}">&times;</span>
+      <span class="tag-remove" data-group-id="${escapeAttr(item)}">&times;</span>
     </span>`
     )
     .join("");
@@ -284,7 +284,7 @@ function renderConfigForm(groups) {
         .map((section) => renderConfigSection(section))
         .join("");
       return `
-      <div class="config-group" data-group="${escapeHtml(group.name)}">
+      <div class="config-group" data-group="${escapeAttr(group.name)}">
         <div class="config-group-header">
           <h3>${escapeHtml(group.name)}</h3>
           <span class="config-group-hint">${escapeHtml(group.hint || group.description || "")}</span>
@@ -319,7 +319,7 @@ function renderConfigSection(section) {
     .join("");
 
   return `
-    <div class="config-section" data-section="${escapeHtml(section.name)}">
+    <div class="config-section" data-section="${escapeAttr(section.name)}">
       <div class="config-section-header">
         <h4 class="config-section-title">${escapeHtml(section.name)}</h4>
         <div class="config-section-actions">
@@ -338,9 +338,9 @@ function renderConfigField(field) {
   configOriginalValues[field.path] = field.value;
 
   return `
-    <div class="config-field" data-path="${escapeHtml(field.path)}">
+    <div class="config-field" data-path="${escapeAttr(field.path)}">
       <div class="config-field-header">
-        <label class="config-field-label" for="cfg-${escapeHtml(field.path)}">${escapeHtml(field.label)}</label>
+        <label class="config-field-label" for="cfg-${escapeAttr(field.path)}">${escapeHtml(field.label)}</label>
         ${field.hint ? `<span class="config-field-hint" title="${escapeHtml(field.hint)}">ℹ️</span>` : ""}
       </div>
       ${inputHtml}
@@ -359,7 +359,7 @@ function buildFieldInput(field) {
           `<option value="${escapeHtml(o)}" ${o === val ? "selected" : ""}>${escapeHtml(o)}</option>`
       )
       .join("");
-    return `<select class="config-input config-select" data-path="${escapeHtml(path)}" data-original="${escapeAttr(String(val))}">${opts}</select>`;
+    return `<select class="config-input config-select" data-path="${escapeAttr(path)}" data-original="${escapeAttr(String(val))}">${opts}</select>`;
   }
 
   // 布尔开关
@@ -367,7 +367,7 @@ function buildFieldInput(field) {
     return `
       <div class="config-toggle">
         <label>
-          <input type="checkbox" class="config-checkbox" data-path="${escapeHtml(path)}" data-original="${val ? "true" : "false"}" ${val ? "checked" : ""} />
+          <input type="checkbox" class="config-checkbox" data-path="${escapeAttr(path)}" data-original="${val ? "true" : "false"}" ${val ? "checked" : ""} />
           <span class="toggle-slider"></span>
           <span class="config-toggle-label">${val ? "已启用" : "已禁用"}</span>
         </label>
@@ -376,7 +376,7 @@ function buildFieldInput(field) {
 
   // 多行文本
   if (field.type === "text") {
-    return `<textarea class="config-input config-textarea" data-path="${escapeHtml(path)}" data-original="${escapeAttr(String(val))}" rows="3">${escapeHtml(String(val))}</textarea>`;
+    return `<textarea class="config-input config-textarea" data-path="${escapeAttr(path)}" data-original="${escapeAttr(String(val))}" rows="3">${escapeHtml(String(val))}</textarea>`;
   }
 
   // 数值输入
@@ -384,11 +384,11 @@ function buildFieldInput(field) {
     const step = field.type === "float" ? "0.1" : "1";
     const min = field.minimum !== undefined ? `min="${field.minimum}"` : "";
     const max = field.maximum !== undefined ? `max="${field.maximum}"` : "";
-    return `<input type="number" class="config-input" data-path="${escapeHtml(path)}" data-original="${escapeAttr(String(val))}" value="${escapeAttr(String(val))}" step="${step}" ${min} ${max} />`;
+    return `<input type="number" class="config-input" data-path="${escapeAttr(path)}" data-original="${escapeAttr(String(val))}" value="${escapeAttr(String(val))}" step="${step}" ${min} ${max} />`;
   }
 
   // 普通文本（包括 select_provider）
-  return `<input type="text" class="config-input" data-path="${escapeHtml(path)}" data-original="${escapeAttr(String(val ?? ""))}" value="${escapeAttr(String(val ?? ""))}" />`;
+  return `<input type="text" class="config-input" data-path="${escapeAttr(path)}" data-original="${escapeAttr(String(val ?? ""))}" value="${escapeAttr(String(val ?? ""))}" />`;
 }
 
 async function saveConfigSection(sectionEl) {

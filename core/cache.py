@@ -96,6 +96,9 @@ class CacheManager:
         if self.preload_enabled:
             self._preload_cache()
 
+        # 检测并清理使用旧哈希算法（MD5）生成的孤立缓存文件
+        self._cleanup_stale_cache_files()
+
     def _initialize_cache_dir(self, cache_dir: str | None) -> str:
         """初始化缓存目录
 
@@ -200,9 +203,9 @@ class CacheManager:
             content: 要计算哈希的内容
 
         Returns:
-            内容的MD5哈希值
+            内容的SHA-256哈希值
         """
-        return hashlib.md5(content.encode("utf-8")).hexdigest()
+        return hashlib.sha256(content.encode("utf-8")).hexdigest()
 
     def _get_cache_file_for_url(self, url: str, cache_files: list) -> str | None:
         """获取指定URL对应的缓存文件路径"""
@@ -661,6 +664,56 @@ class CacheManager:
             error_msg = f"清空磁盘缓存失败: {e}"
             logger.error(error_msg)
             raise CacheCleanupError(error_msg) from e
+
+    def _cleanup_stale_cache_files(self):
+        """清理磁盘上已过期且未加载到内存的孤立缓存文件
+
+        扫描缓存目录中的所有 JSON 和截图文件，跳过已加载到内存的条目，
+        删除修改时间超过 expire_time 的文件。这涵盖了旧版 MD5 哈希的孤立文件
+        以及因 preload_count 限制未加载但已过期的 SHA-256 文件。
+        """
+        try:
+            cache_files = [
+                f
+                for f in os.listdir(self.cache_dir)
+                if f.endswith(".json") or f.endswith("_screenshot.bin")
+            ]
+            if not cache_files:
+                return
+
+            # 收集已知有效的缓存文件（已加载到内存的）
+            known_hashes = set()
+            for url in self.memory_cache:
+                url_hash = hashlib.sha256(url.encode("utf-8")).hexdigest()[:32]
+                known_hashes.add(url_hash)
+
+            # 检查磁盘上的文件，删除不在内存中的过期文件
+            removed_count = 0
+            current_time = time.time()
+            for cache_file in cache_files:
+                file_path = os.path.join(self.cache_dir, cache_file)
+                # 跳过已知的有效缓存文件
+                file_hash = cache_file.replace(".json", "").replace(
+                    "_screenshot.bin", ""
+                )
+                if file_hash in known_hashes:
+                    continue
+
+                # 检查文件修改时间，只删除过期的孤立文件
+                file_mtime = os.path.getmtime(file_path)
+                if current_time - file_mtime > self.expire_time:
+                    os.remove(file_path)
+                    removed_count += 1
+
+            if removed_count > 0:
+                logger.info(
+                    f"已清理 {removed_count} 个过期的孤立缓存文件"
+                )
+        except Exception as e:
+            logger.warning(f"清理过期孤立缓存文件时出错（可忽略）: {e}")
+
+    # 向后兼容旧名称，将在后续版本移除
+    _cleanup_legacy_cache_files = _cleanup_stale_cache_files
 
     def _clean_expired_cache(self):
         """清理所有已过期的缓存

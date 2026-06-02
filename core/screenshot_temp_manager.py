@@ -157,11 +157,11 @@ class ScreenshotTempManager:
             url: 网页 URL
 
         Returns:
-            URL 的 MD5 哈希值
+            URL 的 SHA-256 哈希值
         """
         import hashlib
 
-        return hashlib.md5(url.encode("utf-8")).hexdigest()
+        return hashlib.sha256(url.encode("utf-8")).hexdigest()
 
     def _update_lru_cache(self, url_hash: str):
         """更新 LRU 缓存顺序

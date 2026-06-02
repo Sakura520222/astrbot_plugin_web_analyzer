@@ -5,6 +5,7 @@
 支持新旧配置格式的兼容性映射。
 """
 
+import ast
 import sys
 from pathlib import Path
 from typing import Any
@@ -460,22 +461,101 @@ class ConfigLoader:
             return default
 
     @staticmethod
+    def _safe_int(value, default: int, min_val: int = None, max_val: int = None) -> int:
+        """安全地将值转换为整数，支持边界验证
+
+        Args:
+            value: 要转换的值
+            default: 转换失败或超出范围时的默认值（必填，强制调用方明确处理失败情况）
+            min_val: 最小值（含），低于此值使用默认值
+            max_val: 最大值（含），高于此值使用默认值
+
+        Returns:
+            转换后的整数值
+        """
+        try:
+            result = int(value)
+        except (TypeError, ValueError):
+            return default
+        if min_val is not None and result < min_val:
+            logger.warning(
+                f"配置值 {result} 低于最小值 {min_val}，将使用默认值 {default}"
+            )
+            return default
+        if max_val is not None and result > max_val:
+            logger.warning(
+                f"配置值 {result} 超过最大值 {max_val}，将使用默认值 {default}"
+            )
+            return default
+        return result
+
+    @staticmethod
+    def _safe_float(
+        value, default: float, min_val: float = None, max_val: float = None
+    ) -> float:
+        """安全地将值转换为浮点数，支持边界验证
+
+        Args:
+            value: 要转换的值
+            default: 转换失败或超出范围时的默认值（必填，强制调用方明确处理失败情况）
+            min_val: 最小值（含），低于此值使用默认值
+            max_val: 最大值（含），高于此值使用默认值
+
+        Returns:
+            转换后的浮点数值，转换失败时返回默认值
+        """
+        try:
+            result = float(value)
+        except (TypeError, ValueError):
+            return default
+        if min_val is not None and result < min_val:
+            logger.warning(
+                f"配置值 {result} 低于最小值 {min_val}，将使用默认值 {default}"
+            )
+            return default
+        if max_val is not None and result > max_val:
+            logger.warning(
+                f"配置值 {result} 超过最大值 {max_val}，将使用默认值 {default}"
+            )
+            return default
+        return result
+
+    @staticmethod
     def _load_basic_settings(config: dict) -> dict:
         """加载基础设置（网络、域名、缓存、资源）"""
         config_dict = {}
 
         # 网络设置
-        config_dict["max_content_length"] = ConfigLoader._get_nested_value(
-            config, "基础设置", "网络设置", "max_content_length", 10000
+        config_dict["max_content_length"] = ConfigLoader._safe_int(
+            ConfigLoader._get_nested_value(
+                config, "基础设置", "网络设置", "max_content_length", 10000
+            ),
+            10000,
+            min_val=1000,
         )
-        config_dict["request_timeout_s"] = ConfigLoader._get_nested_value(
-            config, "基础设置", "网络设置", "request_timeout_s", 30
+        config_dict["request_timeout_s"] = ConfigLoader._safe_int(
+            ConfigLoader._get_nested_value(
+                config, "基础设置", "网络设置", "request_timeout_s", 30
+            ),
+            30,
+            min_val=5,
+            max_val=300,
         )
-        config_dict["retry_count"] = ConfigLoader._get_nested_value(
-            config, "基础设置", "网络设置", "retry_count", 3
+        config_dict["retry_count"] = ConfigLoader._safe_int(
+            ConfigLoader._get_nested_value(
+                config, "基础设置", "网络设置", "retry_count", 3
+            ),
+            3,
+            min_val=0,
+            max_val=10,
         )
-        config_dict["retry_delay_s"] = ConfigLoader._get_nested_value(
-            config, "基础设置", "网络设置", "retry_delay_s", 2
+        config_dict["retry_delay_s"] = ConfigLoader._safe_int(
+            ConfigLoader._get_nested_value(
+                config, "基础设置", "网络设置", "retry_delay_s", 2
+            ),
+            2,
+            min_val=0,
+            max_val=10,
         )
         config_dict["user_agent"] = ConfigLoader._get_nested_value(
             config, "基础设置", "网络设置", "user_agent", "Mozilla/5.0"
@@ -487,8 +567,13 @@ class ConfigLoader:
         config_dict["hide_ip"] = ConfigLoader._get_nested_value(
             config, "基础设置", "网络设置", "hide_ip", False
         )
-        config_dict["max_concurrency"] = ConfigLoader._get_nested_value(
-            config, "基础设置", "网络设置", "max_concurrency", 5
+        config_dict["max_concurrency"] = ConfigLoader._safe_int(
+            ConfigLoader._get_nested_value(
+                config, "基础设置", "网络设置", "max_concurrency", 5
+            ),
+            5,
+            min_val=1,
+            max_val=20,
         )
         config_dict["fetch_mode"] = ConfigLoader._get_nested_value(
             config, "基础设置", "网络设置", "fetch_mode", "httpx"
@@ -515,25 +600,42 @@ class ConfigLoader:
         config_dict["enable_cache"] = ConfigLoader._get_nested_value(
             config, "基础设置", "缓存设置", "enable_cache", True
         )
-        config_dict["cache_expire_time_min"] = ConfigLoader._get_nested_value(
-            config, "基础设置", "缓存设置", "cache_expire_time_min", 1440
+        config_dict["cache_expire_time_min"] = ConfigLoader._safe_int(
+            ConfigLoader._get_nested_value(
+                config, "基础设置", "缓存设置", "cache_expire_time_min", 1440
+            ),
+            1440,
+            min_val=5,
         )
-        config_dict["max_cache_size"] = ConfigLoader._get_nested_value(
-            config, "基础设置", "缓存设置", "max_cache_size", 100
+        config_dict["max_cache_size"] = ConfigLoader._safe_int(
+            ConfigLoader._get_nested_value(
+                config, "基础设置", "缓存设置", "max_cache_size", 100
+            ),
+            100,
+            min_val=10,
         )
         config_dict["cache_preload_enabled"] = ConfigLoader._get_nested_value(
             config, "基础设置", "缓存设置", "cache_preload_enabled", False
         )
-        config_dict["cache_preload_count"] = ConfigLoader._get_nested_value(
-            config, "基础设置", "缓存设置", "cache_preload_count", 20
+        config_dict["cache_preload_count"] = ConfigLoader._safe_int(
+            ConfigLoader._get_nested_value(
+                config, "基础设置", "缓存设置", "cache_preload_count", 20
+            ),
+            20,
+            min_val=0,
         )
 
         # 资源管理
         config_dict["enable_memory_monitor"] = ConfigLoader._get_nested_value(
             config, "基础设置", "资源管理", "enable_memory_monitor", True
         )
-        config_dict["memory_threshold_percent"] = ConfigLoader._get_nested_value(
-            config, "基础设置", "资源管理", "memory_threshold_percent", 80.0
+        config_dict["memory_threshold_percent"] = ConfigLoader._safe_float(
+            ConfigLoader._get_nested_value(
+                config, "基础设置", "资源管理", "memory_threshold_percent", 80.0
+            ),
+            80.0,
+            min_val=0.0,
+            max_val=100.0,
         )
 
         # 浏览器设置
@@ -641,12 +743,21 @@ class ConfigLoader:
         config_dict["enable_screenshot"] = ConfigLoader._get_nested_value(
             config, "展示设置", "网页截图", "enable_screenshot", True
         )
-        config_dict["screenshot_quality"] = ConfigLoader._get_nested_value(
-            config, "展示设置", "网页截图", "screenshot_quality", 80
+        config_dict["screenshot_quality"] = ConfigLoader._safe_int(
+            ConfigLoader._get_nested_value(
+                config, "展示设置", "网页截图", "screenshot_quality", 80
+            ),
+            80,
+            min_val=10,
+            max_val=100,
         )
         size_sub = config.get("展示设置", {}).get("网页截图", {}).get("截图尺寸", {})
-        config_dict["screenshot_width"] = size_sub.get("screenshot_width", 1280)
-        config_dict["screenshot_height"] = size_sub.get("screenshot_height", 720)
+        config_dict["screenshot_width"] = ConfigLoader._safe_int(
+            size_sub.get("screenshot_width", 1280), 1280, min_val=320, max_val=4096
+        )
+        config_dict["screenshot_height"] = ConfigLoader._safe_int(
+            size_sub.get("screenshot_height", 720), 720, min_val=240, max_val=4096
+        )
         config_dict["screenshot_full_page"] = ConfigLoader._get_nested_value(
             config, "展示设置", "网页截图", "screenshot_full_page", False
         )
@@ -797,7 +908,7 @@ class ConfigLoader:
     def _validate_crop_area(crop_area_str: str, default_area: list) -> list:
         """验证和处理裁剪区域配置"""
         try:
-            crop_area = eval(crop_area_str)
+            crop_area = ast.literal_eval(crop_area_str)
             if isinstance(crop_area, list) and len(crop_area) == 4:
                 return crop_area
             else:
