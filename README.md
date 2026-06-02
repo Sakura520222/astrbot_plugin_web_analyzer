@@ -251,6 +251,11 @@ astrbot_plugin_web_analyzer/
 ├── docs/                      # 额外文档资源
 │   └── command_handlers_guide.md  # 命令处理详细指南
 │
+├── pages/dashboard/           # WebUI 管理面板
+│   ├── index.html             # 面板页面结构
+│   ├── app.js                 # 面板交互逻辑
+│   └── style.css              # 面板样式
+│
 └── data/                      # 插件运行时数据存储目录
     └── (运行时自动生成)
 ```
