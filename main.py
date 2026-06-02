@@ -45,6 +45,7 @@ class WebAnalyzerPlugin(Star):
         """插件初始化方法，负责加载、验证和初始化所有配置项"""
         super().__init__(context)
         self.config = config
+        self._cached_schema = None  # schema 缓存，避免重复磁盘读取
 
         # 使用配置加载器加载所有配置
         config_dict = ConfigLoader.load_all_config(config, context)
@@ -1735,14 +1736,21 @@ class WebAnalyzerPlugin(Star):
             },
         })
 
+    def _load_schema(self) -> dict:
+        """加载并缓存 _conf_schema.json（运行时不会变化）"""
+        if self._cached_schema is not None:
+            return self._cached_schema
+        schema_path = os.path.join(os.path.dirname(__file__), "_conf_schema.json")
+        with open(schema_path, encoding="utf-8") as f:
+            self._cached_schema = json.load(f)
+        return self._cached_schema
+
     async def _api_config_schema(self):
         """获取配置 schema 及当前值，用于编辑表单"""
 
         from quart import jsonify
 
-        schema_path = os.path.join(os.path.dirname(__file__), "_conf_schema.json")
-        with open(schema_path, encoding="utf-8") as f:
-            schema = json.load(f)
+        schema = self._load_schema()
 
         groups = []
         for group_name, group_data in schema.items():
@@ -1888,13 +1896,21 @@ class WebAnalyzerPlugin(Star):
                             v.strip() for v in new_value.split("\n") if v.strip()
                         ]
 
-                # 数值范围验证
-                range_error = self._validate_value_range(
-                    attr_name, new_value, schema_fields.get(leaf_key)
-                )
+                # 数值范围验证（使用完整路径查找约束）
+                schema_def = schema_fields.get(path_str)
+                range_error = self._validate_value_range(new_value, schema_def)
                 if range_error:
                     errors.append({"path": path_str, "error": range_error})
                     continue
+
+                # 选项值验证（防止 select 类型字段接受非法选项）
+                if schema_def and "options" in schema_def and not isinstance(new_value, list):
+                    if new_value not in schema_def["options"]:
+                        errors.append({
+                            "path": path_str,
+                            "error": f"值 '{new_value}' 不在允许选项 {schema_def['options']} 中",
+                        })
+                        continue
 
                 # 更新实例属性
                 setattr(self, attr_name, new_value)
@@ -1934,16 +1950,13 @@ class WebAnalyzerPlugin(Star):
         })
 
     def _load_schema_field_map(self) -> dict:
-        """从 _conf_schema.json 加载字段映射，用于范围验证
+        """加载字段约束映射，用于范围和选项验证
 
         Returns:
-            字段名到 schema 定义的字典 {key: {"minimum": ..., "maximum": ...}}
+            全路径到 schema 约束的字典 {path: {"minimum": ..., "maximum": ..., "options": [...]}}
         """
         try:
-            schema_path = os.path.join(os.path.dirname(__file__), "_conf_schema.json")
-            with open(schema_path, encoding="utf-8") as f:
-                schema = json.load(f)
-
+            schema = self._load_schema()
             field_map = {}
             self._collect_schema_ranges(schema, field_map)
             return field_map
@@ -1951,26 +1964,30 @@ class WebAnalyzerPlugin(Star):
             logger.warning(f"加载 schema 字段映射失败: {e}")
             return {}
 
-    def _collect_schema_ranges(self, items: dict, field_map: dict):
-        """递归收集 schema 中的数值范围约束"""
+    def _collect_schema_ranges(self, items: dict, field_map: dict, path: list | None = None):
+        """递归收集 schema 中的数值范围和选项约束，使用完整路径作为键"""
+        path = path or []
         for key, item_data in items.items():
             if not isinstance(item_data, dict):
                 continue
-            if "minimum" in item_data or "maximum" in item_data:
-                field_map[key] = {}
-                if "minimum" in item_data:
-                    field_map[key]["minimum"] = item_data["minimum"]
-                if "maximum" in item_data:
-                    field_map[key]["maximum"] = item_data["maximum"]
+            full_key = ".".join(path + [key])
+            constraints = {}
+            if "minimum" in item_data:
+                constraints["minimum"] = item_data["minimum"]
+            if "maximum" in item_data:
+                constraints["maximum"] = item_data["maximum"]
+            if "options" in item_data:
+                constraints["options"] = item_data["options"]
+            if constraints:
+                field_map[full_key] = constraints
             if "items" in item_data and isinstance(item_data["items"], dict):
-                self._collect_schema_ranges(item_data["items"], field_map)
+                self._collect_schema_ranges(item_data["items"], field_map, path + [key])
 
     @staticmethod
-    def _validate_value_range(attr_name: str, value, schema_def: dict) -> str | None:
+    def _validate_value_range(value, schema_def: dict) -> str | None:
         """验证数值是否在 schema 定义的范围内
 
         Args:
-            attr_name: 配置属性名
             value: 待验证的值
             schema_def: schema 中的字段定义（包含 minimum/maximum）
 

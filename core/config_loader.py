@@ -491,13 +491,13 @@ class ConfigLoader:
 
     @staticmethod
     def _safe_float(
-        value, default: float = None, min_val: float = None, max_val: float = None
-    ) -> float | None:
+        value, default: float, min_val: float = None, max_val: float = None
+    ) -> float:
         """安全地将值转换为浮点数，支持边界验证
 
         Args:
             value: 要转换的值
-            default: 转换失败时的默认值
+            default: 转换失败或超出范围时的默认值（必填，强制调用方明确处理失败情况）
             min_val: 最小值（含），低于此值使用默认值
             max_val: 最大值（含），高于此值使用默认值
 

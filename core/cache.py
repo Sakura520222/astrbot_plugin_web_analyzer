@@ -97,7 +97,7 @@ class CacheManager:
             self._preload_cache()
 
         # 检测并清理使用旧哈希算法（MD5）生成的孤立缓存文件
-        self._cleanup_legacy_cache_files()
+        self._cleanup_stale_cache_files()
 
     def _initialize_cache_dir(self, cache_dir: str | None) -> str:
         """初始化缓存目录
@@ -665,12 +665,12 @@ class CacheManager:
             logger.error(error_msg)
             raise CacheCleanupError(error_msg) from e
 
-    def _cleanup_legacy_cache_files(self):
-        """检测并清理使用旧哈希算法（MD5，32字符hex）生成的孤立缓存文件
+    def _cleanup_stale_cache_files(self):
+        """清理磁盘上已过期且未加载到内存的孤立缓存文件
 
-        SHA-256 哈希的前32位用于文件名，与旧版 MD5 哈希文件名长度相同（32字符），
-        但 SHA-256 文件名对应的 JSON 文件中包含有效的 url 字段。
-        此方法扫描磁盘缓存文件，删除无法加载到内存的孤立文件。
+        扫描缓存目录中的所有 JSON 和截图文件，跳过已加载到内存的条目，
+        删除修改时间超过 expire_time 的文件。这涵盖了旧版 MD5 哈希的孤立文件
+        以及因 preload_count 限制未加载但已过期的 SHA-256 文件。
         """
         try:
             cache_files = [
@@ -707,10 +707,10 @@ class CacheManager:
 
             if removed_count > 0:
                 logger.info(
-                    f"已清理 {removed_count} 个过期的孤立缓存文件（可能来自旧版哈希算法）"
+                    f"已清理 {removed_count} 个过期的孤立缓存文件"
                 )
         except Exception as e:
-            logger.warning(f"清理旧版缓存文件时出错（可忽略）: {e}")
+            logger.warning(f"清理过期孤立缓存文件时出错（可忽略）: {e}")
 
     def _clean_expired_cache(self):
         """清理所有已过期的缓存
