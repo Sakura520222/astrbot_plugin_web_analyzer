@@ -552,4 +552,4 @@ class WebAnalyzerUtils:
         for content_type, keywords in content_type_rules.items():
             if any(keyword in content_lower for keyword in keywords):
                 return content_type
-        return "新闻资讯"
+        return "文章"

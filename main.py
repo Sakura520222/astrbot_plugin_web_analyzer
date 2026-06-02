@@ -7,8 +7,12 @@ AstrBot 网页分析插件 - 重构版本
 本版本使用核心模块重构，遵循 PEP 8 规范。
 """
 
+import json
+import os
 import re
+import time
 from typing import Any
+from urllib.parse import urlparse
 
 from astrbot.api import AstrBotConfig, logger
 from astrbot.api.event import AstrMessageEvent, filter
@@ -31,7 +35,7 @@ from .core.utils import WebAnalyzerUtils
     "astrbot_plugin_web_analyzer",
     "Sakura520222",
     "自动识别网页链接，智能抓取解析内容，集成大语言模型进行深度分析和总结，支持网页截图、缓存机制和多种管理命令",
-    "1.6.5",
+    "1.6.6",
     "https://github.com/Sakura520222/astrbot_plugin_web_analyzer",
 )
 class WebAnalyzerPlugin(Star):
@@ -41,6 +45,7 @@ class WebAnalyzerPlugin(Star):
         """插件初始化方法，负责加载、验证和初始化所有配置项"""
         super().__init__(context)
         self.config = config
+        self._cached_schema = None  # schema 缓存，避免重复磁盘读取
 
         # 使用配置加载器加载所有配置
         config_dict = ConfigLoader.load_all_config(config, context)
@@ -811,12 +816,14 @@ class WebAnalyzerPlugin(Star):
         try:
             # 将群聊列表转换为文本格式，每行一个群聊ID
             group_text = "\n".join(self.group_blacklist)
-            # 获取当前group_settings配置
-            group_settings = self.config.get("group_settings", {})
-            # 更新group_blacklist
+            # 保存到新配置格式路径：消息管理 > 群聊设置 > group_blacklist
+            msg_mgmt = self.config.setdefault("消息管理", {})
+            group_settings = msg_mgmt.setdefault("群聊设置", {})
             group_settings["group_blacklist"] = group_text
-            # 更新配置并保存到文件
-            self.config["group_settings"] = group_settings
+            # 同时更新旧格式路径以保持兼容性
+            old_group_settings = self.config.get("group_settings", {})
+            old_group_settings["group_blacklist"] = group_text
+            self.config["group_settings"] = old_group_settings
             self.config.save_config()
         except Exception as e:
             logger.error(f"保存群聊黑名单失败: {e}")
@@ -974,9 +981,6 @@ class WebAnalyzerPlugin(Star):
     @filter.command("web_export", alias={"导出分析结果", "网页导出"})
     async def export_analysis_result(self, event: AstrMessageEvent):
         """导出网页分析结果"""
-        import json
-        import os
-        import time
 
         # 解析命令参数
         message_parts = event.message_str.strip().split()
@@ -1089,7 +1093,6 @@ class WebAnalyzerPlugin(Star):
             if len(export_results) == 1:
                 # 单个URL导出，使用域名作为文件名的一部分
                 url_obj = export_results[0]["url"]
-                from urllib.parse import urlparse
 
                 parsed = urlparse(url_obj)
                 domain = parsed.netloc.replace(".", "_")
@@ -1623,11 +1626,11 @@ class WebAnalyzerPlugin(Star):
     def _save_domain_config(self):
         """保存域名配置到配置文件"""
         try:
-            domain_config = self.config.get("domain_management", {})
+            base = self.config.setdefault("基础设置", {})
+            domain_config = base.setdefault("域名管理", {})
             domain_config["enable_unified_domain"] = self.enable_unified_domain
             domain_config["allowed_domains"] = "\n".join(self.allowed_domains)
             domain_config["blocked_domains"] = "\n".join(self.blocked_domains)
-            self.config["domain_management"] = domain_config
             self.config.save_config()
         except Exception as e:
             logger.error(f"保存域名配置失败: {e}")
@@ -1733,16 +1736,25 @@ class WebAnalyzerPlugin(Star):
             },
         })
 
+    def _load_schema(self) -> dict:
+        """加载并缓存 _conf_schema.json
+
+        Schema 文件随插件一起部署，运行时不会变化；配置热重载会重启插件，
+        因此首次加载后缓存是安全的，可避免每次 API 调用重复读取磁盘。
+        """
+        if self._cached_schema is not None:
+            return self._cached_schema
+        schema_path = os.path.join(os.path.dirname(__file__), "_conf_schema.json")
+        with open(schema_path, encoding="utf-8") as f:
+            self._cached_schema = json.load(f)
+        return self._cached_schema
+
     async def _api_config_schema(self):
         """获取配置 schema 及当前值，用于编辑表单"""
-        import json
-        import os
 
         from quart import jsonify
 
-        schema_path = os.path.join(os.path.dirname(__file__), "_conf_schema.json")
-        with open(schema_path, "r", encoding="utf-8") as f:
-            schema = json.load(f)
+        schema = self._load_schema()
 
         groups = []
         for group_name, group_data in schema.items():
@@ -1846,6 +1858,9 @@ class WebAnalyzerPlugin(Star):
         if not updates:
             return jsonify({"error": "没有需要更新的配置项"}), 400
 
+        # 加载 schema 以获取字段定义和范围约束
+        schema_fields = self._load_schema_field_map()
+
         applied = []
         errors = []
 
@@ -1855,11 +1870,25 @@ class WebAnalyzerPlugin(Star):
             attr_name = self._SCHEMA_KEY_TO_ATTR.get(leaf_key, leaf_key)
 
             try:
+                # 白名单验证：确保 attr_name 是已知的配置属性
+                known_attrs = {
+                    k
+                    for k in vars(self).keys()
+                    if not k.startswith("_") and k != "config"
+                }
+                if attr_name not in known_attrs:
+                    errors.append({"path": path_str, "error": f"未知配置项: {attr_name}"})
+                    continue
+
                 old_value = getattr(self, attr_name, None)
 
-                # 根据原值类型进行转换
+                # 根据原值类型进行安全转换
                 if isinstance(old_value, bool):
-                    new_value = bool(new_value)
+                    # 安全的布尔转换：字符串 "false"/"0" 等应转为 False
+                    if isinstance(new_value, str):
+                        new_value = new_value.lower() in ("true", "1", "yes", "on")
+                    else:
+                        new_value = bool(new_value)
                 elif isinstance(old_value, int) and not isinstance(old_value, bool):
                     new_value = int(new_value)
                 elif isinstance(old_value, float):
@@ -1870,6 +1899,23 @@ class WebAnalyzerPlugin(Star):
                         new_value = [
                             v.strip() for v in new_value.split("\n") if v.strip()
                         ]
+
+                # 数值范围验证（使用完整路径查找约束）
+                schema_def = schema_fields.get(path_str)
+                range_error = self._validate_value_range(new_value, schema_def)
+                if range_error:
+                    errors.append({"path": path_str, "error": range_error})
+                    continue
+
+                # 选项值验证（防止 select 类型字段接受非法选项）
+                # 仅校验单值类型（string/number），列表类型（如域名列表）不属于 select 字段
+                if schema_def and "options" in schema_def and not isinstance(new_value, list):
+                    if new_value not in schema_def["options"]:
+                        errors.append({
+                            "path": path_str,
+                            "error": f"值 '{new_value}' 不在允许选项 {schema_def['options']} 中",
+                        })
+                        continue
 
                 # 更新实例属性
                 setattr(self, attr_name, new_value)
@@ -1908,6 +1954,65 @@ class WebAnalyzerPlugin(Star):
             "errors": errors,
         })
 
+    def _load_schema_field_map(self) -> dict:
+        """加载字段约束映射，用于范围和选项验证
+
+        Returns:
+            全路径到 schema 约束的字典 {path: {"minimum": ..., "maximum": ..., "options": [...]}}
+        """
+        try:
+            schema = self._load_schema()
+            field_map = {}
+            self._collect_schema_ranges(schema, field_map)
+            return field_map
+        except Exception as e:
+            logger.warning(f"加载 schema 字段映射失败: {e}")
+            return {}
+
+    def _collect_schema_ranges(self, items: dict, field_map: dict, path: list | None = None):
+        """递归收集 schema 中的数值范围和选项约束，使用完整路径作为键"""
+        path = path or []
+        for key, item_data in items.items():
+            if not isinstance(item_data, dict):
+                continue
+            full_key = ".".join(path + [key])
+            constraints = {}
+            if "minimum" in item_data:
+                constraints["minimum"] = item_data["minimum"]
+            if "maximum" in item_data:
+                constraints["maximum"] = item_data["maximum"]
+            if "options" in item_data:
+                constraints["options"] = item_data["options"]
+            if constraints:
+                field_map[full_key] = constraints
+            if "items" in item_data and isinstance(item_data["items"], dict):
+                self._collect_schema_ranges(item_data["items"], field_map, path + [key])
+
+    @staticmethod
+    def _validate_value_range(value, schema_def: dict) -> str | None:
+        """验证数值是否在 schema 定义的范围内
+
+        Args:
+            value: 待验证的值
+            schema_def: schema 中的字段定义（包含 minimum/maximum）
+
+        Returns:
+            错误信息字符串，如果验证通过则返回 None
+        """
+        if schema_def is None or not isinstance(value, (int, float)):
+            return None
+
+        if "minimum" in schema_def and value < schema_def["minimum"]:
+            return (
+                f"配置值 {value} 低于最小值 {schema_def['minimum']}"
+            )
+        if "maximum" in schema_def and value > schema_def["maximum"]:
+            return (
+                f"配置值 {value} 超过最大值 {schema_def['maximum']}"
+            )
+
+        return None
+
     def _set_nested_config(self, path_parts, value):
         """在嵌套的 config 对象中设置值"""
         obj = self.config
@@ -1937,4 +2042,54 @@ class WebAnalyzerPlugin(Star):
 
     async def terminate(self):
         """插件卸载时的清理工作"""
+        logger.info("网页分析插件正在卸载，执行资源清理...")
+
+        # 设置关闭标志，阻止新的浏览器操作
+        WebAnalyzer._shutting_down = True
+
+        # 取消所有撤回任务
+        for task in self.recall_tasks:
+            if not task.done():
+                task.cancel()
+        self.recall_tasks.clear()
+
+        # 清空处理中的URL集合
+        self.processing_urls.clear()
+
+        # 关闭浏览器实例池（在锁保护下操作，避免与正在使用实例冲突）
+        try:
+            lock = WebAnalyzer._browser_lock
+            if lock:
+                async with lock:
+                    await self._close_browser_pool()
+            else:
+                await self._close_browser_pool()
+        except Exception as e:
+            logger.debug(f"清理浏览器池时出错（可忽略）: {e}")
+
+        # 关闭HTTP客户端
+        try:
+            if hasattr(self, "analyzer") and self.analyzer.client:
+                await self.analyzer.client.aclose()
+        except Exception as e:
+            logger.debug(f"关闭HTTP客户端时出错（可忽略）: {e}")
+
+        # 清理截图临时文件
+        try:
+            if hasattr(self, "message_handler"):
+                await self.message_handler.screenshot_temp_manager.shutdown()
+        except Exception as e:
+            logger.debug(f"清理截图临时文件时出错（可忽略）: {e}")
+
         logger.info("网页分析插件已卸载")
+
+    async def _close_browser_pool(self):
+        """关闭浏览器实例池中的所有浏览器实例"""
+        while WebAnalyzer._browser_pool:
+            browser = WebAnalyzer._browser_pool.pop(0)
+            try:
+                if browser.is_connected():
+                    await browser.close()
+            except Exception:
+                pass
+        logger.info("浏览器实例池已清空")

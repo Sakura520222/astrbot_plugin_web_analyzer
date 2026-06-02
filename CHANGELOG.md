@@ -1,5 +1,40 @@
 # 更新日志
 
+### [v1.6.6] - 2026-06-02
+
+#### 🔒 安全增强
+
+- **新增配置 API 选项值白名单校验** (`main.py`)
+  - `_api_config_update` 新增 `options` 约束验证，`select` 类型字段（如 `fetch_mode`、`sandbox_mode`、`analysis_mode` 等）仅接受 `_conf_schema.json` 中定义的合法选项
+  - 防止攻击者通过 API 直接提交非法选项值导致功能异常
+
+#### 🎨 代码重构
+
+- **Schema 字段映射改用完整路径作为键** (`main.py`)
+  - `_collect_schema_ranges` 使用完整路径（如 `消息管理.合并转发.group`）替代扁平字段名作为 `field_map` 键，消除不同层级同名字段的潜在键冲突
+  - 同步收集 `options` 约束，为选项校验提供数据源
+- **Schema JSON 缓存机制** (`main.py`)
+  - 新增 `_load_schema()` 方法，首次调用后将 schema 缓存到实例属性 `_cached_schema`
+  - `_api_config_schema` 和 `_load_schema_field_map` 共用缓存，避免每次 API 调用重复读取磁盘
+- **移除 `_validate_value_range` 未使用的 `attr_name` 参数** (`main.py`)
+  - 该参数从未在方法体中使用，移除后调用方同步更新
+- **重命名缓存清理方法** (`core/cache.py`)
+  - `_cleanup_legacy_cache_files` → `_cleanup_stale_cache_files`，准确反映实际行为：清理所有过期的孤立缓存文件（包括旧版 MD5 文件和因 `preload_count` 限制未加载但已过期的 SHA-256 文件）
+
+#### ⚙️ 接口改进
+
+- **`_safe_float` 的 `default` 参数恢复为必填** (`core/config_loader.py`)
+  - 移除 `default=None` 默认值，返回类型从 `float | None` 收窄为 `float`
+  - 强制新调用方显式传入默认值，避免忘记处理 `None` 返回值导致下游类型错误
+
+#### 📁 文件修改
+
+- `main.py` - 新增 `_load_schema()` 缓存方法、`_collect_schema_ranges` 改用全路径键并收集 `options`、`_validate_value_range` 移除无用参数、`_api_config_update` 新增选项校验
+- `core/cache.py` - 重命名 `_cleanup_legacy_cache_files` → `_cleanup_stale_cache_files`，更新文档注释
+- `core/config_loader.py` - `_safe_float` 的 `default` 参数改为必填，返回类型收窄
+
+---
+
 ### [v1.6.5] - 2026-06-02
 
 #### ✨ 新功能

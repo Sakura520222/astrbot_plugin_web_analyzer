@@ -19,3 +19,8 @@ main_backup.py
 .github/prompts/
 CLAUDE.md
 .claude/
+.venv/
+*.pyc
+.pytest_cache/
+.mypy_cache/
+node_modules/
