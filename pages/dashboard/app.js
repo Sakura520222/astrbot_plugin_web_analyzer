@@ -263,52 +263,207 @@ function renderGroupList(items) {
 }
 
 /* ========== Config ========== */
+let configOriginalValues = {};
+
 async function loadConfig() {
   try {
-    const data = await bridge.apiGet("dashboard/config");
-    renderConfig(data);
+    const data = await bridge.apiGet("dashboard/config/schema");
+    renderConfigForm(data.groups);
   } catch (e) {
     showToast("加载配置失败: " + e.message, "error");
   }
 }
 
-function renderConfig(config) {
-  const el = document.getElementById("config-content");
-  const sections = [
-    { title: t("config.network", "网络设置"), data: config.network },
-    { title: t("config.analysis", "分析设置"), data: config.analysis },
-    { title: t("config.display", "展示设置"), data: config.display },
-    { title: t("config.llm", "智能分析"), data: config.llm },
-    { title: t("config.message", "消息管理"), data: config.message },
-    { title: t("config.cache", "缓存设置"), data: config.cache },
-  ];
+function renderConfigForm(groups) {
+  configOriginalValues = {};
+  const container = document.getElementById("config-content");
 
-  el.innerHTML = sections
-    .map(
-      (s) => `
-    <div class="config-section">
-      <h4 class="config-section-title">${s.title}</h4>
-      <div class="config-items">
-        ${Object.entries(s.data)
-          .map(
-            ([key, val]) => `
-          <div class="config-item">
-            <span class="config-key">${key}</span>
-            <span class="config-value">${formatConfigValue(val)}</span>
-          </div>`
-          )
-          .join("")}
-      </div>
-    </div>`
-    )
+  const html = groups
+    .map((group) => {
+      const sectionsHtml = group.sections
+        .map((section) => renderConfigSection(section))
+        .join("");
+      return `
+      <div class="config-group" data-group="${escapeHtml(group.name)}">
+        <div class="config-group-header">
+          <h3>${escapeHtml(group.name)}</h3>
+          <span class="config-group-hint">${escapeHtml(group.hint || group.description || "")}</span>
+        </div>
+        ${sectionsHtml}
+      </div>`;
+    })
     .join("");
+
+  container.innerHTML = html;
+
+  // 绑定保存按钮事件
+  container.querySelectorAll(".btn-save-section").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      const section = btn.closest(".config-section");
+      await saveConfigSection(section);
+    });
+  });
+
+  // 绑定重置按钮事件
+  container.querySelectorAll(".btn-reset-section").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const section = btn.closest(".config-section");
+      resetConfigSection(section);
+    });
+  });
 }
 
-function formatConfigValue(val) {
-  if (typeof val === "boolean") return val ? "✅" : "❌";
-  if (Array.isArray(val)) return val.length > 0 ? val.join(", ") : "—";
-  if (val === "" || val === null || val === undefined) return "—";
-  return String(val);
+function renderConfigSection(section) {
+  const fieldsHtml = section.fields
+    .map((field) => renderConfigField(field))
+    .join("");
+
+  return `
+    <div class="config-section" data-section="${escapeHtml(section.name)}">
+      <div class="config-section-header">
+        <h4 class="config-section-title">${escapeHtml(section.name)}</h4>
+        <div class="config-section-actions">
+          <button class="btn btn-sm btn-reset-section">重置</button>
+          <button class="btn btn-sm btn-primary btn-save-section">保存</button>
+        </div>
+      </div>
+      ${section.description ? `<p class="config-section-desc">${escapeHtml(section.description)}</p>` : ""}
+      <div class="config-fields">${fieldsHtml}</div>
+    </div>`;
+}
+
+function renderConfigField(field) {
+  const inputHtml = buildFieldInput(field);
+  // 保存原始值
+  configOriginalValues[field.path] = field.value;
+
+  return `
+    <div class="config-field" data-path="${escapeHtml(field.path)}">
+      <div class="config-field-header">
+        <label class="config-field-label" for="cfg-${escapeHtml(field.path)}">${escapeHtml(field.label)}</label>
+        ${field.hint ? `<span class="config-field-hint" title="${escapeHtml(field.hint)}">ℹ️</span>` : ""}
+      </div>
+      ${inputHtml}
+    </div>`;
+}
+
+function buildFieldInput(field) {
+  const path = field.path;
+  const val = field.value;
+
+  // 带选项的下拉选择
+  if (field.options) {
+    const opts = field.options
+      .map(
+        (o) =>
+          `<option value="${escapeHtml(o)}" ${o === val ? "selected" : ""}>${escapeHtml(o)}</option>`
+      )
+      .join("");
+    return `<select class="config-input config-select" data-path="${escapeHtml(path)}" data-original="${escapeAttr(String(val))}">${opts}</select>`;
+  }
+
+  // 布尔开关
+  if (field.type === "bool") {
+    return `
+      <div class="config-toggle">
+        <label>
+          <input type="checkbox" class="config-checkbox" data-path="${escapeHtml(path)}" data-original="${val ? "true" : "false"}" ${val ? "checked" : ""} />
+          <span class="toggle-slider"></span>
+          <span class="config-toggle-label">${val ? "已启用" : "已禁用"}</span>
+        </label>
+      </div>`;
+  }
+
+  // 多行文本
+  if (field.type === "text") {
+    return `<textarea class="config-input config-textarea" data-path="${escapeHtml(path)}" data-original="${escapeAttr(String(val))}" rows="3">${escapeHtml(String(val))}</textarea>`;
+  }
+
+  // 数值输入
+  if (field.type === "int" || field.type === "float") {
+    const step = field.type === "float" ? "0.1" : "1";
+    const min = field.minimum !== undefined ? `min="${field.minimum}"` : "";
+    const max = field.maximum !== undefined ? `max="${field.maximum}"` : "";
+    return `<input type="number" class="config-input" data-path="${escapeHtml(path)}" data-original="${escapeAttr(String(val))}" value="${escapeAttr(String(val))}" step="${step}" ${min} ${max} />`;
+  }
+
+  // 普通文本（包括 select_provider）
+  return `<input type="text" class="config-input" data-path="${escapeHtml(path)}" data-original="${escapeAttr(String(val ?? ""))}" value="${escapeAttr(String(val ?? ""))}" />`;
+}
+
+async function saveConfigSection(sectionEl) {
+  const updates = collectSectionChanges(sectionEl);
+  if (Object.keys(updates).length === 0) {
+    showToast("没有修改的配置项", "info");
+    return;
+  }
+
+  try {
+    const result = await bridge.apiPost("dashboard/config/update", { updates });
+    showToast(result.message, result.errors && result.errors.length > 0 ? "error" : "success");
+
+    // 更新原始值
+    for (const [path, value] of Object.entries(updates)) {
+      const input = sectionEl.querySelector(`[data-path="${CSS.escape(path)}"]`);
+      if (input) {
+        const newValue = input.type === "checkbox" ? input.checked : input.value;
+        input.dataset.original = String(newValue);
+        configOriginalValues[path] = newValue;
+      }
+    }
+
+    // 移除已修改标记
+    sectionEl.querySelectorAll(".config-field.modified").forEach((el) => {
+      el.classList.remove("modified");
+    });
+  } catch (e) {
+    showToast("保存失败: " + e.message, "error");
+  }
+}
+
+function collectSectionChanges(sectionEl) {
+  const updates = {};
+  sectionEl.querySelectorAll("[data-path]").forEach((input) => {
+    const path = input.dataset.path;
+    let currentValue;
+    if (input.type === "checkbox") {
+      currentValue = input.checked;
+    } else if (input.tagName === "SELECT") {
+      currentValue = input.value;
+    } else if (input.type === "number") {
+      currentValue = input.value;
+    } else {
+      currentValue = input.value;
+    }
+    const original = input.dataset.original;
+
+    // 比较值是否改变
+    const changed = String(currentValue) !== String(original);
+    const fieldEl = input.closest(".config-field");
+
+    if (changed) {
+      updates[path] = currentValue;
+      if (fieldEl) fieldEl.classList.add("modified");
+    } else {
+      if (fieldEl) fieldEl.classList.remove("modified");
+    }
+  });
+  return updates;
+}
+
+function resetConfigSection(sectionEl) {
+  sectionEl.querySelectorAll("[data-path]").forEach((input) => {
+    const original = input.dataset.original;
+    if (input.type === "checkbox") {
+      input.checked = original === "true";
+      const label = input.closest(".config-toggle").querySelector(".config-toggle-label");
+      if (label) label.textContent = input.checked ? "已启用" : "已禁用";
+    } else {
+      input.value = original;
+    }
+    input.closest(".config-field")?.classList.remove("modified");
+  });
+  showToast("已重置为上次保存的值", "info");
 }
 
 /* ========== Browser ========== */
@@ -348,6 +503,10 @@ function escapeHtml(str) {
   const div = document.createElement("div");
   div.textContent = str;
   return div.innerHTML;
+}
+
+function escapeAttr(str) {
+  return str.replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
 
 function truncateUrl(url, maxLen) {
@@ -482,6 +641,14 @@ function initEvents() {
       } catch (e) {
         showToast("卸载失败: " + e.message, "error");
       }
+    }
+  });
+
+  // Config: toggle checkbox label update (delegated)
+  document.getElementById("config-content").addEventListener("change", (e) => {
+    if (e.target.classList.contains("config-checkbox")) {
+      const label = e.target.closest(".config-toggle")?.querySelector(".config-toggle-label");
+      if (label) label.textContent = e.target.checked ? "已启用" : "已禁用";
     }
   });
 }

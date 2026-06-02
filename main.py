@@ -1457,6 +1457,13 @@ class WebAnalyzerPlugin(Star):
 
     PLUGIN_NAME = "astrbot_plugin_web_analyzer"
 
+    # schema 键名到实例属性名的映射
+    _SCHEMA_KEY_TO_ATTR = {
+        "group": "merge_forward_group",
+        "private": "merge_forward_private",
+        "include_screenshot": "merge_forward_include_screenshot",
+    }
+
     def _register_dashboard_api(self, context: Context):
         """注册 Dashboard 管理面板的 Web API 路由"""
         prefix = f"/{self.PLUGIN_NAME}/dashboard"
@@ -1473,6 +1480,8 @@ class WebAnalyzerPlugin(Star):
             (f"{prefix}/groups/add", self._api_groups_add, ["POST"]),
             (f"{prefix}/groups/remove", self._api_groups_remove, ["POST"]),
             (f"{prefix}/config", self._api_config, ["GET"]),
+            (f"{prefix}/config/schema", self._api_config_schema, ["GET"]),
+            (f"{prefix}/config/update", self._api_config_update, ["POST"]),
             (f"{prefix}/browser", self._api_browser, ["GET"]),
             (f"{prefix}/browser/uninstall", self._api_browser_uninstall, ["POST"]),
         ]
@@ -1723,6 +1732,190 @@ class WebAnalyzerPlugin(Star):
                 "cache_preload_enabled": self.cache_preload_enabled,
             },
         })
+
+    async def _api_config_schema(self):
+        """获取配置 schema 及当前值，用于编辑表单"""
+        import json
+        import os
+
+        from quart import jsonify
+
+        schema_path = os.path.join(os.path.dirname(__file__), "_conf_schema.json")
+        with open(schema_path, "r", encoding="utf-8") as f:
+            schema = json.load(f)
+
+        groups = []
+        for group_name, group_data in schema.items():
+            if group_data.get("type") != "object":
+                continue
+            group = {
+                "name": group_name,
+                "description": group_data.get("description", ""),
+                "hint": group_data.get("hint", ""),
+                "sections": [],
+            }
+
+            items = group_data.get("items", {})
+            direct_fields = []
+
+            for item_name, item_data in items.items():
+                if item_data.get("type") == "object":
+                    section = {
+                        "name": item_name,
+                        "description": item_data.get("description", ""),
+                        "hint": item_data.get("hint", ""),
+                        "fields": [],
+                    }
+                    self._collect_schema_fields(
+                        section["fields"],
+                        item_data.get("items", {}),
+                        [group_name, item_name],
+                    )
+                    group["sections"].append(section)
+                else:
+                    field = self._build_config_field(item_name, item_data, [group_name])
+                    if field:
+                        direct_fields.append(field)
+
+            if direct_fields:
+                group["sections"].insert(
+                    0,
+                    {
+                        "name": group_name,
+                        "description": group_data.get("description", ""),
+                        "fields": direct_fields,
+                    },
+                )
+
+            groups.append(group)
+
+        return jsonify({"groups": groups})
+
+    def _collect_schema_fields(self, fields_list, items, path):
+        """递归收集 schema 中的配置字段"""
+        for item_name, item_data in items.items():
+            if item_data.get("type") == "object":
+                self._collect_schema_fields(
+                    fields_list,
+                    item_data.get("items", {}),
+                    path + [item_name],
+                )
+            else:
+                field = self._build_config_field(item_name, item_data, path)
+                if field:
+                    fields_list.append(field)
+
+    def _build_config_field(self, name, schema_item, path):
+        """构建单个字段的描述信息"""
+        full_path = ".".join(path + [name])
+        attr_name = self._SCHEMA_KEY_TO_ATTR.get(name, name)
+        current_value = getattr(self, attr_name, None)
+
+        if current_value is None and "default" in schema_item:
+            current_value = schema_item["default"]
+
+        # 列表值转换为换行分隔的文本，便于编辑
+        if isinstance(current_value, list):
+            current_value = "\n".join(str(v) for v in current_value)
+
+        field = {
+            "key": name,
+            "path": full_path,
+            "label": schema_item.get("description", name),
+            "hint": schema_item.get("hint", ""),
+            "type": schema_item.get("type", "string"),
+            "value": current_value,
+        }
+
+        for opt_key in ("minimum", "maximum", "default", "options"):
+            if opt_key in schema_item:
+                field[opt_key] = schema_item[opt_key]
+
+        if "_special" in schema_item:
+            field["special"] = schema_item["_special"]
+
+        return field
+
+    async def _api_config_update(self):
+        """更新插件配置"""
+        from quart import jsonify, request
+
+        data = await request.get_json()
+        updates = data.get("updates", {})
+
+        if not updates:
+            return jsonify({"error": "没有需要更新的配置项"}), 400
+
+        applied = []
+        errors = []
+
+        for path_str, new_value in updates.items():
+            path_parts = path_str.split(".")
+            leaf_key = path_parts[-1]
+            attr_name = self._SCHEMA_KEY_TO_ATTR.get(leaf_key, leaf_key)
+
+            try:
+                old_value = getattr(self, attr_name, None)
+
+                # 根据原值类型进行转换
+                if isinstance(old_value, bool):
+                    new_value = bool(new_value)
+                elif isinstance(old_value, int) and not isinstance(old_value, bool):
+                    new_value = int(new_value)
+                elif isinstance(old_value, float):
+                    new_value = float(new_value)
+                elif isinstance(old_value, list):
+                    # 换行分隔的文本转回列表
+                    if isinstance(new_value, str):
+                        new_value = [
+                            v.strip() for v in new_value.split("\n") if v.strip()
+                        ]
+
+                # 更新实例属性
+                setattr(self, attr_name, new_value)
+
+                # 更新 config 对象中的值
+                self._set_nested_config(path_parts, new_value)
+
+                applied.append({
+                    "path": path_str,
+                    "key": attr_name,
+                    "old_value": old_value,
+                    "new_value": new_value,
+                })
+                logger.info(
+                    f"配置已更新: {attr_name} = {new_value} (原值: {old_value})"
+                )
+
+            except Exception as e:
+                errors.append({"path": path_str, "error": str(e)})
+                logger.error(f"更新配置失败 {path_str}: {e}")
+
+        # 保存配置到文件
+        if applied:
+            try:
+                self.config.save_config()
+            except Exception as e:
+                return jsonify({"error": f"保存配置文件失败: {e}"}), 500
+
+        msg = f"已更新 {len(applied)} 项配置"
+        if errors:
+            msg += f"，{len(errors)} 项失败"
+
+        return jsonify({
+            "message": msg,
+            "applied": len(applied),
+            "errors": errors,
+        })
+
+    def _set_nested_config(self, path_parts, value):
+        """在嵌套的 config 对象中设置值"""
+        obj = self.config
+        for part in path_parts[:-1]:
+            if part not in obj:
+                obj[part] = {}
+            obj = obj[part]
+        obj[path_parts[-1]] = value
 
     async def _api_browser(self):
         """获取浏览器状态"""

@@ -537,47 +537,198 @@ body {
   color: var(--color-text-secondary);
 }
 
-/* ========== Config View ========== */
+/* ========== Config Form ========== */
+.config-form .config-group {
+  background: var(--color-surface);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-sm);
+  border: 1px solid var(--color-border);
+  margin-bottom: 20px;
+}
+
+.config-group-header {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.config-group-header h3 {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--color-text);
+}
+
+.config-group-hint {
+  font-size: 12px;
+  color: var(--color-text-secondary);
+}
+
 .config-section {
-  margin-bottom: 24px;
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--color-bg);
 }
 
 .config-section:last-child {
-  margin-bottom: 0;
+  border-bottom: none;
 }
 
-.config-section-title {
-  font-size: 14px;
-  font-weight: 600;
-  color: var(--color-primary);
-  padding-bottom: 8px;
-  border-bottom: 1px solid var(--color-border);
+.config-section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
   margin-bottom: 12px;
 }
 
-.config-items {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+.config-section-header .config-section-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--color-primary);
+  border-bottom: none;
+  margin-bottom: 0;
+  padding-bottom: 0;
+}
+
+.config-section-actions {
+  display: flex;
   gap: 8px;
 }
 
-.config-item {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 6px 12px;
-  border-radius: 6px;
-  background: var(--color-bg);
-}
-
-.config-key {
+.config-section-desc {
+  font-size: 12px;
   color: var(--color-text-secondary);
-  font-size: 13px;
+  margin-bottom: 12px;
 }
 
-.config-value {
-  font-weight: 500;
+.config-fields {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  gap: 16px;
+}
+
+.config-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.config-field-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.config-field-label {
   font-size: 13px;
+  font-weight: 500;
+  color: var(--color-text);
+}
+
+.config-field-hint {
+  font-size: 12px;
+  cursor: help;
+  opacity: 0.6;
+}
+
+.config-field.modified .config-field-label {
+  color: var(--color-primary);
+}
+
+.config-field.modified .config-field-label::after {
+  content: " •";
+  color: var(--color-warning);
+}
+
+.config-input {
+  padding: 8px 12px;
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  font-size: 13px;
+  outline: none;
+  transition: border-color 0.15s;
+  width: 100%;
+}
+
+.config-input:focus {
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.1);
+}
+
+.config-select {
+  appearance: none;
+  background: var(--color-surface) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%2364748b' d='M6 8L1 3h10z'/%3E%3C/svg%3E") no-repeat right 12px center;
+  padding-right: 32px;
+  cursor: pointer;
+}
+
+.config-textarea {
+  resize: vertical;
+  min-height: 60px;
+  font-family: "SF Mono", Monaco, "Cascadia Code", monospace;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.config-toggle {
+  display: flex;
+  align-items: center;
+}
+
+.config-toggle label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+}
+
+.config-toggle input {
+  display: none;
+}
+
+.config-toggle .toggle-slider {
+  width: 36px;
+  height: 20px;
+  background: #cbd5e1;
+  border-radius: 10px;
+  position: relative;
+  transition: background 0.2s;
+}
+
+.config-toggle .toggle-slider::after {
+  content: "";
+  width: 16px;
+  height: 16px;
+  background: #fff;
+  border-radius: 50%;
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  transition: transform 0.2s;
+}
+
+.config-toggle input:checked + .toggle-slider {
+  background: var(--color-primary);
+}
+
+.config-toggle input:checked + .toggle-slider::after {
+  transform: translateX(16px);
+}
+
+.config-toggle-label {
+  font-size: 13px;
+  color: var(--color-text-secondary);
+}
+
+.btn-reset-section {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  color: var(--color-text-secondary);
+}
+
+.btn-reset-section:hover {
+  background: var(--color-bg);
+  color: var(--color-text);
 }
 
 /* ========== Help Text ========== */
@@ -700,5 +851,9 @@ body {
 
   .search-input {
     width: 140px;
+  }
+
+  .config-fields {
+    grid-template-columns: 1fr;
   }
 }
