@@ -35,7 +35,7 @@ from .core.utils import WebAnalyzerUtils
     "astrbot_plugin_web_analyzer",
     "Sakura520222",
     "自动识别网页链接，智能抓取解析内容，集成大语言模型进行深度分析和总结，支持网页截图、缓存机制和多种管理命令",
-    "1.6.5",
+    "1.6.6",
     "https://github.com/Sakura520222/astrbot_plugin_web_analyzer",
 )
 class WebAnalyzerPlugin(Star):
@@ -1737,7 +1737,11 @@ class WebAnalyzerPlugin(Star):
         })
 
     def _load_schema(self) -> dict:
-        """加载并缓存 _conf_schema.json（运行时不会变化）"""
+        """加载并缓存 _conf_schema.json
+
+        Schema 文件随插件一起部署，运行时不会变化；配置热重载会重启插件，
+        因此首次加载后缓存是安全的，可避免每次 API 调用重复读取磁盘。
+        """
         if self._cached_schema is not None:
             return self._cached_schema
         schema_path = os.path.join(os.path.dirname(__file__), "_conf_schema.json")
@@ -1904,6 +1908,7 @@ class WebAnalyzerPlugin(Star):
                     continue
 
                 # 选项值验证（防止 select 类型字段接受非法选项）
+                # 仅校验单值类型（string/number），列表类型（如域名列表）不属于 select 字段
                 if schema_def and "options" in schema_def and not isinstance(new_value, list):
                     if new_value not in schema_def["options"]:
                         errors.append({

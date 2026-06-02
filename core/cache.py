@@ -712,6 +712,9 @@ class CacheManager:
         except Exception as e:
             logger.warning(f"清理过期孤立缓存文件时出错（可忽略）: {e}")
 
+    # 向后兼容旧名称，将在后续版本移除
+    _cleanup_legacy_cache_files = _cleanup_stale_cache_files
+
     def _clean_expired_cache(self):
         """清理所有已过期的缓存
 
