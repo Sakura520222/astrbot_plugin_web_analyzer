@@ -96,6 +96,9 @@ class CacheManager:
         if self.preload_enabled:
             self._preload_cache()
 
+        # 检测并清理使用旧哈希算法（MD5）生成的孤立缓存文件
+        self._cleanup_legacy_cache_files()
+
     def _initialize_cache_dir(self, cache_dir: str | None) -> str:
         """初始化缓存目录
 
@@ -661,6 +664,53 @@ class CacheManager:
             error_msg = f"清空磁盘缓存失败: {e}"
             logger.error(error_msg)
             raise CacheCleanupError(error_msg) from e
+
+    def _cleanup_legacy_cache_files(self):
+        """检测并清理使用旧哈希算法（MD5，32字符hex）生成的孤立缓存文件
+
+        SHA-256 哈希的前32位用于文件名，与旧版 MD5 哈希文件名长度相同（32字符），
+        但 SHA-256 文件名对应的 JSON 文件中包含有效的 url 字段。
+        此方法扫描磁盘缓存文件，删除无法加载到内存的孤立文件。
+        """
+        try:
+            cache_files = [
+                f
+                for f in os.listdir(self.cache_dir)
+                if f.endswith(".json") or f.endswith("_screenshot.bin")
+            ]
+            if not cache_files:
+                return
+
+            # 收集已知有效的缓存文件（已加载到内存的）
+            known_hashes = set()
+            for url in self.memory_cache:
+                url_hash = hashlib.sha256(url.encode("utf-8")).hexdigest()[:32]
+                known_hashes.add(url_hash)
+
+            # 检查磁盘上的文件，删除不在内存中的过期文件
+            removed_count = 0
+            current_time = time.time()
+            for cache_file in cache_files:
+                file_path = os.path.join(self.cache_dir, cache_file)
+                # 跳过已知的有效缓存文件
+                file_hash = cache_file.replace(".json", "").replace(
+                    "_screenshot.bin", ""
+                )
+                if file_hash in known_hashes:
+                    continue
+
+                # 检查文件修改时间，只删除过期的孤立文件
+                file_mtime = os.path.getmtime(file_path)
+                if current_time - file_mtime > self.expire_time:
+                    os.remove(file_path)
+                    removed_count += 1
+
+            if removed_count > 0:
+                logger.info(
+                    f"已清理 {removed_count} 个过期的孤立缓存文件（可能来自旧版哈希算法）"
+                )
+        except Exception as e:
+            logger.warning(f"清理旧版缓存文件时出错（可忽略）: {e}")
 
     def _clean_expired_cache(self):
         """清理所有已过期的缓存

@@ -1743,7 +1743,7 @@ class WebAnalyzerPlugin(Star):
         from quart import jsonify
 
         schema_path = os.path.join(os.path.dirname(__file__), "_conf_schema.json")
-        with open(schema_path, "r", encoding="utf-8") as f:
+        with open(schema_path, encoding="utf-8") as f:
             schema = json.load(f)
 
         groups = []
@@ -1941,6 +1941,9 @@ class WebAnalyzerPlugin(Star):
         """插件卸载时的清理工作"""
         logger.info("网页分析插件正在卸载，执行资源清理...")
 
+        # 设置关闭标志，阻止新的浏览器操作
+        WebAnalyzer._shutting_down = True
+
         # 取消所有撤回任务
         for task in self.recall_tasks:
             if not task.done():
@@ -1950,15 +1953,14 @@ class WebAnalyzerPlugin(Star):
         # 清空处理中的URL集合
         self.processing_urls.clear()
 
-        # 关闭浏览器实例池
+        # 关闭浏览器实例池（在锁保护下操作，避免与正在使用实例冲突）
         try:
-            while WebAnalyzer._browser_pool:
-                browser = WebAnalyzer._browser_pool.pop(0)
-                try:
-                    await browser.close()
-                except Exception:
-                    pass
-            logger.info("浏览器实例池已清空")
+            lock = WebAnalyzer._browser_lock
+            if lock:
+                async with lock:
+                    await self._close_browser_pool()
+            else:
+                await self._close_browser_pool()
         except Exception as e:
             logger.debug(f"清理浏览器池时出错（可忽略）: {e}")
 
@@ -1977,3 +1979,14 @@ class WebAnalyzerPlugin(Star):
             logger.debug(f"清理截图临时文件时出错（可忽略）: {e}")
 
         logger.info("网页分析插件已卸载")
+
+    async def _close_browser_pool(self):
+        """关闭浏览器实例池中的所有浏览器实例"""
+        while WebAnalyzer._browser_pool:
+            browser = WebAnalyzer._browser_pool.pop(0)
+            try:
+                if browser.is_connected():
+                    await browser.close()
+            except Exception:
+                pass
+        logger.info("浏览器实例池已清空")

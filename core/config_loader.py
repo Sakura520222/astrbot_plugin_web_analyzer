@@ -491,8 +491,8 @@ class ConfigLoader:
 
     @staticmethod
     def _safe_float(
-        value, default: float, min_val: float = None, max_val: float = None
-    ) -> float:
+        value, default: float = None, min_val: float = None, max_val: float = None
+    ) -> float | None:
         """安全地将值转换为浮点数，支持边界验证
 
         Args:
@@ -502,7 +502,7 @@ class ConfigLoader:
             max_val: 最大值（含），高于此值使用默认值
 
         Returns:
-            转换后的浮点数值
+            转换后的浮点数值，转换失败时返回默认值
         """
         try:
             result = float(value)
@@ -531,14 +531,14 @@ class ConfigLoader:
                 config, "基础设置", "网络设置", "max_content_length", 10000
             ),
             10000,
-            min_val=1,
+            min_val=1000,
         )
         config_dict["request_timeout_s"] = ConfigLoader._safe_int(
             ConfigLoader._get_nested_value(
                 config, "基础设置", "网络设置", "request_timeout_s", 30
             ),
             30,
-            min_val=1,
+            min_val=5,
             max_val=300,
         )
         config_dict["retry_count"] = ConfigLoader._safe_int(
@@ -555,6 +555,7 @@ class ConfigLoader:
             ),
             2,
             min_val=0,
+            max_val=10,
         )
         config_dict["user_agent"] = ConfigLoader._get_nested_value(
             config, "基础设置", "网络设置", "user_agent", "Mozilla/5.0"
@@ -604,14 +605,14 @@ class ConfigLoader:
                 config, "基础设置", "缓存设置", "cache_expire_time_min", 1440
             ),
             1440,
-            min_val=1,
+            min_val=5,
         )
         config_dict["max_cache_size"] = ConfigLoader._safe_int(
             ConfigLoader._get_nested_value(
                 config, "基础设置", "缓存设置", "max_cache_size", 100
             ),
             100,
-            min_val=1,
+            min_val=10,
         )
         config_dict["cache_preload_enabled"] = ConfigLoader._get_nested_value(
             config, "基础设置", "缓存设置", "cache_preload_enabled", False
@@ -747,15 +748,15 @@ class ConfigLoader:
                 config, "展示设置", "网页截图", "screenshot_quality", 80
             ),
             80,
-            min_val=1,
+            min_val=10,
             max_val=100,
         )
         size_sub = config.get("展示设置", {}).get("网页截图", {}).get("截图尺寸", {})
         config_dict["screenshot_width"] = ConfigLoader._safe_int(
-            size_sub.get("screenshot_width", 1280), 1280, min_val=1
+            size_sub.get("screenshot_width", 1280), 1280, min_val=320, max_val=4096
         )
         config_dict["screenshot_height"] = ConfigLoader._safe_int(
-            size_sub.get("screenshot_height", 720), 720, min_val=1
+            size_sub.get("screenshot_height", 720), 720, min_val=240, max_val=4096
         )
         config_dict["screenshot_full_page"] = ConfigLoader._get_nested_value(
             config, "展示设置", "网页截图", "screenshot_full_page", False

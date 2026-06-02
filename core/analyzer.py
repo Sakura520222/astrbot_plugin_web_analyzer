@@ -86,6 +86,7 @@ class WebAnalyzer:
     _browser_install_status_file = None  # 浏览器安装状态文件路径
     _is_installing = False  # 是否正在安装浏览器
     _playwright_browser_checked = False  # 类级别标记：浏览器是否已检查
+    _shutting_down = False  # 插件正在关闭标志，阻止新的浏览器操作
 
     def __init__(
         self,
@@ -426,24 +427,31 @@ class WebAnalyzer:
 
         if self.browser:
             try:
-                # 将浏览器实例放回池中，以便复用
-                async with WebAnalyzer._browser_lock:
-                    # 检查浏览器实例是否仍然可用
-                    if (
-                        len(WebAnalyzer._browser_pool)
-                        < WebAnalyzer._max_browser_instances
-                    ):
-                        # 更新最后使用时间
-                        WebAnalyzer._browser_last_used[id(self.browser)] = time.time()
-                        # 将浏览器实例放回池中
-                        WebAnalyzer._browser_pool.append(self.browser)
-                        logger.debug(
-                            f"浏览器实例已放回池中，当前池大小: {len(WebAnalyzer._browser_pool)}"
-                        )
-                    else:
-                        # 池已满，关闭浏览器实例
-                        await self.browser.close()
-                        logger.debug("浏览器实例池已满，关闭浏览器实例")
+                # 插件正在关闭时，不再将浏览器放回池中
+                if WebAnalyzer._shutting_down:
+                    await self.browser.close()
+                    logger.debug("插件正在关闭，直接关闭浏览器实例")
+                else:
+                    # 将浏览器实例放回池中，以便复用
+                    async with WebAnalyzer._browser_lock:
+                        # 检查浏览器实例是否仍然可用
+                        if (
+                            len(WebAnalyzer._browser_pool)
+                            < WebAnalyzer._max_browser_instances
+                        ):
+                            # 更新最后使用时间
+                            WebAnalyzer._browser_last_used[id(self.browser)] = (
+                                time.time()
+                            )
+                            # 将浏览器实例放回池中
+                            WebAnalyzer._browser_pool.append(self.browser)
+                            logger.debug(
+                                f"浏览器实例已放回池中，当前池大小: {len(WebAnalyzer._browser_pool)}"
+                            )
+                        else:
+                            # 池已满，关闭浏览器实例
+                            await self.browser.close()
+                            logger.debug("浏览器实例池已满，关闭浏览器实例")
             except Exception as e:
                 logger.error(f"处理浏览器实例失败: {e}")
                 # 出现错误时，确保浏览器实例被关闭
@@ -2035,6 +2043,9 @@ class WebAnalyzer:
             tuple: (browser实例, playwright实例)
             playwright_instance为None表示从池中获取的浏览器
         """
+        if WebAnalyzer._shutting_down:
+            raise RuntimeError("插件正在关闭，拒绝创建新的浏览器实例")
+
         browser = await self._try_get_browser_from_pool()
 
         if browser:

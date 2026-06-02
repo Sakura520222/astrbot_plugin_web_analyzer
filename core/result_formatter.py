@@ -6,7 +6,7 @@
 
 from datetime import datetime
 
-from .utils import WebAnalyzerUtils  # noqa: E402
+from .utils import WebAnalyzerUtils
 
 
 class ResultFormatter:
