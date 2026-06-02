@@ -1,0 +1,286 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>网页分析插件 - 管理面板</title>
+  <link rel="stylesheet" href="./style.css" />
+</head>
+<body>
+  <div id="app">
+    <!-- 侧边导航 -->
+    <nav class="sidebar">
+      <div class="sidebar-header">
+        <div class="sidebar-logo">🌐</div>
+        <div class="sidebar-title" id="sidebar-title">网页分析</div>
+      </div>
+      <ul class="nav-list">
+        <li class="nav-item active" data-page="overview">
+          <span class="nav-icon">📊</span>
+          <span class="nav-text" data-i18n="nav.overview">概览</span>
+        </li>
+        <li class="nav-item" data-page="cache">
+          <span class="nav-icon">💾</span>
+          <span class="nav-text" data-i18n="nav.cache">缓存管理</span>
+        </li>
+        <li class="nav-item" data-page="domains">
+          <span class="nav-icon">🔒</span>
+          <span class="nav-text" data-i18n="nav.domains">域名管理</span>
+        </li>
+        <li class="nav-item" data-page="groups">
+          <span class="nav-icon">👥</span>
+          <span class="nav-text" data-i18n="nav.groups">群聊管理</span>
+        </li>
+        <li class="nav-item" data-page="config">
+          <span class="nav-icon">⚙️</span>
+          <span class="nav-text" data-i18n="nav.config">配置信息</span>
+        </li>
+        <li class="nav-item" data-page="browser">
+          <span class="nav-icon">🌍</span>
+          <span class="nav-text" data-i18n="nav.browser">浏览器状态</span>
+        </li>
+      </ul>
+      <div class="sidebar-footer">
+        <div class="version-info" id="version-info">v1.6.4</div>
+      </div>
+    </nav>
+
+    <!-- 主内容区域 -->
+    <main class="main-content">
+      <!-- 顶部栏 -->
+      <header class="topbar">
+        <h1 class="page-title" id="page-title">概览</h1>
+        <div class="topbar-actions">
+          <button class="btn btn-icon" id="btn-refresh" title="刷新">
+            <span>🔄</span>
+          </button>
+        </div>
+      </header>
+
+      <!-- 概览页面 -->
+      <section class="page active" id="page-overview">
+        <div class="stats-grid">
+          <div class="stat-card">
+            <div class="stat-icon">📄</div>
+            <div class="stat-info">
+              <div class="stat-value" id="stat-cache-total">-</div>
+              <div class="stat-label" data-i18n="overview.cacheTotal">缓存总数</div>
+            </div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-icon">✅</div>
+            <div class="stat-info">
+              <div class="stat-value" id="stat-cache-valid">-</div>
+              <div class="stat-label" data-i18n="overview.cacheValid">有效缓存</div>
+            </div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-icon">⏰</div>
+            <div class="stat-info">
+              <div class="stat-value" id="stat-cache-expired">-</div>
+              <div class="stat-label" data-i18n="overview.cacheExpired">过期缓存</div>
+            </div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-icon">⚡</div>
+            <div class="stat-info">
+              <div class="stat-value" id="stat-analysis-mode">-</div>
+              <div class="stat-label" data-i18n="overview.analysisMode">分析模式</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="card-grid">
+          <div class="card">
+            <div class="card-header">
+              <h3 data-i18n="overview.quickStatus">快速状态</h3>
+            </div>
+            <div class="card-body" id="quick-status">
+              <div class="loading-spinner"></div>
+            </div>
+          </div>
+          <div class="card">
+            <div class="card-header">
+              <h3 data-i18n="overview.featureStatus">功能状态</h3>
+            </div>
+            <div class="card-body" id="feature-status">
+              <div class="loading-spinner"></div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- 缓存管理页面 -->
+      <section class="page" id="page-cache">
+        <div class="stats-grid">
+          <div class="stat-card">
+            <div class="stat-icon">📦</div>
+            <div class="stat-info">
+              <div class="stat-value" id="cache-total">-</div>
+              <div class="stat-label" data-i18n="cache.total">缓存总数</div>
+            </div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-icon">✅</div>
+            <div class="stat-info">
+              <div class="stat-value" id="cache-valid">-</div>
+              <div class="stat-label" data-i18n="cache.valid">有效缓存</div>
+            </div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-icon">⏰</div>
+            <div class="stat-info">
+              <div class="stat-value" id="cache-expired">-</div>
+              <div class="stat-label" data-i18n="cache.expired">过期缓存</div>
+            </div>
+          </div>
+          <div class="stat-card stat-card-action" id="card-clear-cache">
+            <div class="stat-icon">🗑️</div>
+            <div class="stat-info">
+              <div class="stat-value">—</div>
+              <div class="stat-label" data-i18n="cache.clearAll">清空缓存</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-header">
+            <h3 data-i18n="cache.cacheList">缓存列表</h3>
+            <div class="card-actions">
+              <input type="text" class="search-input" id="cache-search"
+                     data-i18n-placeholder="cache.searchPlaceholder" placeholder="搜索 URL..." />
+            </div>
+          </div>
+          <div class="card-body">
+            <div class="table-container">
+              <table class="data-table">
+                <thead>
+                  <tr>
+                    <th>#</th>
+                    <th data-i18n="cache.tableUrl">URL</th>
+                    <th data-i18n="cache.tableStatus">状态</th>
+                    <th data-i18n="cache.tableScreenshot">截图</th>
+                    <th data-i18n="cache.tableTime">缓存时间</th>
+                    <th data-i18n="cache.tableAction">操作</th>
+                  </tr>
+                </thead>
+                <tbody id="cache-table-body">
+                  <tr><td colspan="6" class="empty-state" data-i18n="cache.loading">加载中...</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- 域名管理页面 -->
+      <section class="page" id="page-domains">
+        <div class="card-grid">
+          <div class="card">
+            <div class="card-header">
+              <h3 data-i18n="domains.allowed">允许的域名</h3>
+              <div class="card-actions">
+                <div class="toggle-switch">
+                  <label>
+                    <input type="checkbox" id="toggle-unified-domain" />
+                    <span class="toggle-slider"></span>
+                    <span class="toggle-label" data-i18n="domains.unified">统一域名</span>
+                  </label>
+                </div>
+              </div>
+            </div>
+            <div class="card-body">
+              <div class="domain-input-group">
+                <input type="text" class="input" id="input-allowed-domain"
+                       data-i18n-placeholder="domains.addPlaceholder" placeholder="输入域名，如 example.com" />
+                <button class="btn btn-primary" id="btn-add-allowed" data-i18n="domains.add">添加</button>
+              </div>
+              <div class="tag-list" id="allowed-domains-list">
+                <div class="loading-spinner"></div>
+              </div>
+            </div>
+          </div>
+
+          <div class="card">
+            <div class="card-header">
+              <h3 data-i18n="domains.blocked">禁止的域名</h3>
+            </div>
+            <div class="card-body">
+              <div class="domain-input-group">
+                <input type="text" class="input" id="input-blocked-domain"
+                       data-i18n-placeholder="domains.addPlaceholder" placeholder="输入域名，如 ads.example.com" />
+                <button class="btn btn-danger" id="btn-add-blocked" data-i18n="domains.add">添加</button>
+              </div>
+              <div class="tag-list" id="blocked-domains-list">
+                <div class="loading-spinner"></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- 群聊管理页面 -->
+      <section class="page" id="page-groups">
+        <div class="card">
+          <div class="card-header">
+            <h3 data-i18n="groups.blacklist">群聊黑名单</h3>
+          </div>
+          <div class="card-body">
+            <div class="domain-input-group">
+              <input type="text" class="input" id="input-group-id"
+                     data-i18n-placeholder="groups.addPlaceholder" placeholder="输入群号" />
+              <button class="btn btn-danger" id="btn-add-group" data-i18n="groups.add">添加</button>
+            </div>
+            <div class="tag-list" id="group-blacklist-list">
+              <div class="loading-spinner"></div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- 配置信息页面 -->
+      <section class="page" id="page-config">
+        <div class="card">
+          <div class="card-header">
+            <h3 data-i18n="config.title">插件配置信息</h3>
+          </div>
+          <div class="card-body">
+            <div id="config-content" class="config-view">
+              <div class="loading-spinner"></div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- 浏览器状态页面 -->
+      <section class="page" id="page-browser">
+        <div class="card">
+          <div class="card-header">
+            <h3 data-i18n="browser.title">Playwright 浏览器状态</h3>
+            <div class="card-actions">
+              <button class="btn btn-primary btn-sm" id="btn-refresh-browser" data-i18n="browser.refresh">刷新状态</button>
+            </div>
+          </div>
+          <div class="card-body" id="browser-status">
+            <div class="loading-spinner"></div>
+          </div>
+        </div>
+        <div class="card" style="margin-top: 16px;">
+          <div class="card-header">
+            <h3 data-i18n="browser.actions">操作</h3>
+          </div>
+          <div class="card-body">
+            <button class="btn btn-danger" id="btn-uninstall-browser" data-i18n="browser.uninstall">卸载浏览器</button>
+            <p class="help-text" data-i18n="browser.uninstallHint">卸载后截图功能将不可用，直到下次自动重新安装</p>
+          </div>
+        </div>
+      </section>
+
+      <!-- Toast 通知 -->
+      <div class="toast-container" id="toast-container"></div>
+    </main>
+  </div>
+
+  <script type="module" src="./app.js"></script>
+</body>
+</html>

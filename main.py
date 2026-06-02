@@ -58,6 +58,9 @@ class WebAnalyzerPlugin(Star):
         # 撤回任务列表：用于管理所有撤回任务
         self.recall_tasks = []
 
+        # 注册 Dashboard Web API
+        self._register_dashboard_api(context)
+
         # 记录配置初始化完成
         logger.info("插件配置初始化完成")
 
@@ -1449,6 +1452,295 @@ class WebAnalyzerPlugin(Star):
                 self.recall_type,
                 self.smart_recall_enabled,
             )
+
+    # ==================== Dashboard Web API ====================
+
+    PLUGIN_NAME = "astrbot_plugin_web_analyzer"
+
+    def _register_dashboard_api(self, context: Context):
+        """注册 Dashboard 管理面板的 Web API 路由"""
+        prefix = f"/{self.PLUGIN_NAME}/dashboard"
+        routes = [
+            (f"{prefix}/overview", self._api_overview, ["GET"]),
+            (f"{prefix}/cache", self._api_cache, ["GET"]),
+            (f"{prefix}/cache/clear", self._api_cache_clear, ["POST"]),
+            (f"{prefix}/cache/delete", self._api_cache_delete, ["POST"]),
+            (f"{prefix}/domains", self._api_domains, ["GET"]),
+            (f"{prefix}/domains/add", self._api_domains_add, ["POST"]),
+            (f"{prefix}/domains/remove", self._api_domains_remove, ["POST"]),
+            (f"{prefix}/domains/toggle_unified", self._api_domains_toggle, ["POST"]),
+            (f"{prefix}/groups", self._api_groups, ["GET"]),
+            (f"{prefix}/groups/add", self._api_groups_add, ["POST"]),
+            (f"{prefix}/groups/remove", self._api_groups_remove, ["POST"]),
+            (f"{prefix}/config", self._api_config, ["GET"]),
+            (f"{prefix}/browser", self._api_browser, ["GET"]),
+            (f"{prefix}/browser/uninstall", self._api_browser_uninstall, ["POST"]),
+        ]
+        for path, handler, methods in routes:
+            context.register_web_api(
+                path, handler, methods, f"Dashboard: {path.split('/')[-1]}"
+            )
+
+    async def _api_overview(self):
+        """Dashboard 概览数据"""
+        from quart import jsonify
+
+        cache_stats = self.cache_manager.get_stats()
+        return jsonify({
+            "cache_stats": cache_stats,
+            "analysis_mode": self.analysis_mode,
+            "auto_analyze": self.auto_analyze,
+            "llm_enabled": self.llm_enabled,
+            "enable_screenshot": self.enable_screenshot,
+            "enable_cache": self.enable_cache,
+            "enable_translation": getattr(self, "enable_translation", False),
+            "enable_emoji": self.enable_emoji,
+            "enable_statistics": self.enable_statistics,
+            "enable_specific_extraction": getattr(
+                self, "enable_specific_extraction", False
+            ),
+            "enable_llm_decision": getattr(self, "enable_llm_decision", False),
+            "enable_recall": self.enable_recall,
+            "enable_memory_monitor": self.enable_memory_monitor,
+            "fetch_mode": self.fetch_mode,
+            "max_concurrency": self.max_concurrency,
+        })
+
+    async def _api_cache(self):
+        """Dashboard 缓存列表"""
+        import time as _time
+
+        from quart import jsonify
+
+        stats = self.cache_manager.get_stats()
+        items = []
+        for url, cache_data in self.cache_manager.memory_cache.items():
+            result = cache_data.get("result", {})
+            has_screenshot = (
+                isinstance(result, dict) and result.get("has_screenshot", False)
+            )
+            items.append({
+                "url": url,
+                "timestamp": cache_data.get("timestamp", 0),
+                "expired": _time.time() - cache_data.get("timestamp", 0)
+                >= self.cache_manager.expire_time,
+                "has_screenshot": has_screenshot,
+            })
+        items.sort(key=lambda x: x.get("timestamp", 0), reverse=True)
+        return jsonify({"stats": stats, "items": items})
+
+    async def _api_cache_clear(self):
+        """清空所有缓存"""
+        from quart import jsonify
+
+        self.cache_manager.clear()
+        stats = self.cache_manager.get_stats()
+        return jsonify({
+            "message": f"已清空所有缓存，当前缓存数量: {stats['total']} 个",
+            "stats": stats,
+        })
+
+    async def _api_cache_delete(self):
+        """删除指定 URL 的缓存"""
+        from quart import jsonify, request
+
+        data = await request.get_json()
+        url = data.get("url", "")
+        if not url:
+            return jsonify({"error": "缺少 url 参数"}), 400
+        self.cache_manager.delete(url)
+        return jsonify({"message": f"已删除缓存: {url}"})
+
+    async def _api_domains(self):
+        """获取域名管理配置"""
+        from quart import jsonify
+
+        return jsonify({
+            "enable_unified_domain": self.enable_unified_domain,
+            "allowed_domains": list(self.allowed_domains),
+            "blocked_domains": list(self.blocked_domains),
+        })
+
+    async def _api_domains_add(self):
+        """添加域名"""
+        from quart import jsonify, request
+
+        data = await request.get_json()
+        domain_type = data.get("type", "")
+        value = data.get("value", "").strip()
+        if not value or domain_type not in ("allowed", "blocked"):
+            return jsonify({"error": "参数无效"}), 400
+
+        if domain_type == "allowed":
+            if value not in self.allowed_domains:
+                self.allowed_domains.append(value)
+        else:
+            if value not in self.blocked_domains:
+                self.blocked_domains.append(value)
+
+        self._save_domain_config()
+        return jsonify({"message": f"已添加域名: {value}"})
+
+    async def _api_domains_remove(self):
+        """移除域名"""
+        from quart import jsonify, request
+
+        data = await request.get_json()
+        domain_type = data.get("type", "")
+        value = data.get("value", "").strip()
+        if not value or domain_type not in ("allowed", "blocked"):
+            return jsonify({"error": "参数无效"}), 400
+
+        if domain_type == "allowed":
+            if value in self.allowed_domains:
+                self.allowed_domains.remove(value)
+        else:
+            if value in self.blocked_domains:
+                self.blocked_domains.remove(value)
+
+        self._save_domain_config()
+        return jsonify({"message": f"已移除域名: {value}"})
+
+    async def _api_domains_toggle(self):
+        """切换域名统一处理"""
+        from quart import jsonify, request
+
+        data = await request.get_json()
+        enabled = data.get("enabled", False)
+        self.enable_unified_domain = enabled
+        self._save_domain_config()
+        return jsonify({"message": f"域名统一处理已{'启用' if enabled else '禁用'}"})
+
+    def _save_domain_config(self):
+        """保存域名配置到配置文件"""
+        try:
+            domain_config = self.config.get("domain_management", {})
+            domain_config["enable_unified_domain"] = self.enable_unified_domain
+            domain_config["allowed_domains"] = "\n".join(self.allowed_domains)
+            domain_config["blocked_domains"] = "\n".join(self.blocked_domains)
+            self.config["domain_management"] = domain_config
+            self.config.save_config()
+        except Exception as e:
+            logger.error(f"保存域名配置失败: {e}")
+
+    async def _api_groups(self):
+        """获取群聊黑名单"""
+        from quart import jsonify
+
+        return jsonify({"group_blacklist": list(self.group_blacklist)})
+
+    async def _api_groups_add(self):
+        """添加群聊到黑名单"""
+        from quart import jsonify, request
+
+        data = await request.get_json()
+        group_id = data.get("group_id", "").strip()
+        if not group_id:
+            return jsonify({"error": "缺少 group_id 参数"}), 400
+        if group_id in self.group_blacklist:
+            return jsonify({"message": f"群聊 {group_id} 已在黑名单中"})
+        self.group_blacklist.append(group_id)
+        self._save_group_blacklist()
+        return jsonify({"message": f"已添加群聊 {group_id} 到黑名单"})
+
+    async def _api_groups_remove(self):
+        """从黑名单移除群聊"""
+        from quart import jsonify, request
+
+        data = await request.get_json()
+        group_id = data.get("group_id", "").strip()
+        if not group_id:
+            return jsonify({"error": "缺少 group_id 参数"}), 400
+        if group_id not in self.group_blacklist:
+            return jsonify({"message": f"群聊 {group_id} 不在黑名单中"})
+        self.group_blacklist.remove(group_id)
+        self._save_group_blacklist()
+        return jsonify({"message": f"已从黑名单移除群聊 {group_id}"})
+
+    async def _api_config(self):
+        """获取插件配置信息"""
+        from quart import jsonify
+
+        return jsonify({
+            "network": {
+                "max_content_length": self.max_content_length,
+                "request_timeout_s": self.request_timeout_s,
+                "retry_count": self.retry_count,
+                "retry_delay_s": self.retry_delay_s,
+                "user_agent": self.user_agent,
+                "proxy": self.proxy or "未配置",
+                "hide_ip": self.hide_ip,
+                "max_concurrency": self.max_concurrency,
+                "fetch_mode": self.fetch_mode,
+            },
+            "analysis": {
+                "analysis_mode": self.analysis_mode,
+                "llmtool_url_strategy": getattr(
+                    self, "llmtool_url_strategy", "auto_analyze"
+                ),
+                "max_summary_length": self.max_summary_length,
+                "enable_emoji": self.enable_emoji,
+                "enable_statistics": self.enable_statistics,
+                "enable_specific_extraction": getattr(
+                    self, "enable_specific_extraction", False
+                ),
+            },
+            "display": {
+                "send_content_type": self.send_content_type,
+                "result_template": getattr(self, "result_template", "default"),
+                "enable_screenshot": self.enable_screenshot,
+                "screenshot_quality": self.screenshot_quality,
+                "screenshot_width": self.screenshot_width,
+                "screenshot_height": self.screenshot_height,
+                "screenshot_format": self.screenshot_format,
+                "screenshot_full_page": self.screenshot_full_page,
+                "screenshot_wait_ms": self.screenshot_wait_ms,
+                "screenshot_wait_strategy": self.screenshot_wait_strategy,
+                "enable_crop": self.enable_crop,
+            },
+            "llm": {
+                "llm_enabled": self.llm_enabled,
+                "enable_llm_decision": getattr(
+                    self, "enable_llm_decision", False
+                ),
+                "enable_translation": getattr(
+                    self, "enable_translation", False
+                ),
+                "target_language": getattr(self, "target_language", "zh"),
+            },
+            "message": {
+                "merge_forward_group": self.merge_forward_group,
+                "merge_forward_private": self.merge_forward_private,
+                "enable_recall": self.enable_recall,
+                "recall_type": self.recall_type,
+                "recall_time_s": self.recall_time_s,
+                "allow_llm_propagation": self.allow_llm_propagation,
+            },
+            "cache": {
+                "enable_cache": self.enable_cache,
+                "cache_expire_time_min": self.cache_expire_time_min,
+                "max_cache_size": self.max_cache_size,
+                "cache_preload_enabled": self.cache_preload_enabled,
+            },
+        })
+
+    async def _api_browser(self):
+        """获取浏览器状态"""
+        from quart import jsonify
+
+        status = await self.analyzer.get_browser_status()
+        return jsonify(status)
+
+    async def _api_browser_uninstall(self):
+        """卸载浏览器"""
+        from quart import jsonify
+
+        result = await self.analyzer.uninstall_browser()
+        if result["success"]:
+            return jsonify({"message": result["message"]})
+        return jsonify({"error": result["message"]}), 500
+
+    # ==================== End Dashboard Web API ====================
 
     async def terminate(self):
         """插件卸载时的清理工作"""
