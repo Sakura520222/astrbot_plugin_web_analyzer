@@ -7,8 +7,12 @@ AstrBot 网页分析插件 - 重构版本
 本版本使用核心模块重构，遵循 PEP 8 规范。
 """
 
+import json
+import os
 import re
+import time
 from typing import Any
+from urllib.parse import urlparse
 
 from astrbot.api import AstrBotConfig, logger
 from astrbot.api.event import AstrMessageEvent, filter
@@ -976,9 +980,6 @@ class WebAnalyzerPlugin(Star):
     @filter.command("web_export", alias={"导出分析结果", "网页导出"})
     async def export_analysis_result(self, event: AstrMessageEvent):
         """导出网页分析结果"""
-        import json
-        import os
-        import time
 
         # 解析命令参数
         message_parts = event.message_str.strip().split()
@@ -1091,7 +1092,6 @@ class WebAnalyzerPlugin(Star):
             if len(export_results) == 1:
                 # 单个URL导出，使用域名作为文件名的一部分
                 url_obj = export_results[0]["url"]
-                from urllib.parse import urlparse
 
                 parsed = urlparse(url_obj)
                 domain = parsed.netloc.replace(".", "_")
@@ -1625,11 +1625,11 @@ class WebAnalyzerPlugin(Star):
     def _save_domain_config(self):
         """保存域名配置到配置文件"""
         try:
-            domain_config = self.config.get("domain_management", {})
+            base = self.config.setdefault("基础设置", {})
+            domain_config = base.setdefault("域名管理", {})
             domain_config["enable_unified_domain"] = self.enable_unified_domain
             domain_config["allowed_domains"] = "\n".join(self.allowed_domains)
             domain_config["blocked_domains"] = "\n".join(self.blocked_domains)
-            self.config["domain_management"] = domain_config
             self.config.save_config()
         except Exception as e:
             logger.error(f"保存域名配置失败: {e}")
@@ -1737,8 +1737,6 @@ class WebAnalyzerPlugin(Star):
 
     async def _api_config_schema(self):
         """获取配置 schema 及当前值，用于编辑表单"""
-        import json
-        import os
 
         from quart import jsonify
 
@@ -1848,6 +1846,9 @@ class WebAnalyzerPlugin(Star):
         if not updates:
             return jsonify({"error": "没有需要更新的配置项"}), 400
 
+        # 加载 schema 以获取字段定义和范围约束
+        schema_fields = self._load_schema_field_map()
+
         applied = []
         errors = []
 
@@ -1857,11 +1858,25 @@ class WebAnalyzerPlugin(Star):
             attr_name = self._SCHEMA_KEY_TO_ATTR.get(leaf_key, leaf_key)
 
             try:
+                # 白名单验证：确保 attr_name 是已知的配置属性
+                known_attrs = {
+                    k
+                    for k in vars(self).keys()
+                    if not k.startswith("_") and k != "config"
+                }
+                if attr_name not in known_attrs:
+                    errors.append({"path": path_str, "error": f"未知配置项: {attr_name}"})
+                    continue
+
                 old_value = getattr(self, attr_name, None)
 
-                # 根据原值类型进行转换
+                # 根据原值类型进行安全转换
                 if isinstance(old_value, bool):
-                    new_value = bool(new_value)
+                    # 安全的布尔转换：字符串 "false"/"0" 等应转为 False
+                    if isinstance(new_value, str):
+                        new_value = new_value.lower() in ("true", "1", "yes", "on")
+                    else:
+                        new_value = bool(new_value)
                 elif isinstance(old_value, int) and not isinstance(old_value, bool):
                     new_value = int(new_value)
                 elif isinstance(old_value, float):
@@ -1872,6 +1887,14 @@ class WebAnalyzerPlugin(Star):
                         new_value = [
                             v.strip() for v in new_value.split("\n") if v.strip()
                         ]
+
+                # 数值范围验证
+                range_error = self._validate_value_range(
+                    attr_name, new_value, schema_fields.get(leaf_key)
+                )
+                if range_error:
+                    errors.append({"path": path_str, "error": range_error})
+                    continue
 
                 # 更新实例属性
                 setattr(self, attr_name, new_value)
@@ -1909,6 +1932,64 @@ class WebAnalyzerPlugin(Star):
             "applied": len(applied),
             "errors": errors,
         })
+
+    def _load_schema_field_map(self) -> dict:
+        """从 _conf_schema.json 加载字段映射，用于范围验证
+
+        Returns:
+            字段名到 schema 定义的字典 {key: {"minimum": ..., "maximum": ...}}
+        """
+        try:
+            schema_path = os.path.join(os.path.dirname(__file__), "_conf_schema.json")
+            with open(schema_path, encoding="utf-8") as f:
+                schema = json.load(f)
+
+            field_map = {}
+            self._collect_schema_ranges(schema, field_map)
+            return field_map
+        except Exception as e:
+            logger.warning(f"加载 schema 字段映射失败: {e}")
+            return {}
+
+    def _collect_schema_ranges(self, items: dict, field_map: dict):
+        """递归收集 schema 中的数值范围约束"""
+        for key, item_data in items.items():
+            if not isinstance(item_data, dict):
+                continue
+            if "minimum" in item_data or "maximum" in item_data:
+                field_map[key] = {}
+                if "minimum" in item_data:
+                    field_map[key]["minimum"] = item_data["minimum"]
+                if "maximum" in item_data:
+                    field_map[key]["maximum"] = item_data["maximum"]
+            if "items" in item_data and isinstance(item_data["items"], dict):
+                self._collect_schema_ranges(item_data["items"], field_map)
+
+    @staticmethod
+    def _validate_value_range(attr_name: str, value, schema_def: dict) -> str | None:
+        """验证数值是否在 schema 定义的范围内
+
+        Args:
+            attr_name: 配置属性名
+            value: 待验证的值
+            schema_def: schema 中的字段定义（包含 minimum/maximum）
+
+        Returns:
+            错误信息字符串，如果验证通过则返回 None
+        """
+        if schema_def is None or not isinstance(value, (int, float)):
+            return None
+
+        if "minimum" in schema_def and value < schema_def["minimum"]:
+            return (
+                f"配置值 {value} 低于最小值 {schema_def['minimum']}"
+            )
+        if "maximum" in schema_def and value > schema_def["maximum"]:
+            return (
+                f"配置值 {value} 超过最大值 {schema_def['maximum']}"
+            )
+
+        return None
 
     def _set_nested_config(self, path_parts, value):
         """在嵌套的 config 对象中设置值"""
