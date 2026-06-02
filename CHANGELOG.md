@@ -1,5 +1,43 @@
 # 更新日志
 
+### [v1.6.5] - 2026-06-02
+
+#### ✨ 新功能
+
+- **管理面板新增配置编辑功能** (`pages/dashboard/`, `main.py`)
+  - 配置页面从只读视图升级为完整的可编辑表单
+  - 根据配置项类型自动渲染对应的输入控件：
+    - `bool` → 开关（toggle switch），带实时状态标签
+    - `int` / `float` → 数字输入框（支持最小/最大值约束）
+    - `string` + 选项 → 下拉选择框
+    - `text` → 多行文本框
+    - `string` → 普通文本输入
+  - 每个配置子分组提供独立的「保存」和「重置」按钮
+  - 修改未保存的配置项显示视觉标记（颜色变化 + 指示器）
+  - 仅提交实际变更的字段，减少不必要的写入
+
+- **新增配置编辑 API 端点** (`main.py`)
+  - `GET /dashboard/config/schema`：读取 `_conf_schema.json`，递归遍历嵌套结构，合并当前运行值，返回结构化的表单 schema
+  - `POST /dashboard/config/update`：接收配置更新，自动类型转换（bool/int/float/list），同步更新实例属性与配置文件
+  - 支持列表类型配置（如 `extract_types`）与文本格式的双向转换
+
+#### 🎨 UI 改进
+
+- 配置页面采用卡片式分组布局，与 `_conf_schema.json` 的分组结构一致
+- 新增配置表单相关 CSS 样式（约 190 行），包含输入控件、开关、下拉框、多行文本框等
+- 移动端响应式适配：配置字段在小屏幕下切换为单列布局
+- 侧边栏导航文本从「配置信息」更新为「配置编辑」
+
+#### 📁 文件修改
+
+- `main.py` - 新增 `_api_config_schema`、`_api_config_update`、`_collect_schema_fields`、`_build_config_field`、`_set_nested_config` 方法及 `_SCHEMA_KEY_TO_ATTR` 映射
+- `pages/dashboard/app.js` - 重写配置页面为可编辑表单，新增 `renderConfigForm`、`renderConfigSection`、`buildFieldInput`、`saveConfigSection`、`resetConfigSection` 等函数
+- `pages/dashboard/index.html` - 更新配置页面结构与导航文本，版本号升级至 v1.6.5
+- `pages/dashboard/style.css` - 新增配置表单样式，替换旧的只读视图样式
+- `metadata.yaml` - 版本升级至 v1.6.5
+
+---
+
 ### [v1.6.4] - 2026-05-15
 
 #### ✨ 新功能
