@@ -1,10 +1,29 @@
 const PLUGIN_NAME = "astrbot_plugin_web_analyzer";
 
-const bridge = window.AstrBotPluginPage;
+const bridge = window.AstrBotPluginView || window.AstrBotPluginPage;
 
 /* ========== i18n ========== */
 function t(key, fallback) {
-  return bridge.t(`pages.dashboard.${key}`, fallback);
+  const missing = "__web_analyzer_missing__";
+  const preferred = bridge.t(`views.dashboard.${key}`, missing);
+  return preferred === missing ? bridge.t(`pages.dashboard.${key}`, fallback) : preferred;
+}
+
+function applyPageContext(context) {
+  if (typeof context?.isDark === "boolean") {
+    document.documentElement.dataset.theme = context.isDark ? "dark" : "light";
+  }
+  document.documentElement.lang = context?.locale || "zh-CN";
+  document.querySelectorAll("[data-i18n]").forEach((element) => {
+    element.dataset.fallbackText ??= element.textContent;
+    element.textContent = t(element.dataset.i18n, element.dataset.fallbackText);
+  });
+  document.querySelectorAll("[data-i18n-placeholder]").forEach((element) => {
+    element.dataset.fallbackPlaceholder ??= element.placeholder;
+    element.placeholder = t(element.dataset.i18nPlaceholder, element.dataset.fallbackPlaceholder);
+  });
+  const activeLabel = document.querySelector(`.nav-item[data-page="${currentPage}"] .nav-text`);
+  if (activeLabel) document.getElementById("page-title").textContent = activeLabel.textContent;
 }
 
 /* ========== State ========== */
@@ -34,14 +53,24 @@ function initNavigation() {
 }
 
 function switchPage(page) {
+  if (page === currentPage) return;
+  if (hasUnsavedConfig() && !window.confirm("配置有未保存的修改，确定离开此页面吗？")) return;
   currentPage = page;
-  document.querySelectorAll(".nav-item").forEach((el) => el.classList.remove("active"));
-  document.querySelector(`.nav-item[data-page="${page}"]`).classList.add("active");
+  document.querySelectorAll(".nav-item").forEach((el) => {
+    const active = el.dataset.page === page;
+    el.classList.toggle("active", active);
+    if (active) el.setAttribute("aria-current", "page");
+    else el.removeAttribute("aria-current");
+  });
   document.querySelectorAll(".page").forEach((el) => el.classList.remove("active"));
   document.getElementById(`page-${page}`).classList.add("active");
-  document.getElementById("page-title").textContent = t(`nav.${page}`, page);
+  document.getElementById("page-title").textContent = t(`nav.${page}`, { overview: "概览", cache: "缓存管理", domains: "域名管理", groups: "群聊管理", config: "配置编辑", browser: "浏览器状态" }[page] || page);
 
   loadPageData(page);
+}
+
+function hasUnsavedConfig() {
+  return Boolean(document.querySelector("#config-content .config-field.modified"));
 }
 
 /* ========== Data Loading ========== */
@@ -84,22 +113,27 @@ async function loadOverview() {
   }
 }
 
+function modeLabel(value) {
+  const labels = { auto: "自动分析", manual: "手动分析", hybrid: "混合模式", LLMTOOL: "模型工具", httpx: "HTTP 请求", browser: "系统浏览器" };
+  return labels[value] || value || "—";
+}
+
 function renderQuickStatus(data) {
   const el = document.getElementById("quick-status");
   const items = [
-    { label: t("overview.analysisMode", "分析模式"), value: data.analysis_mode, color: "blue" },
-    { label: t("overview.autoAnalyze", "自动分析"), value: data.auto_analyze ? "✅" : "❌", color: "" },
-    { label: t("overview.llmEnabled", "LLM 分析"), value: data.llm_enabled ? "✅" : "❌", color: "" },
-    { label: t("overview.screenshotEnabled", "网页截图"), value: data.enable_screenshot ? "✅" : "❌", color: "" },
-    { label: t("overview.fetchMode", "抓取模式"), value: data.fetch_mode, color: "blue" },
+    { label: t("overview.analysisMode", "分析模式"), value: modeLabel(data.analysis_mode), color: "blue" },
+    { label: t("overview.autoAnalyze", "自动分析"), value: data.auto_analyze ? "已启用" : "已禁用", state: data.auto_analyze },
+    { label: t("overview.llmEnabled", "模型分析"), value: data.llm_enabled ? "已启用" : "已禁用", state: data.llm_enabled },
+    { label: t("overview.screenshotEnabled", "网页截图"), value: data.enable_screenshot ? "已启用" : "已禁用", state: data.enable_screenshot },
+    { label: t("overview.fetchMode", "抓取模式"), value: modeLabel(data.fetch_mode), color: "blue" },
     { label: t("overview.concurrency", "最大并发"), value: data.max_concurrency, color: "blue" },
   ];
   el.innerHTML = items
     .map(
       (i) => `
     <div class="status-item">
-      <span class="status-label">${i.label}</span>
-      <span class="status-value ${i.color ? "text-" + i.color : ""}">${i.value}</span>
+      <span class="status-label">${escapeHtml(i.label)}</span>
+      <span class="status-value ${i.state === undefined ? "" : i.state ? "state-enabled" : "state-disabled"}">${escapeHtml(String(i.value ?? ""))}</span>
     </div>`
     )
     .join("");
@@ -110,10 +144,10 @@ function renderFeatureStatus(data) {
   const items = [
     { label: t("overview.cacheEnabled", "缓存"), value: data.enable_cache },
     { label: t("overview.translationEnabled", "翻译"), value: data.enable_translation },
-    { label: t("overview.emojiEnabled", "Emoji"), value: data.enable_emoji },
+    { label: t("overview.emojiEnabled", "结果表情符号"), value: data.enable_emoji },,
     { label: t("overview.statisticsEnabled", "统计"), value: data.enable_statistics },
-    { label: t("overview.specificExtraction", "特定提取"), value: data.enable_specific_extraction },
-    { label: t("overview.llmDecision", "LLM决策"), value: data.enable_llm_decision },
+    { label: t("overview.specificExtraction", "指定内容提取"), value: data.enable_specific_extraction },,
+    { label: t("overview.llmDecision", "模型选择输出"), value: data.enable_llm_decision },,
     { label: t("overview.recallEnabled", "消息撤回"), value: data.enable_recall },
     { label: t("overview.memoryMonitor", "内存监控"), value: data.enable_memory_monitor },
   ];
@@ -122,7 +156,7 @@ function renderFeatureStatus(data) {
       (i) => `
     <div class="status-item">
       <span class="status-label">${i.label}</span>
-      <span class="status-value">${i.value ? "✅" : "❌"}</span>
+      <span class="status-value ${i.value ? "state-enabled" : "state-disabled"}">${i.value ? "已启用" : "已禁用"}</span>
     </div>`
     )
     .join("");
@@ -154,7 +188,7 @@ function renderCacheTable(items) {
       <td>${idx + 1}</td>
       <td class="url-cell" title="${escapeAttr(item.url)}">${truncateUrl(item.url, 50)}</td>
       <td><span class="badge badge-${item.expired ? "warning" : "success"}">${item.expired ? "已过期" : "有效"}</span></td>
-      <td>${item.has_screenshot ? "📷" : "—"}</td>
+      <td>${item.has_screenshot ? "有" : "无"}</td>
       <td>${formatTime(item.timestamp)}</td>
       <td><button class="btn btn-sm btn-danger btn-delete-cache" data-url="${escapeAttr(item.url)}">删除</button></td>
     </tr>`
@@ -200,7 +234,7 @@ function renderTagList(containerId, items, type) {
       (item) => `
     <span class="tag ${type === "blocked" ? "tag-danger" : "tag-success"}">
       ${escapeHtml(item)}
-      <span class="tag-remove" data-type="${type}" data-value="${escapeAttr(item)}">&times;</span>
+      <button class="btn btn-icon tag-remove" type="button" aria-label="移除 ${escapeAttr(item)}" data-type="${type}" data-value="${escapeAttr(item)}">×</button>
     </span>`
     )
     .join("");
@@ -242,7 +276,7 @@ function renderGroupList(items) {
       (item) => `
     <span class="tag tag-danger">
       ${escapeHtml(item)}
-      <span class="tag-remove" data-group-id="${escapeAttr(item)}">&times;</span>
+      <button class="btn btn-icon tag-remove" type="button" aria-label="移除 ${escapeAttr(item)}" data-group-id="${escapeAttr(item)}">×</button>
     </span>`
     )
     .join("");
@@ -280,14 +314,15 @@ function renderConfigForm(groups) {
 
   const html = groups
     .map((group) => {
+      const groupTitle = group.description || group.display_name || group.name;
       const sectionsHtml = group.sections
-        .map((section) => renderConfigSection(section))
+        .map((section) => renderConfigSection(section, group))
         .join("");
       return `
       <div class="config-group" data-group="${escapeAttr(group.name)}">
         <div class="config-group-header">
-          <h3>${escapeHtml(group.name)}</h3>
-          <span class="config-group-hint">${escapeHtml(group.hint || group.description || "")}</span>
+          <h3>${escapeHtml(groupTitle)}</h3>
+          ${group.hint && group.hint !== groupTitle ? `<span class="config-group-hint">${escapeHtml(group.hint)}</span>` : ""}
         </div>
         ${sectionsHtml}
       </div>`;
@@ -308,26 +343,22 @@ function renderConfigForm(groups) {
   container.querySelectorAll(".btn-reset-section").forEach((btn) => {
     btn.addEventListener("click", () => {
       const section = btn.closest(".config-section");
+      if (section.querySelector(".config-field.modified") && !window.confirm("放弃此配置区未保存的修改？")) return;
       resetConfigSection(section);
     });
   });
 }
 
-function renderConfigSection(section) {
+function renderConfigSection(section, group) {
   const fieldsHtml = section.fields
     .map((field) => renderConfigField(field))
     .join("");
+  const showHeading = section.name !== group.name && section.name !== group.description;
 
   return `
     <div class="config-section" data-section="${escapeAttr(section.name)}">
-      <div class="config-section-header">
-        <h4 class="config-section-title">${escapeHtml(section.name)}</h4>
-        <div class="config-section-actions">
-          <button class="btn btn-sm btn-reset-section">重置</button>
-          <button class="btn btn-sm btn-primary btn-save-section">保存</button>
-        </div>
-      </div>
-      ${section.description ? `<p class="config-section-desc">${escapeHtml(section.description)}</p>` : ""}
+      ${showHeading ? `<div class="config-section-header"><h4 class="config-section-title">${escapeHtml(section.description || section.name)}</h4><div class="config-section-actions"><button class="btn btn-sm btn-reset-section" type="button" aria-label="重置 ${escapeAttr(section.description || section.name)}">重置</button><button class="btn btn-sm btn-primary btn-save-section" type="button" aria-label="保存 ${escapeAttr(section.description || section.name)}">保存</button></div></div>` : `<div class="config-section-actions config-section-actions-top"><button class="btn btn-sm btn-reset-section" type="button" aria-label="重置 ${escapeAttr(group.description || group.name)}">重置</button><button class="btn btn-sm btn-primary btn-save-section" type="button" aria-label="保存 ${escapeAttr(group.description || group.name)}">保存</button></div>`}
+      ${section.hint && showHeading ? `<p class="config-section-desc">${escapeHtml(section.hint)}</p>` : ""}
       <div class="config-fields">${fieldsHtml}</div>
     </div>`;
 }
@@ -338,12 +369,15 @@ function renderConfigField(field) {
   configOriginalValues[field.path] = field.value;
 
   return `
-    <div class="config-field" data-path="${escapeAttr(field.path)}">
+    <div class="config-field" data-field-path="${escapeAttr(field.path)}">
       <div class="config-field-header">
         <label class="config-field-label" for="cfg-${escapeAttr(field.path)}">${escapeHtml(field.label)}</label>
-        ${field.hint ? `<span class="config-field-hint" title="${escapeHtml(field.hint)}">ℹ️</span>` : ""}
+        ${field.secret ? '<span class="config-field-hint">敏感配置</span>' : ""}
       </div>
+      ${field.hint ? `<p class="config-field-subtitle">${escapeHtml(field.hint)}</p>` : ""}
+      ${field.subtitle ? `<p class="config-field-subtitle">${escapeHtml(field.subtitle)}</p>` : ""}
       ${inputHtml}
+      ${field.secret ? `<label class="secret-clear"><input type="checkbox" data-clear-secret="${escapeAttr(field.path)}" aria-label="清除已保存的代理配置" ${field.has_value ? "" : "disabled"} />清除已保存的值</label><span class="secret-hint">${field.has_value ? "已配置。留空可保留原值，输入新值以替换。" : "尚未配置。输入值后保存。"}</span>` : ""}
     </div>`;
 }
 
@@ -351,87 +385,141 @@ function buildFieldInput(field) {
   const path = field.path;
   const val = field.value;
 
-  // 带选项的下拉选择
+  const labels = Array.isArray(field.labels) ? field.labels : [];
   if (field.options) {
-    const opts = field.options
-      .map(
-        (o) =>
-          `<option value="${escapeHtml(o)}" ${o === val ? "selected" : ""}>${escapeHtml(o)}</option>`
-      )
+    const options = field.options.map((option, index) =>
+      typeof option === "object" && option !== null
+        ? { value: option.value ?? option.id ?? option.name, label: option.label ?? option.title ?? option.name ?? labels[index] ?? option.value ?? option.id }
+        : { value: option, label: labels[index] ?? option }
+    );
+    const opts = options
+      .map((option) => `<option value="${escapeAttr(String(option.value))}" ${String(option.value) === String(val) ? "selected" : ""}>${escapeHtml(String(option.label))}</option>`)
       .join("");
-    return `<select class="config-input config-select" data-path="${escapeAttr(path)}" data-original="${escapeAttr(String(val))}">${opts}</select>`;
+    return `<select id="cfg-${escapeAttr(path)}" class="config-input config-select" data-path="${escapeAttr(path)}" data-original="${escapeAttr(String(val ?? ""))}">${opts}</select>`;
   }
 
-  // 布尔开关
   if (field.type === "bool") {
     return `
       <div class="config-toggle">
         <label>
-          <input type="checkbox" class="config-checkbox" data-path="${escapeAttr(path)}" data-original="${val ? "true" : "false"}" ${val ? "checked" : ""} />
+          <input id="cfg-${escapeAttr(path)}" type="checkbox" class="config-checkbox" data-path="${escapeAttr(path)}" data-original="${val ? "true" : "false"}" ${val ? "checked" : ""} />
           <span class="toggle-slider"></span>
           <span class="config-toggle-label">${val ? "已启用" : "已禁用"}</span>
         </label>
       </div>`;
   }
 
-  // 多行文本
-  if (field.type === "text") {
-    return `<textarea class="config-input config-textarea" data-path="${escapeAttr(path)}" data-original="${escapeAttr(String(val))}" rows="3">${escapeHtml(String(val))}</textarea>`;
+  if (field.type === "select_provider" || field.type === "provider") {
+    const options = Array.isArray(field.providers) ? field.providers : Array.isArray(field.options) ? field.options : [];
+    if (options.length) {
+      const items = options.map((option) => typeof option === "object" && option !== null
+        ? { value: option.value ?? option.id ?? option.name, label: option.label ?? option.name ?? option.value ?? option.id }
+        : { value: option, label: option });
+      return `<select id="cfg-${escapeAttr(path)}" class="config-input config-select" data-path="${escapeAttr(path)}" data-original="${escapeAttr(String(val ?? ""))}">${items.map((option) => `<option value="${escapeAttr(String(option.value))}" ${String(option.value) === String(val) ? "selected" : ""}>${escapeHtml(String(option.label))}</option>`).join("")}</select>`;
+    }
   }
 
-  // 数值输入
+  if (field.type === "text") {
+    return `<textarea id="cfg-${escapeAttr(path)}" class="config-input config-textarea" data-path="${escapeAttr(path)}" data-original="${escapeAttr(String(val))}" rows="3">${escapeHtml(String(val))}</textarea>`;
+  }
+
+  if (field.secret) {
+    return `<input id="cfg-${escapeAttr(path)}" type="password" class="config-input" data-path="${escapeAttr(path)}" data-secret="true" data-has-value="${field.has_value ? "true" : "false"}" data-original="" value="" placeholder="${field.has_value ? "已配置，输入以替换" : "尚未配置"}" autocomplete="new-password" />`;
+  }
   if (field.type === "int" || field.type === "float") {
     const step = field.type === "float" ? "0.1" : "1";
     const min = field.minimum !== undefined ? `min="${field.minimum}"` : "";
     const max = field.maximum !== undefined ? `max="${field.maximum}"` : "";
-    return `<input type="number" class="config-input" data-path="${escapeAttr(path)}" data-original="${escapeAttr(String(val))}" value="${escapeAttr(String(val))}" step="${step}" ${min} ${max} />`;
+    return `<input id="cfg-${escapeAttr(path)}" type="number" class="config-input" data-path="${escapeAttr(path)}" data-original="${escapeAttr(String(val))}" value="${escapeAttr(String(val))}" step="${step}" ${min} ${max} />`;
   }
 
-  // 普通文本（包括 select_provider）
-  return `<input type="text" class="config-input" data-path="${escapeAttr(path)}" data-original="${escapeAttr(String(val ?? ""))}" value="${escapeAttr(String(val ?? ""))}" />`;
+  return `<input id="cfg-${escapeAttr(path)}" type="${field.secret ? "password" : "text"}" class="config-input" data-path="${escapeAttr(path)}" data-original="${escapeAttr(String(val ?? ""))}" value="${escapeAttr(String(val ?? ""))}" autocomplete="${field.secret ? "new-password" : "off"}" />`;
 }
 
 async function saveConfigSection(sectionEl) {
-  const updates = collectSectionChanges(sectionEl);
+  if (sectionEl.dataset.saving === "true") return;
+  let updates;
+  try {
+    updates = collectSectionChanges(sectionEl);
+  } catch (error) {
+    showToast(error.message, "error");
+    return;
+  }
   if (Object.keys(updates).length === 0) {
     showToast("没有修改的配置项", "info");
     return;
   }
 
+  sectionEl.dataset.saving = "true";
+  const buttons = sectionEl.querySelectorAll(".btn-save-section, .btn-reset-section");
+  buttons.forEach((button) => { button.disabled = true; });
   try {
     const result = await bridge.apiPost("dashboard/config/update", { updates });
     showToast(result.message, result.errors && result.errors.length > 0 ? "error" : "success");
 
-    // 更新原始值
-    for (const [path, value] of Object.entries(updates)) {
-      const input = sectionEl.querySelector(`[data-path="${CSS.escape(path)}"]`);
-      if (input) {
-        const newValue = input.type === "checkbox" ? input.checked : input.value;
-        input.dataset.original = String(newValue);
-        configOriginalValues[path] = newValue;
+    const errors = result.errors || [];
+    const appliedPaths = new Set(result.applied_paths || (errors.length ? [] : Object.keys(updates)));
+    const failedPaths = new Set(errors.map((error) => typeof error === "object" ? error.path : null).filter(Boolean));
+    const hasUnmappedError = errors.length > 0 && failedPaths.size === 0;
+    if (!hasUnmappedError) {
+      for (const [path] of Object.entries(updates)) {
+        if (failedPaths.has(path) || !appliedPaths.has(path)) continue;
+        const input = sectionEl.querySelector(`.config-input[data-path="${CSS.escape(path)}"], .config-checkbox[data-path="${CSS.escape(path)}"]`);
+        if (!input) continue;
+        if (input.dataset.secret === "true") {
+          const clearControl = sectionEl.querySelector(`[data-clear-secret="${CSS.escape(path)}"]`);
+          const submittedValue = updates[path];
+          const submittedClear = submittedValue === "";
+          input.dataset.hasValue = submittedClear ? "false" : "true";
+          input.placeholder = submittedClear ? "尚未配置" : "已配置，输入以替换";
+          if (clearControl) clearControl.disabled = submittedClear;
+          const hint = input.closest(".config-field")?.querySelector(".secret-hint");
+          if (hint) hint.textContent = submittedClear ? "尚未配置。输入值后保存。" : "已配置。留空可保留原值，输入新值以替换。";
+          if (input.value === submittedValue) input.value = "";
+          if (clearControl?.checked && submittedClear) clearControl.checked = false;
+          const secretStillDirty = input.value !== "" || Boolean(clearControl?.checked);
+          input.closest(".config-field")?.classList.toggle("modified", secretStillDirty);
+          continue;
+        }
+        const submittedValue = updates[path];
+        input.dataset.original = String(submittedValue);
+        configOriginalValues[path] = submittedValue;
+        const currentValue = input.type === "checkbox" ? String(input.checked) : input.value;
+        input.closest(".config-field")?.classList.toggle("modified", currentValue !== input.dataset.original);
       }
     }
-
-    // 移除已修改标记
-    sectionEl.querySelectorAll(".config-field.modified").forEach((el) => {
-      el.classList.remove("modified");
-    });
   } catch (e) {
     showToast("保存失败: " + e.message, "error");
+  } finally {
+    sectionEl.dataset.saving = "false";
+    buttons.forEach((button) => { button.disabled = false; });
   }
 }
 
 function collectSectionChanges(sectionEl) {
   const updates = {};
-  sectionEl.querySelectorAll("[data-path]").forEach((input) => {
+  sectionEl.querySelectorAll(".config-input[data-path], .config-checkbox[data-path]").forEach((input) => {
     const path = input.dataset.path;
+    if (input.dataset.secret === "true") {
+      const clearControl = sectionEl.querySelector(`[data-clear-secret="${CSS.escape(path)}"]`);
+      if (clearControl?.checked) input.closest(".config-field")?.classList.add("modified");
+      else if (input.value !== "") input.closest(".config-field")?.classList.add("modified");
+      else input.closest(".config-field")?.classList.remove("modified");
+      if (clearControl?.checked) updates[path] = "";
+      else if (input.value !== "") updates[path] = input.value;
+      return;
+    }
     let currentValue;
     if (input.type === "checkbox") {
       currentValue = input.checked;
     } else if (input.tagName === "SELECT") {
       currentValue = input.value;
     } else if (input.type === "number") {
-      currentValue = input.value;
+      if (input.value.trim() === "" || !input.checkValidity()) {
+        input.reportValidity();
+        throw new Error("请填写范围内的有效数字");
+      }
+      currentValue = Number(input.value);
     } else {
       currentValue = input.value;
     }
@@ -452,9 +540,14 @@ function collectSectionChanges(sectionEl) {
 }
 
 function resetConfigSection(sectionEl) {
-  sectionEl.querySelectorAll("[data-path]").forEach((input) => {
+  sectionEl.querySelectorAll(".config-input[data-path], .config-checkbox[data-path]").forEach((input) => {
     const original = input.dataset.original;
-    if (input.type === "checkbox") {
+    if (input.dataset.secret === "true") {
+      input.value = "";
+      input.placeholder = input.dataset.hasValue === "true" ? "已配置，输入以替换" : "尚未配置";
+      const clearControl = sectionEl.querySelector(`[data-clear-secret="${CSS.escape(input.dataset.path)}"]`);
+      if (clearControl) clearControl.checked = false;
+    } else if (input.type === "checkbox") {
       input.checked = original === "true";
       const label = input.closest(".config-toggle").querySelector(".config-toggle-label");
       if (label) label.textContent = input.checked ? "已启用" : "已禁用";
@@ -465,6 +558,7 @@ function resetConfigSection(sectionEl) {
   });
   showToast("已重置为上次保存的值", "info");
 }
+
 
 /* ========== Browser ========== */
 async function loadBrowserStatus() {
@@ -479,20 +573,19 @@ async function loadBrowserStatus() {
 function renderBrowserStatus(data) {
   const el = document.getElementById("browser-status");
   const rows = [
-    { label: t("browser.installed", "安装状态"), value: data.installed ? "✅ 已安装" : "❌ 未安装" },
+    { label: t("browser.installed", "浏览器状态"), value: data.installed ? "已检测到系统浏览器" : "未检测到系统浏览器", state: data.installed },
     { label: t("browser.type", "浏览器类型"), value: data.browser_type || "—" },
-    { label: t("browser.path", "安装路径"), value: data.install_path || "—" },
-    { label: t("browser.installTime", "安装时间"), value: data.install_time || "—" },
-    { label: t("browser.dirSize", "安装目录大小"), value: data.install_dir_exists ? `${data.install_dir_size_mb} MB` : "—" },
+    { label: t("browser.path", "浏览器路径"), value: data.install_path || "—" },
+    { label: t("browser.version", "浏览器版本"), value: data.browser_version || "—" },
+    { label: t("browser.dirSize", "旧版 Playwright 残留"), value: data.install_dir_exists ? `${data.install_dir_size_mb} MB` : "—" },
     { label: t("browser.poolSize", "实例池"), value: `${data.browser_pool_size} 个实例` },
-    { label: t("browser.installing", "正在安装"), value: data.is_installing ? "是" : "否" },
   ];
   el.innerHTML = rows
     .map(
       (r) => `
     <div class="status-item">
-      <span class="status-label">${r.label}</span>
-      <span class="status-value">${r.value}</span>
+      <span class="status-label">${escapeHtml(r.label)}</span>
+      <span class="status-value ${r.state === undefined ? "" : r.state ? "state-enabled" : "state-disabled"}">${escapeHtml(String(r.value ?? ""))}</span>
     </div>`
     )
     .join("");
@@ -531,7 +624,14 @@ function formatTime(ts) {
 function initEvents() {
   // Refresh
   document.getElementById("btn-refresh").addEventListener("click", () => {
+    if (hasUnsavedConfig() && !window.confirm("配置有未保存的修改，确定重新加载吗？")) return;
     loadPageData(currentPage);
+  });
+
+  window.addEventListener("beforeunload", (event) => {
+    if (!hasUnsavedConfig()) return;
+    event.preventDefault();
+    event.returnValue = "";
   });
 
   // Cache: clear all
@@ -631,32 +731,54 @@ function initEvents() {
     loadBrowserStatus();
   });
 
-  // Browser: uninstall
+  // Browser: uninstall (清理旧版 Playwright 残留文件)
   document.getElementById("btn-uninstall-browser").addEventListener("click", async () => {
-    if (confirm(t("browser.confirmUninstall", "确认卸载浏览器？卸载后截图功能将不可用"))) {
+    if (confirm(t("browser.confirmUninstall", "确认清理旧版 Playwright 浏览器残留文件？当前版本使用系统浏览器，不受影响"))) {
       try {
         const result = await bridge.apiPost("dashboard/browser/uninstall");
         showToast(result.message, "success");
         loadBrowserStatus();
       } catch (e) {
-        showToast("卸载失败: " + e.message, "error");
+        showToast("清理失败: " + e.message, "error");
       }
     }
   });
 
-  // Config: toggle checkbox label update (delegated)
+  document.getElementById("config-content").addEventListener("input", updateConfigFieldState);
   document.getElementById("config-content").addEventListener("change", (e) => {
+    if (e.target.matches("[data-clear-secret]")) {
+      const field = e.target.closest(".config-field");
+      field?.classList.toggle("modified", e.target.checked || field.querySelector('[data-secret="true"]')?.value !== "");
+      return;
+    }
     if (e.target.classList.contains("config-checkbox")) {
       const label = e.target.closest(".config-toggle")?.querySelector(".config-toggle-label");
       if (label) label.textContent = e.target.checked ? "已启用" : "已禁用";
     }
+    updateConfigFieldState(e);
   });
+}
+
+function updateConfigFieldState(event) {
+  const input = event.target.closest("[data-path]");
+  if (!input) return;
+  if (input.dataset.secret === "true") {
+    const clearControl = document.querySelector(`[data-clear-secret="${CSS.escape(input.dataset.path)}"]`);
+    input.closest(".config-field")?.classList.toggle("modified", input.value !== "" || Boolean(clearControl?.checked));
+    return;
+  }
+  const value = input.type === "checkbox" ? String(input.checked) : input.value;
+  input.closest(".config-field")?.classList.toggle("modified", value !== input.dataset.original);
 }
 
 /* ========== Init ========== */
 async function init() {
   try {
     await bridge.ready();
+    const context = bridge.getContext?.();
+    applyPageContext(context);
+    const unsubscribe = bridge.onContext?.(applyPageContext);
+    window.addEventListener("pagehide", () => unsubscribe?.(), { once: true });
     initNavigation();
     initEvents();
     loadPageData("overview");

@@ -5,6 +5,9 @@
 """
 
 from datetime import datetime
+from html import escape
+
+from bs4 import BeautifulSoup
 
 from .utils import WebAnalyzerUtils
 
@@ -38,6 +41,8 @@ class ResultFormatter:
         """
         enable_custom_template = kwargs.get("enable_custom_template", False)
         result_template = kwargs.get("result_template", "default")
+        enable_custom_template = enable_custom_template or result_template == "custom"
+        template_format = kwargs.get("template_format", "markdown")
         enable_collapsible = kwargs.get("enable_collapsible", False)
         collapse_threshold = kwargs.get("collapse_threshold", 1500)
         template_content = kwargs.get("template_content", "")
@@ -45,8 +50,16 @@ class ResultFormatter:
         # 首先应用模板渲染
         if enable_custom_template and content_data:
             rendered_result = self._render_custom_template(
-                content_data, result, url, template_content
+                content_data,
+                result,
+                url,
+                template_content,
+                html_output=template_format == "html",
             )
+            if template_format == "plain":
+                rendered_result = BeautifulSoup(
+                    rendered_result, "html.parser"
+                ).get_text("\n")
         else:
             rendered_result = self._render_result_template(result, url, result_template)
 
@@ -69,9 +82,8 @@ class ResultFormatter:
             渲染后的结果
         """
         if template_type == "detailed":
-            return (
-                f"【详细分析结果】\n\n📌 分析URL：{url}\n\n{result}\n\n--- 分析结束 ---"
-            )
+            marker = "📌 " if self.enable_emoji else ""
+            return f"【详细分析结果】\n\n{marker}分析URL：{url}\n\n{result}\n\n--- 分析结束 ---"
         elif template_type == "compact":
             lines = result.splitlines()
             compact_result = []
@@ -93,18 +105,24 @@ class ResultFormatter:
             return f"【网页分析结果】\n{url}\n\n{result}"
 
     def _render_custom_template(
-        self, content_data: dict, analysis_result: str, url: str, template_content: str
+        self,
+        content_data: dict,
+        analysis_result: str,
+        url: str,
+        template_content: str,
+        html_output: bool = False,
     ) -> str:
-        """使用自定义模板渲染分析结果
+        """Render the configured template using the current content and options.
 
         Args:
-            content_data: 包含标题、内容等信息的字典
-            analysis_result: 当前的分析结果
-            url: 网页URL
-            template_content: 模板内容
+            content_data: Extracted page metadata and text.
+            analysis_result: Analysis text for this request.
+            url: Page address.
+            template_content: Template with supported named placeholders.
+            html_output: Escape inserted values for HTML output.
 
         Returns:
-            渲染后的结果
+            The rendered template text.
         """
         now = datetime.now()
         date_str = now.strftime("%Y-%m-%d")
@@ -136,7 +154,7 @@ class ResultFormatter:
             "analysis_result": analysis_result,
             "screenshot": "[截图]",
             "content_type": content_type,
-            "stats": stats,
+            "stats": stats if self.enable_statistics else "",
             "date": date_str,
             "time": time_str,
         }
@@ -144,7 +162,8 @@ class ResultFormatter:
         rendered_template = template_content
         for var_name, var_value in template_vars.items():
             rendered_template = rendered_template.replace(
-                f"{{{var_name}}}", str(var_value)
+                f"{{{var_name}}}",
+                escape(str(var_value)) if html_output else str(var_value),
             )
 
         return rendered_template

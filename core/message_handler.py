@@ -4,6 +4,8 @@
 负责处理单个和批量 URL 分析、发送分析结果等。
 """
 
+import hashlib
+import json
 import os
 import sys
 from pathlib import Path
@@ -82,6 +84,8 @@ class MessageHandler:
         self.merge_forward_group = merge_forward_group
         self.merge_forward_private = merge_forward_private
         self.merge_forward_include_screenshot = merge_forward_include_screenshot
+        self._runtime_settings_revision = None
+        self._runtime_settings_signature = None
 
         # 初始化截图临时文件管理器
         self.screenshot_temp_manager = ScreenshotTempManager(
@@ -91,6 +95,9 @@ class MessageHandler:
         # 并发控制信号量
         self.max_concurrency = max(1, min(20, max_concurrency))
         self.concurrency_semaphore = None
+        self._active_concurrency = 0
+        self._concurrency_tasks = set()
+        self._concurrency_changed = None
         self._init_semaphore()
 
     def check_cache(self, url: str) -> dict | None:
@@ -116,6 +123,13 @@ class MessageHandler:
         #   "screenshot": bytes (如果已加载到内存)
         # }
         if cached_result and isinstance(cached_result, dict):
+            if (
+                self._runtime_settings_revision is not None
+                and cached_result.get("_settings_revision")
+                != self._runtime_settings_revision
+            ):
+                return None
+
             # 获取分析结果文本
             result_text = cached_result.get("result", "")
             if isinstance(result_text, dict):
@@ -151,30 +165,94 @@ class MessageHandler:
                 "result": result_text,
                 "screenshot": screenshot,
                 "has_screenshot": screenshot is not None,
+                "content_data": cached_result.get("content_data"),
+                "_settings_revision": cached_result.get("_settings_revision"),
             }
 
         return cached_result
 
     def _init_semaphore(self):
-        """初始化并发控制信号量"""
+        """Initialize the concurrency change signal when a loop is available."""
         import asyncio
 
-        self.concurrency_semaphore = asyncio.Semaphore(self.max_concurrency)
-        logger.info(f"初始化并发控制信号量，最大并发数: {self.max_concurrency}")
+        try:
+            self._concurrency_changed = asyncio.Event()
+        except RuntimeError:
+            self._concurrency_changed = None
 
     async def _acquire_concurrency_slot(self):
-        """获取并发槽位"""
-        if self.concurrency_semaphore:
-            await self.concurrency_semaphore.acquire()
-            logger.debug(
-                f"获取并发槽位成功，当前可用: {self.concurrency_semaphore._value}"
-            )
+        """Wait until the live concurrency limit permits another request."""
+        import asyncio
+
+        while True:
+            if self._concurrency_changed is None:
+                self._init_semaphore()
+            changed = self._concurrency_changed
+            changed.clear()
+            if self._active_concurrency < self.max_concurrency:
+                self._active_concurrency += 1
+                self._concurrency_tasks.add(asyncio.current_task())
+                return
+            await changed.wait()
 
     def _release_concurrency_slot(self):
-        """释放并发槽位"""
-        if self.concurrency_semaphore:
-            self.concurrency_semaphore.release()
-            logger.debug(f"释放并发槽位，当前可用: {self.concurrency_semaphore._value}")
+        """Release the current task's concurrency slot exactly once."""
+        import asyncio
+
+        task = asyncio.current_task()
+        if task not in self._concurrency_tasks:
+            return
+        self._concurrency_tasks.remove(task)
+        self._active_concurrency -= 1
+        changed = self._concurrency_changed
+        if changed is not None:
+            changed.set()
+
+    def apply_runtime_config(self, settings: dict) -> None:
+        """Apply normalized dashboard settings to the live message handler.
+
+        Args:
+            settings: Normalized configuration values from ConfigLoader.
+        """
+        fields = (
+            "enable_cache",
+            "enable_screenshot",
+            "send_content_type",
+            "result_template",
+            "enable_custom_template",
+            "template_content",
+            "template_format",
+            "enable_collapsible",
+            "collapse_threshold",
+            "screenshot_format",
+            "screenshot_quality",
+            "screenshot_width",
+            "screenshot_height",
+            "screenshot_full_page",
+            "screenshot_wait_strategy",
+            "enable_crop",
+            "crop_area",
+            "merge_forward_group",
+            "merge_forward_private",
+            "merge_forward_include_screenshot",
+        )
+        for name in fields:
+            if name in settings:
+                setattr(self, name, settings[name])
+        if "screenshot_wait_ms" in settings:
+            self.screenshot_wait_ms = settings["screenshot_wait_ms"]
+        if "max_concurrency" in settings:
+            self.max_concurrency = max(1, min(20, int(settings["max_concurrency"])))
+        if self._concurrency_changed is not None:
+            self._concurrency_changed.set()
+
+        serialized_settings = json.dumps(
+            settings, sort_keys=True, ensure_ascii=False, default=str
+        )
+        signature = hashlib.sha256(serialized_settings.encode("utf-8")).hexdigest()
+        if signature != self._runtime_settings_signature:
+            self._runtime_settings_revision = signature
+            self._runtime_settings_signature = signature
 
     def update_cache(self, url: str, result: dict, content: str = None):
         """更新指定 URL 的缓存
@@ -204,6 +282,7 @@ class MessageHandler:
         enable_specific_extraction=False,
         extract_types=None,
         result_formatter=None,
+        translate_content=None,
     ) -> dict:
         """处理单个网页 URL，生成完整的分析结果
 
@@ -216,12 +295,14 @@ class MessageHandler:
             enable_specific_extraction: 是否启用特定内容提取
             extract_types: 提取类型列表
             result_formatter: ResultFormatter 实例（可选）
+            translate_content: Async callback receiving the event and text to translate.
 
         Returns:
             分析结果字典
         """
         # 获取并发槽位
         await self._acquire_concurrency_slot()
+        settings_revision = self._runtime_settings_revision
 
         try:
             # screenshot_only 模式：跳过网页抓取和分析，直接截图
@@ -232,7 +313,13 @@ class MessageHandler:
             cached_result = self.check_cache(url)
             if cached_result:
                 logger.info(f"使用 URL 缓存结果: {url}")
-                return cached_result
+                content_data = cached_result.get("content_data") or {}
+                return await self._apply_result_settings(
+                    cached_result,
+                    url,
+                    content_data,
+                    result_formatter,
+                )
 
             # 使用异步上下文管理器确保所有操作都在同一个 HTTP 客户端中完成
             async with analyzer:
@@ -262,34 +349,49 @@ class MessageHandler:
                         "has_screenshot": False,
                     }
 
-                # 4. 调用 LLM 进行分析
+                content_data = dict(content_data)
+                if enable_translation and translate_content:
+                    content_data["content"] = await translate_content(
+                        event, content_data.get("content", "")
+                    )
+
+                # 4. Call LLM to analyze content.
                 analysis_result = await self._analyze_content(
-                    event, content_data, llm_analyzer, enable_translation
+                    event,
+                    content_data,
+                    llm_analyzer,
+                    enable_translation,
+                    result_formatter,
                 )
 
-                # 5. 提取特定内容
+                # 5. Extract specific content.
                 if enable_specific_extraction and extract_types:
                     analysis_result = await self._extract_and_add_specific_content(
                         analysis_result, html, url, extract_types
                     )
 
-                # 6. 生成截图
+                # 6. Generate screenshot.
                 screenshot = await self._generate_screenshot(
                     analyzer, url, analysis_result
                 )
 
-                # 7. 准备结果数据
+                # Keep the unformatted result in cache so presentation settings
+                # can be applied again after a dashboard update.
                 result_data = {
                     "url": url,
                     "result": analysis_result,
                     "screenshot": screenshot,
                     "has_screenshot": screenshot is not None,
+                    "content_data": content_data,
+                    "_settings_revision": settings_revision,
                 }
-
-                # 8. 更新缓存
-                self.update_cache(url, result_data, content_data["content"])
-
-                return result_data
+                self.update_cache(url, result_data, content_data.get("content"))
+                return await self._apply_result_settings(
+                    result_data,
+                    url,
+                    content_data,
+                    result_formatter,
+                )
         except Exception as e:
             error_type = ErrorHandler.get_error_type(e)
             error_msg = ErrorHandler.handle_error(error_type, e, url)
@@ -302,6 +404,41 @@ class MessageHandler:
         finally:
             # 释放并发槽位
             self._release_concurrency_slot()
+
+    async def _apply_result_settings(
+        self,
+        result_data: dict,
+        url: str,
+        content_data: dict,
+        result_formatter,
+    ) -> dict:
+        """Apply the current presentation settings to unformatted analysis.
+
+        Args:
+            result_data: Cached or newly generated analysis data.
+            url: Page address.
+            content_data: Extracted metadata and page text.
+            result_formatter: Optional formatter shared with the plugin.
+
+        Returns:
+            A copy of the result with formatted analysis text.
+        """
+        result = result_data.get("result", "")
+        if result_formatter is not None:
+            result = result_formatter.apply_result_settings(
+                result=result,
+                url=url,
+                content_data=content_data,
+                result_template=getattr(self, "result_template", "default"),
+                enable_custom_template=getattr(self, "enable_custom_template", False),
+                template_content=getattr(self, "template_content", ""),
+                template_format=getattr(self, "template_format", "markdown"),
+                enable_collapsible=getattr(self, "enable_collapsible", False),
+                collapse_threshold=getattr(self, "collapse_threshold", 1500),
+            )
+        formatted = dict(result_data)
+        formatted["result"] = result
+        return formatted
 
     async def _process_screenshot_only(self, url: str, analyzer: WebAnalyzer) -> dict:
         """处理 screenshot_only 模式的 URL，只生成截图，不抓取和分析网页内容
@@ -479,6 +616,7 @@ class MessageHandler:
         content_data: dict,
         llm_analyzer,
         enable_translation: bool,
+        result_formatter=None,
     ) -> str:
         """调用 LLM 或基础分析方法分析内容
 
@@ -498,8 +636,9 @@ class MessageHandler:
                 if result:
                     return result
 
-            # 否则返回基础分析
-            # 这里需要 result_formatter，如果没有则返回简单摘要
+            # Fallback to the formatter so its emoji/statistics settings are effective.
+            if result_formatter is not None:
+                return result_formatter.build_enhanced_analysis(content_data)
             return f"网页标题：{content_data.get('title', '无标题')}\n\n内容：{content_data.get('content', '')[:500]}..."
         except Exception as e:
             logger.error(f"分析内容失败: {content_data.get('url', '')}, 错误: {e}")

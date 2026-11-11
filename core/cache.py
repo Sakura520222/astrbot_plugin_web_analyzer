@@ -92,12 +92,42 @@ class CacheManager:
         # 加载磁盘缓存到内存
         self._load_cache_from_disk()
 
-        # 执行缓存预加载（如果启用）
+        # 执行预加载（如果启用）
         if self.preload_enabled:
             self._preload_cache()
 
-        # 检测并清理使用旧哈希算法（MD5）生成的孤立缓存文件
+        # Remove expired orphaned files after loading current cache entries.
         self._cleanup_stale_cache_files()
+
+    def apply_runtime_config(self, settings: dict) -> None:
+        """Apply normalized dashboard cache settings without clearing cached data.
+
+        Args:
+            settings: Normalized configuration values from ConfigLoader.
+        """
+        if "max_cache_size" in settings:
+            self.max_size = max(1, int(settings["max_cache_size"]))
+        if "cache_expire_time_min" in settings:
+            self.expire_time = max(1, int(settings["cache_expire_time_min"])) * 60
+        if "cache_preload_count" in settings:
+            self.preload_count = max(0, int(settings["cache_preload_count"]))
+        preload_setting = settings.get("cache_preload_enabled")
+        preload_changed = (
+            preload_setting is not None
+            and bool(preload_setting) != self.preload_enabled
+        )
+        if preload_setting is not None:
+            self.preload_enabled = bool(preload_setting)
+
+        self._cleanup()
+        if self.preload_enabled and (
+            preload_changed or "cache_preload_count" in settings
+        ):
+            self._preload_cache()
+        elif not self.preload_enabled:
+            self.preload_urls.clear()
+        else:
+            self.preload_urls.intersection_update(self.memory_cache)
 
     def _initialize_cache_dir(self, cache_dir: str | None) -> str:
         """初始化缓存目录
@@ -706,9 +736,7 @@ class CacheManager:
                     removed_count += 1
 
             if removed_count > 0:
-                logger.info(
-                    f"已清理 {removed_count} 个过期的孤立缓存文件"
-                )
+                logger.info(f"已清理 {removed_count} 个过期的孤立缓存文件")
         except Exception as e:
             logger.warning(f"清理过期孤立缓存文件时出错（可忽略）: {e}")
 

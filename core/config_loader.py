@@ -575,9 +575,14 @@ class ConfigLoader:
             min_val=1,
             max_val=20,
         )
-        config_dict["fetch_mode"] = ConfigLoader._get_nested_value(
+        # Normalize the legacy option before exposing it to the config editor.
+        raw_fetch_mode = ConfigLoader._get_nested_value(
             config, "基础设置", "网络设置", "fetch_mode", "httpx"
         )
+        if raw_fetch_mode == "playwright":
+            raw_fetch_mode = "browser"
+            config["基础设置"]["网络设置"]["fetch_mode"] = "browser"
+        config_dict["fetch_mode"] = raw_fetch_mode
 
         # 域名管理
         allowed_text = ConfigLoader._get_nested_value(
@@ -659,7 +664,11 @@ class ConfigLoader:
         config_dict["analysis_mode"] = ConfigLoader._get_direct_value(
             config, "分析设置", "analysis_mode", "auto"
         )
-        config_dict["auto_analyze"] = config_dict["analysis_mode"] == "auto"
+        config_dict["auto_analyze"] = config_dict["analysis_mode"] in (
+            "auto",
+            "hybrid",
+            "LLMTOOL",
+        )
         config_dict["llmtool_url_strategy"] = ConfigLoader._get_direct_value(
             config, "分析设置", "llmtool_url_strategy", "auto_analyze"
         )
@@ -770,11 +779,20 @@ class ConfigLoader:
         config_dict["screenshot_format"] = ConfigLoader._get_nested_value(
             config, "展示设置", "网页截图", "screenshot_format", "jpeg"
         )
-        config_dict["enable_crop"] = ConfigLoader._get_nested_value(
-            config, "展示设置", "网页截图", "enable_crop", False
+        crop_settings = (
+            config.get("展示设置", {}).get("网页截图", {}).get("裁剪设置", {})
         )
-        crop_area = ConfigLoader._get_nested_value(
-            config, "展示设置", "网页截图", "crop_area", "[0, 0, 1280, 720]"
+        config_dict["enable_crop"] = crop_settings.get(
+            "enable_crop",
+            ConfigLoader._get_nested_value(
+                config, "展示设置", "网页截图", "enable_crop", False
+            ),
+        )
+        crop_area = crop_settings.get(
+            "crop_area",
+            ConfigLoader._get_nested_value(
+                config, "展示设置", "网页截图", "crop_area", "[0, 0, 1280, 720]"
+            ),
         )
         default_crop_area = [0, 0, 1280, 720]
         if isinstance(crop_area, str):

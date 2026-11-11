@@ -72,15 +72,34 @@ cd astrbot_plugin_web_analyzer
 pip install -r requirements.txt
 ```
 
-### 2. 安装playwright浏览器
+### 2. 浏览器环境
 
-```bash
-playwright install
-```
+插件直接使用系统已安装的 Chrome / Edge / Chromium，无需额外下载浏览器。
+请确保开发机器上安装了其中任意一款浏览器。
 
 ### 3. 运行测试
 
-目前插件使用AstrBot的测试框架进行测试。请按照AstrBot的测试文档进行测试。
+使用标准库 unittest 运行回归测试：
+
+```bash
+python -m unittest discover -s tests -v
+```
+
+真实浏览器测试默认跳过。需要验证本机 Chrome/Edge/Chromium 时，在安装浏览器后启用：
+
+```bash
+WEB_ANALYZER_BROWSER_TESTS=1 python -m unittest discover -s tests -v
+```
+
+PowerShell 对应命令：
+
+```powershell
+$env:WEB_ANALYZER_BROWSER_TESTS = "1"
+python -m unittest discover -s tests -v
+```
+
+测试只使用本地页面与本地认证代理，不连接公共网站，也不读取日常浏览器个人资料。
+收尾可运行 `python run_ruff.py` 进行检查、修复和格式化。
 
 ## 开发规范
 
