@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" role="img" aria-labelledby="title desc">
+  <title id="title">Web Analyzer</title>
+  <desc id="desc">A blue page with a small green leaf, representing web content analysis.</desc>
+  <rect x="8" y="8" width="240" height="240" rx="58" fill="#eef4ff"/>
+  <path d="M76 39h69l38 38v129a13 13 0 0 1-13 13H76a13 13 0 0 1-13-13V52a13 13 0 0 1 13-13Z" fill="#fff" stroke="#2854b8" stroke-width="9" stroke-linejoin="round"/>
+  <path d="M145 42v30a8 8 0 0 0 8 8h29" fill="#dbe7ff" stroke="#2854b8" stroke-width="8" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M91 105h67" fill="none" stroke="#9bb4e8" stroke-width="8" stroke-linecap="round"/>
+  <path d="M91 128h43" fill="none" stroke="#c3d1ed" stroke-width="8" stroke-linecap="round"/>
+  <path d="M112 181c4-27 26-43 61-42-1 34-17 56-45 58" fill="#5aa879" stroke="#397d5a" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M111 197c12-16 26-28 45-39" fill="none" stroke="#fff" stroke-width="5" stroke-linecap="round"/>
+</svg>

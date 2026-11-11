@@ -62,11 +62,11 @@ class CommandMixin:
    示例：/web_export
 
 📋 浏览器管理命令
-🌐 /web_browser [uninstall] - 管理 Playwright 浏览器
+🌐 /web_browser [uninstall] - 管理系统浏览器
    别名：/浏览器管理, /网页浏览器
    选项：
      - (空): 查看浏览器状态
-     - uninstall: 卸载浏览器
+     - uninstall: 清理旧版 Playwright 浏览器残留文件
    示例：/web_browser uninstall
 
 📋 测试功能命令

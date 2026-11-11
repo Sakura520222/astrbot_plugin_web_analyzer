@@ -2,278 +2,72 @@
 <html lang="zh-CN">
 <head>
   <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>网页分析插件 - 管理面板</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="color-scheme" content="light dark" />
+  <title>网页分析管理面板</title>
+  <link rel="icon" href="./logo.svg" type="image/svg+xml" />
   <link rel="stylesheet" href="./style.css" />
 </head>
 <body>
   <div id="app">
-    <!-- 侧边导航 -->
-    <nav class="sidebar">
+    <aside class="sidebar" aria-label="主导航">
       <div class="sidebar-header">
-        <div class="sidebar-logo">🌐</div>
+        <img class="sidebar-logo" src="./logo.svg" alt="" />
         <div class="sidebar-title" id="sidebar-title">网页分析</div>
       </div>
-      <ul class="nav-list">
-        <li class="nav-item active" data-page="overview">
-          <span class="nav-icon">📊</span>
-          <span class="nav-text" data-i18n="nav.overview">概览</span>
-        </li>
-        <li class="nav-item" data-page="cache">
-          <span class="nav-icon">💾</span>
-          <span class="nav-text" data-i18n="nav.cache">缓存管理</span>
-        </li>
-        <li class="nav-item" data-page="domains">
-          <span class="nav-icon">🔒</span>
-          <span class="nav-text" data-i18n="nav.domains">域名管理</span>
-        </li>
-        <li class="nav-item" data-page="groups">
-          <span class="nav-icon">👥</span>
-          <span class="nav-text" data-i18n="nav.groups">群聊管理</span>
-        </li>
-        <li class="nav-item" data-page="config">
-          <span class="nav-icon">⚙️</span>
-          <span class="nav-text" data-i18n="nav.config">配置编辑</span>
-        </li>
-        <li class="nav-item" data-page="browser">
-          <span class="nav-icon">🌍</span>
-          <span class="nav-text" data-i18n="nav.browser">浏览器状态</span>
-        </li>
-      </ul>
-      <div class="sidebar-footer">
-        <div class="version-info" id="version-info">v1.6.6</div>
-      </div>
-    </nav>
+      <nav class="nav-list" aria-label="页面">
+        <button class="nav-item active" type="button" data-page="overview" aria-current="page"><svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 13h6V4H4zm10 7h6V11h-6zm0-16v3h6V4zM4 20h6v-3H4z"/></svg><span class="nav-text" data-i18n="nav.overview">概览</span></button>
+        <button class="nav-item" type="button" data-page="cache"><svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5h16v14H4zm3 3v2h10V8zm0 5v2h7v-2z"/></svg><span class="nav-text" data-i18n="nav.cache">缓存管理</span></button>
+        <button class="nav-item" type="button" data-page="domains"><svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3 4 6v5c0 5 3.4 8.5 8 10 4.6-1.5 8-5 8-10V6zm0 4 4 1.5V11c0 3-1.5 5.2-4 6.5-2.5-1.3-4-3.5-4-6.5V8.5z"/></svg><span class="nav-text" data-i18n="nav.domains">域名管理</span></button>
+        <button class="nav-item" type="button" data-page="groups"><svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M16 11a3 3 0 1 0-2.8-4A4 4 0 0 1 14 9c0 .7-.2 1.4-.5 2zM8 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8m0 2c-3.3 0-6 1.7-6 4v2h12v-2c0-2.3-2.7-4-6-4m8-1c-.5 0-1 .1-1.5.2 1.5 1 2.5 2.5 2.5 4.3V20h5v-2c0-2.3-2.7-4-6-4"/></svg><span class="nav-text" data-i18n="nav.groups">群聊管理</span></button>
+        <button class="nav-item" type="button" data-page="config"><svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M19.4 13a8 8 0 0 0 0-2l2-1.5-2-3.5-2.4 1a8 8 0 0 0-1.7-1L15 3h-4l-.4 3a8 8 0 0 0-1.7 1l-2.4-1-2 3.5 2 1.5a8 8 0 0 0 0 2l-2 1.5 2 3.5 2.4-1a8 8 0 0 0 1.7 1l.4 3h4l.4-3a8 8 0 0 0 1.7-1l2.4 1 2-3.5zM13 15a3 3 0 1 1 0-6 3 3 0 0 1 0 6"/></svg><span class="nav-text" data-i18n="nav.config">配置编辑</span></button>
+        <button class="nav-item" type="button" data-page="browser"><svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3a9 9 0 1 0 9 9 9 9 0 0 0-9-9m6.8 6h-4a13 13 0 0 0-1.4-3.7A7.1 7.1 0 0 1 18.8 9M12 5c1 1.2 1.7 2.5 2 4h-4c.3-1.5 1-2.8 2-4M5.2 15a7 7 0 0 1 0-6h4a14 14 0 0 0 0 6zm.9 2h4a13 13 0 0 0 1.4 3.7A7.1 7.1 0 0 1 6.1 17M10 11h4a11 11 0 0 1 0 2h-4a11 11 0 0 1 0-2m2 8c-1-1.2-1.7-2.5-2-4h4c-.3 1.5-1 2.8-2 4m1.4 1.7a13 13 0 0 0 1.4-3.7h4a7.1 7.1 0 0 1-5.4 3.7M14.8 15a14 14 0 0 0 0-6h4a7 7 0 0 1 0 6z"/></svg><span class="nav-text" data-i18n="nav.browser">浏览器状态</span></button>
+      </nav>
+      <div class="sidebar-footer"><span class="version-info" id="version-info">v1.7.0</span></div>
+    </aside>
 
-    <!-- 主内容区域 -->
     <main class="main-content">
-      <!-- 顶部栏 -->
       <header class="topbar">
         <h1 class="page-title" id="page-title">概览</h1>
-        <div class="topbar-actions">
-          <button class="btn btn-icon" id="btn-refresh" title="刷新">
-            <span>🔄</span>
-          </button>
-        </div>
+        <button class="btn btn-icon" id="btn-refresh" type="button" aria-label="刷新当前页面" title="刷新"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M17.7 6.3A8 8 0 0 0 4.2 9H2l3.5 3.5L9 9H6.3a6 6 0 0 1 10.2-1.3L17.7 6.3zM18.5 11 15 14.5h2.7a6 6 0 0 1-10.2 1.3l-1.2 1.4A8 8 0 0 0 19.8 15H22z"/></svg></button>
       </header>
 
-      <!-- 概览页面 -->
-      <section class="page active" id="page-overview">
+      <section class="page active" id="page-overview" aria-labelledby="page-title">
         <div class="stats-grid">
-          <div class="stat-card">
-            <div class="stat-icon">📄</div>
-            <div class="stat-info">
-              <div class="stat-value" id="stat-cache-total">-</div>
-              <div class="stat-label" data-i18n="overview.cacheTotal">缓存总数</div>
-            </div>
-          </div>
-          <div class="stat-card">
-            <div class="stat-icon">✅</div>
-            <div class="stat-info">
-              <div class="stat-value" id="stat-cache-valid">-</div>
-              <div class="stat-label" data-i18n="overview.cacheValid">有效缓存</div>
-            </div>
-          </div>
-          <div class="stat-card">
-            <div class="stat-icon">⏰</div>
-            <div class="stat-info">
-              <div class="stat-value" id="stat-cache-expired">-</div>
-              <div class="stat-label" data-i18n="overview.cacheExpired">过期缓存</div>
-            </div>
-          </div>
-          <div class="stat-card">
-            <div class="stat-icon">⚡</div>
-            <div class="stat-info">
-              <div class="stat-value" id="stat-analysis-mode">-</div>
-              <div class="stat-label" data-i18n="overview.analysisMode">分析模式</div>
-            </div>
-          </div>
+          <div class="stat-card"><div class="stat-info"><div class="stat-value" id="stat-cache-total">-</div><div class="stat-label" data-i18n="overview.cacheTotal">缓存总数</div></div></div>
+          <div class="stat-card"><div class="stat-info"><div class="stat-value" id="stat-cache-valid">-</div><div class="stat-label" data-i18n="overview.cacheValid">有效缓存</div></div></div>
+          <div class="stat-card"><div class="stat-info"><div class="stat-value" id="stat-cache-expired">-</div><div class="stat-label" data-i18n="overview.cacheExpired">过期缓存</div></div></div>
+          <div class="stat-card"><div class="stat-info"><div class="stat-value" id="stat-analysis-mode">-</div><div class="stat-label" data-i18n="overview.analysisMode">分析模式</div></div></div>
         </div>
-
         <div class="card-grid">
-          <div class="card">
-            <div class="card-header">
-              <h3 data-i18n="overview.quickStatus">快速状态</h3>
-            </div>
-            <div class="card-body" id="quick-status">
-              <div class="loading-spinner"></div>
-            </div>
-          </div>
-          <div class="card">
-            <div class="card-header">
-              <h3 data-i18n="overview.featureStatus">功能状态</h3>
-            </div>
-            <div class="card-body" id="feature-status">
-              <div class="loading-spinner"></div>
-            </div>
-          </div>
+          <section class="card"><div class="card-header"><h2 data-i18n="overview.quickStatus">快速状态</h2></div><div class="card-body" id="quick-status" aria-live="polite"><div class="loading-spinner" role="status" aria-label="加载中"></div></div></section>
+          <section class="card"><div class="card-header"><h2 data-i18n="overview.featureStatus">功能状态</h2></div><div class="card-body" id="feature-status" aria-live="polite"><div class="loading-spinner" role="status" aria-label="加载中"></div></div></section>
         </div>
       </section>
 
-      <!-- 缓存管理页面 -->
-      <section class="page" id="page-cache">
+      <section class="page" id="page-cache" aria-labelledby="page-title">
         <div class="stats-grid">
-          <div class="stat-card">
-            <div class="stat-icon">📦</div>
-            <div class="stat-info">
-              <div class="stat-value" id="cache-total">-</div>
-              <div class="stat-label" data-i18n="cache.total">缓存总数</div>
-            </div>
-          </div>
-          <div class="stat-card">
-            <div class="stat-icon">✅</div>
-            <div class="stat-info">
-              <div class="stat-value" id="cache-valid">-</div>
-              <div class="stat-label" data-i18n="cache.valid">有效缓存</div>
-            </div>
-          </div>
-          <div class="stat-card">
-            <div class="stat-icon">⏰</div>
-            <div class="stat-info">
-              <div class="stat-value" id="cache-expired">-</div>
-              <div class="stat-label" data-i18n="cache.expired">过期缓存</div>
-            </div>
-          </div>
-          <div class="stat-card stat-card-action" id="card-clear-cache">
-            <div class="stat-icon">🗑️</div>
-            <div class="stat-info">
-              <div class="stat-value">—</div>
-              <div class="stat-label" data-i18n="cache.clearAll">清空缓存</div>
-            </div>
-          </div>
+          <div class="stat-card"><div class="stat-info"><div class="stat-value" id="cache-total">-</div><div class="stat-label" data-i18n="cache.total">缓存总数</div></div></div>
+          <div class="stat-card"><div class="stat-info"><div class="stat-value" id="cache-valid">-</div><div class="stat-label" data-i18n="cache.valid">有效缓存</div></div></div>
+          <div class="stat-card"><div class="stat-info"><div class="stat-value" id="cache-expired">-</div><div class="stat-label" data-i18n="cache.expired">过期缓存</div></div></div>
+          <button class="stat-card stat-card-action" id="card-clear-cache" type="button"><span class="stat-info"><span class="stat-value">清空</span><span class="stat-label" data-i18n="cache.clearAll">清空缓存</span></span></button>
         </div>
-
-        <div class="card">
-          <div class="card-header">
-            <h3 data-i18n="cache.cacheList">缓存列表</h3>
-            <div class="card-actions">
-              <input type="text" class="search-input" id="cache-search"
-                     data-i18n-placeholder="cache.searchPlaceholder" placeholder="搜索 URL..." />
-            </div>
-          </div>
-          <div class="card-body">
-            <div class="table-container">
-              <table class="data-table">
-                <thead>
-                  <tr>
-                    <th>#</th>
-                    <th data-i18n="cache.tableUrl">URL</th>
-                    <th data-i18n="cache.tableStatus">状态</th>
-                    <th data-i18n="cache.tableScreenshot">截图</th>
-                    <th data-i18n="cache.tableTime">缓存时间</th>
-                    <th data-i18n="cache.tableAction">操作</th>
-                  </tr>
-                </thead>
-                <tbody id="cache-table-body">
-                  <tr><td colspan="6" class="empty-state" data-i18n="cache.loading">加载中...</td></tr>
-                </tbody>
-              </table>
-            </div>
-          </div>
-        </div>
+        <section class="card"><div class="card-header"><h2 data-i18n="cache.cacheList">缓存列表</h2><input type="search" class="search-input" id="cache-search" aria-label="搜索缓存 URL" data-i18n-placeholder="cache.searchPlaceholder" placeholder="搜索 URL..." /></div><div class="card-body"><div class="table-container"><table class="data-table"><thead><tr><th>#</th><th data-i18n="cache.tableUrl">URL</th><th data-i18n="cache.tableStatus">状态</th><th data-i18n="cache.tableScreenshot">截图</th><th data-i18n="cache.tableTime">缓存时间</th><th data-i18n="cache.tableAction">操作</th></tr></thead><tbody id="cache-table-body"><tr><td colspan="6" class="empty-state" data-i18n="cache.loading">加载中...</td></tr></tbody></table></div></div></section>
       </section>
 
-      <!-- 域名管理页面 -->
-      <section class="page" id="page-domains">
-        <div class="card-grid">
-          <div class="card">
-            <div class="card-header">
-              <h3 data-i18n="domains.allowed">允许的域名</h3>
-              <div class="card-actions">
-                <div class="toggle-switch">
-                  <label>
-                    <input type="checkbox" id="toggle-unified-domain" />
-                    <span class="toggle-slider"></span>
-                    <span class="toggle-label" data-i18n="domains.unified">统一域名</span>
-                  </label>
-                </div>
-              </div>
-            </div>
-            <div class="card-body">
-              <div class="domain-input-group">
-                <input type="text" class="input" id="input-allowed-domain"
-                       data-i18n-placeholder="domains.addPlaceholder" placeholder="输入域名，如 example.com" />
-                <button class="btn btn-primary" id="btn-add-allowed" data-i18n="domains.add">添加</button>
-              </div>
-              <div class="tag-list" id="allowed-domains-list">
-                <div class="loading-spinner"></div>
-              </div>
-            </div>
-          </div>
+      <section class="page" id="page-domains" aria-labelledby="page-title"><div class="card-grid">
+        <section class="card"><div class="card-header"><h2 data-i18n="domains.allowed">允许的域名</h2><label class="toggle-switch"><input type="checkbox" id="toggle-unified-domain" /><span class="toggle-slider" aria-hidden="true"></span><span class="toggle-label" data-i18n="domains.unified">统一域名</span></label></div><div class="card-body"><div class="domain-input-group"><input type="text" class="input" id="input-allowed-domain" aria-label="添加允许的域名" data-i18n-placeholder="domains.addPlaceholder" placeholder="输入域名，如 example.com" /><button class="btn btn-primary" id="btn-add-allowed" type="button" data-i18n="domains.add">添加</button></div><div class="tag-list" id="allowed-domains-list"><div class="loading-spinner" role="status" aria-label="加载中"></div></div></div></section>
+        <section class="card"><div class="card-header"><h2 data-i18n="domains.blocked">禁止的域名</h2></div><div class="card-body"><div class="domain-input-group"><input type="text" class="input" id="input-blocked-domain" aria-label="添加禁止的域名" data-i18n-placeholder="domains.addPlaceholder" placeholder="输入域名，如 ads.example.com" /><button class="btn btn-danger" id="btn-add-blocked" type="button" data-i18n="domains.add">添加</button></div><div class="tag-list" id="blocked-domains-list"><div class="loading-spinner" role="status" aria-label="加载中"></div></div></div></section>
+      </div></section>
 
-          <div class="card">
-            <div class="card-header">
-              <h3 data-i18n="domains.blocked">禁止的域名</h3>
-            </div>
-            <div class="card-body">
-              <div class="domain-input-group">
-                <input type="text" class="input" id="input-blocked-domain"
-                       data-i18n-placeholder="domains.addPlaceholder" placeholder="输入域名，如 ads.example.com" />
-                <button class="btn btn-danger" id="btn-add-blocked" data-i18n="domains.add">添加</button>
-              </div>
-              <div class="tag-list" id="blocked-domains-list">
-                <div class="loading-spinner"></div>
-              </div>
-            </div>
-          </div>
-        </div>
-      </section>
+      <section class="page" id="page-groups" aria-labelledby="page-title"><section class="card"><div class="card-header"><h2 data-i18n="groups.blacklist">群聊黑名单</h2></div><div class="card-body"><div class="domain-input-group"><input type="text" class="input" id="input-group-id" aria-label="添加群号" data-i18n-placeholder="groups.addPlaceholder" placeholder="输入群号" /><button class="btn btn-danger" id="btn-add-group" type="button" data-i18n="groups.add">添加</button></div><div class="tag-list" id="group-blacklist-list"><div class="loading-spinner" role="status" aria-label="加载中"></div></div></div></section></section>
 
-      <!-- 群聊管理页面 -->
-      <section class="page" id="page-groups">
-        <div class="card">
-          <div class="card-header">
-            <h3 data-i18n="groups.blacklist">群聊黑名单</h3>
-          </div>
-          <div class="card-body">
-            <div class="domain-input-group">
-              <input type="text" class="input" id="input-group-id"
-                     data-i18n-placeholder="groups.addPlaceholder" placeholder="输入群号" />
-              <button class="btn btn-danger" id="btn-add-group" data-i18n="groups.add">添加</button>
-            </div>
-            <div class="tag-list" id="group-blacklist-list">
-              <div class="loading-spinner"></div>
-            </div>
-          </div>
-        </div>
-      </section>
+      <section class="page" id="page-config" aria-labelledby="page-title"><div id="config-content" class="config-form"><div class="loading-spinner" role="status" aria-label="加载中"></div></div></section>
 
-      <!-- 配置编辑页面 -->
-      <section class="page" id="page-config">
-        <div id="config-content" class="config-form">
-          <div class="loading-spinner"></div>
-        </div>
-      </section>
-
-      <!-- 浏览器状态页面 -->
-      <section class="page" id="page-browser">
-        <div class="card">
-          <div class="card-header">
-            <h3 data-i18n="browser.title">Playwright 浏览器状态</h3>
-            <div class="card-actions">
-              <button class="btn btn-primary btn-sm" id="btn-refresh-browser" data-i18n="browser.refresh">刷新状态</button>
-            </div>
-          </div>
-          <div class="card-body" id="browser-status">
-            <div class="loading-spinner"></div>
-          </div>
-        </div>
-        <div class="card" style="margin-top: 16px;">
-          <div class="card-header">
-            <h3 data-i18n="browser.actions">操作</h3>
-          </div>
-          <div class="card-body">
-            <button class="btn btn-danger" id="btn-uninstall-browser" data-i18n="browser.uninstall">卸载浏览器</button>
-            <p class="help-text" data-i18n="browser.uninstallHint">卸载后截图功能将不可用，直到下次自动重新安装</p>
-          </div>
-        </div>
-      </section>
-
-      <!-- Toast 通知 -->
-      <div class="toast-container" id="toast-container"></div>
+      <section class="page" id="page-browser" aria-labelledby="page-title"><section class="card"><div class="card-header"><h2 data-i18n="browser.title">系统浏览器状态</h2><button class="btn btn-secondary btn-sm" id="btn-refresh-browser" type="button" data-i18n="browser.refresh">刷新状态</button></div><div class="card-body" id="browser-status" aria-live="polite"><div class="loading-spinner" role="status" aria-label="加载中"></div></div></section><section class="card browser-actions"><div class="card-header"><h2 data-i18n="browser.actions">操作</h2></div><div class="card-body"><button class="btn btn-danger" id="btn-uninstall-browser" type="button" data-i18n="browser.uninstall">清理旧版残留</button><p class="help-text" data-i18n="browser.uninstallHint">清理旧版本通过 Playwright 下载的浏览器残留文件；当前版本直接使用系统已安装的浏览器，无需下载</p></div></section></section>
+      <div class="toast-container" id="toast-container" role="status" aria-live="polite" aria-atomic="false"></div>
     </main>
   </div>
-
   <script type="module" src="./app.js"></script>
 </body>
 </html>

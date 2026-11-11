@@ -7,10 +7,14 @@ AstrBot 网页分析插件 - 重构版本
 本版本使用核心模块重构，遵循 PEP 8 规范。
 """
 
+import asyncio
+import copy
 import json
+import math
 import os
 import re
 import time
+from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
 
@@ -46,6 +50,7 @@ class WebAnalyzerPlugin(Star):
         super().__init__(context)
         self.config = config
         self._cached_schema = None  # schema 缓存，避免重复磁盘读取
+        self._config_update_lock = asyncio.Lock()
 
         # 使用配置加载器加载所有配置
         config_dict = ConfigLoader.load_all_config(config, context)
@@ -79,12 +84,13 @@ class WebAnalyzerPlugin(Star):
         # 初始化缓存管理器
         self.cache_manager = CacheManager(
             max_size=self.max_cache_size,
-            expire_time=self.cache_expire_time_min,
+            expire_time=self.cache_expire_time_min * 60,
             preload_enabled=self.cache_preload_enabled,
             preload_count=self.cache_preload_count,
         )
 
-        # 初始化网页分析器
+        # A plugin reload must re-enable new browser operations.
+        WebAnalyzer._shutting_down = False
         self.analyzer = WebAnalyzer(
             max_content_length=self.max_content_length,
             timeout=self.request_timeout_s,
@@ -137,6 +143,7 @@ class WebAnalyzerPlugin(Star):
             merge_forward_include_screenshot=self.merge_forward_include_screenshot,
             max_concurrency=self.max_concurrency,
         )
+        self.message_handler.apply_runtime_config(config_dict)
 
     @filter.command("网页分析", alias={"分析", "总结", "web", "analyze"})
     async def analyze_webpage(self, event: AstrMessageEvent):
@@ -345,7 +352,6 @@ class WebAnalyzerPlugin(Star):
         )
 
         # 保存原始send_content_type配置
-        original_send_content_type = self.message_handler.send_content_type
 
         try:
             # 根据LLM的决策设置send_content_type
@@ -359,8 +365,8 @@ class WebAnalyzerPlugin(Star):
                 yield result
         finally:
             # 恢复原始send_content_type配置
-            self.message_handler.send_content_type = original_send_content_type
-            logger.info(f"恢复send_content_type为: {original_send_content_type}")
+            self.message_handler.send_content_type = self.send_content_type
+            logger.debug("Restored the current configured response type")
 
     @filter.llm_tool(name="analyze_batch_urls")
     async def analyze_batch_urls_tool(
@@ -433,7 +439,6 @@ class WebAnalyzerPlugin(Star):
         )
 
         # 保存原始配置
-        original_send_content_type = self.message_handler.send_content_type
         try:
             self.message_handler.send_content_type = return_type
             logger.info(f"临时设置send_content_type为: {return_type}")
@@ -443,8 +448,8 @@ class WebAnalyzerPlugin(Star):
             ):
                 yield result
         finally:
-            self.message_handler.send_content_type = original_send_content_type
-            logger.info(f"恢复send_content_type为: {original_send_content_type}")
+            self.message_handler.send_content_type = self.send_content_type
+            logger.debug("Restored the current configured response type")
 
     @filter.event_message_type(filter.EventMessageType.ALL)
     async def auto_detect_urls(self, event: AstrMessageEvent):
@@ -631,11 +636,11 @@ class WebAnalyzerPlugin(Star):
    示例：/web_export
 
 📋 浏览器管理命令
-🌐 /web_browser [uninstall] - 管理 Playwright 浏览器
+🌐 /web_browser [uninstall] - 管理系统浏览器
    别名：/浏览器管理, /网页浏览器
    选项：
      - (空): 查看浏览器状态
-     - uninstall: 卸载浏览器
+     - uninstall: 清理旧版 Playwright 浏览器残留文件
    示例：/web_browser uninstall
 
 📋 测试功能命令
@@ -905,7 +910,7 @@ class WebAnalyzerPlugin(Star):
 
         # 更新分析模式
         self.analysis_mode = mode
-        self.auto_analyze = mode == "auto"
+        self.auto_analyze = mode in ("auto", "hybrid", "LLMTOOL")
 
         # 保存配置
         try:
@@ -922,9 +927,9 @@ class WebAnalyzerPlugin(Star):
     @filter.permission_type(filter.PermissionType.ADMIN)
     @filter.command("web_browser", alias={"浏览器管理", "网页浏览器"})
     async def manage_browser(self, event: AstrMessageEvent):
-        """管理插件自动安装的 Playwright 浏览器
+        """管理系统浏览器
 
-        支持查看浏览器状态、卸载浏览器等操作。
+        支持查看浏览器状态、清理旧版 Playwright 浏览器残留文件等操作。
         """
         # 解析命令参数
         message_parts = event.message_str.strip().split()
@@ -934,24 +939,25 @@ class WebAnalyzerPlugin(Star):
             status = await self.analyzer.get_browser_status()
 
             status_text = "**浏览器状态信息**\n\n"
-            status_text += (
-                f"- 安装状态: {'✅ 已安装' if status['installed'] else '❌ 未安装'}\n"
-            )
+            status_text += f"- 浏览器状态: {'✅ 已检测到' if status['installed'] else '❌ 未检测到'}\n"
 
             if status["installed"]:
                 status_text += f"- 浏览器路径: {status['install_path']}\n"
-                if status["install_time"]:
-                    status_text += f"- 安装时间: {status['install_time']}\n"
                 status_text += f"- 浏览器类型: {status['browser_type']}\n"
+                if status.get("browser_version"):
+                    status_text += f"- 浏览器版本: {status['browser_version']}\n"
 
             if status["install_dir_exists"]:
-                status_text += f"- 安装目录大小: {status['install_dir_size_mb']} MB\n"
+                status_text += f"- 旧版 Playwright 残留文件: {status['install_dir_size_mb']} MB（可用 uninstall 清理）\n"
 
             status_text += f"- 浏览器实例池: {status['browser_pool_size']} 个实例\n"
-            status_text += f"- 正在安装: {'是' if status['is_installing'] else '否'}\n"
 
-            status_text += "\n使用 `/web_browser uninstall` 卸载浏览器"
-            status_text += "\n⚠️ 卸载后将无法使用截图功能，直到下次自动重新安装"
+            status_text += (
+                "\n插件直接使用系统已安装的 Chrome / Edge / Chromium，无需额外下载"
+            )
+            status_text += (
+                "\n使用 `/web_browser uninstall` 清理旧版 Playwright 浏览器残留文件"
+            )
 
             yield event.plain_result(status_text)
             return
@@ -960,14 +966,13 @@ class WebAnalyzerPlugin(Star):
         action = message_parts[1].lower()
 
         if action == "uninstall":
-            # 确认卸载（需要用户在命令中明确指定 uninstall）
+            # 确认清理（需要用户在命令中明确指定 uninstall）
             result = await self.analyzer.uninstall_browser()
 
             if result["success"]:
                 msg = result["message"]
                 if result["detail"]:
                     msg += f"\n{result['detail']}"
-                msg += "\n\n💡 提示：下次使用截图功能时，浏览器将自动重新安装"
                 yield event.plain_result(msg)
             else:
                 yield event.plain_result(f"❌ {result['message']}")
@@ -1216,7 +1221,9 @@ class WebAnalyzerPlugin(Star):
                 return content
 
             # 优先使用配置的LLM提供商，如果没有配置则使用当前会话的模型
-            provider_id = self.llm_provider
+            provider_id = self.translation_provider
+            if not provider_id or provider_id == "llm":
+                provider_id = self.llm_provider
             if not provider_id:
                 umo = event.unified_msg_origin
                 provider_id = await self.context.get_current_chat_provider_id(umo=umo)
@@ -1420,6 +1427,7 @@ class WebAnalyzerPlugin(Star):
                     enable_specific_extraction=self.enable_specific_extraction,
                     extract_types=self.extract_types,
                     result_formatter=self.result_formatter,
+                    translate_content=self._translate_content,
                 )
                 results.append(result)
 
@@ -1495,133 +1503,166 @@ class WebAnalyzerPlugin(Star):
 
     async def _api_overview(self):
         """Dashboard 概览数据"""
-        from quart import jsonify
+        from astrbot.api.web import json_response as jsonify
 
         cache_stats = self.cache_manager.get_stats()
-        return jsonify({
-            "cache_stats": cache_stats,
-            "analysis_mode": self.analysis_mode,
-            "auto_analyze": self.auto_analyze,
-            "llm_enabled": self.llm_enabled,
-            "enable_screenshot": self.enable_screenshot,
-            "enable_cache": self.enable_cache,
-            "enable_translation": getattr(self, "enable_translation", False),
-            "enable_emoji": self.enable_emoji,
-            "enable_statistics": self.enable_statistics,
-            "enable_specific_extraction": getattr(
-                self, "enable_specific_extraction", False
-            ),
-            "enable_llm_decision": getattr(self, "enable_llm_decision", False),
-            "enable_recall": self.enable_recall,
-            "enable_memory_monitor": self.enable_memory_monitor,
-            "fetch_mode": self.fetch_mode,
-            "max_concurrency": self.max_concurrency,
-        })
+        return jsonify(
+            {
+                "cache_stats": cache_stats,
+                "analysis_mode": self.analysis_mode,
+                "auto_analyze": self.auto_analyze,
+                "llm_enabled": self.llm_enabled,
+                "enable_screenshot": self.enable_screenshot,
+                "enable_cache": self.enable_cache,
+                "enable_translation": getattr(self, "enable_translation", False),
+                "enable_emoji": self.enable_emoji,
+                "enable_statistics": self.enable_statistics,
+                "enable_specific_extraction": getattr(
+                    self, "enable_specific_extraction", False
+                ),
+                "enable_llm_decision": getattr(self, "enable_llm_decision", False),
+                "enable_recall": self.enable_recall,
+                "enable_memory_monitor": self.enable_memory_monitor,
+                "fetch_mode": self.fetch_mode,
+                "max_concurrency": self.max_concurrency,
+            }
+        )
 
     async def _api_cache(self):
         """Dashboard 缓存列表"""
         import time as _time
 
-        from quart import jsonify
+        from astrbot.api.web import json_response as jsonify
 
         stats = self.cache_manager.get_stats()
         items = []
         for url, cache_data in self.cache_manager.memory_cache.items():
             result = cache_data.get("result", {})
-            has_screenshot = (
-                isinstance(result, dict) and result.get("has_screenshot", False)
+            has_screenshot = isinstance(result, dict) and result.get(
+                "has_screenshot", False
             )
-            items.append({
-                "url": url,
-                "timestamp": cache_data.get("timestamp", 0),
-                "expired": _time.time() - cache_data.get("timestamp", 0)
-                >= self.cache_manager.expire_time,
-                "has_screenshot": has_screenshot,
-            })
+            items.append(
+                {
+                    "url": url,
+                    "timestamp": cache_data.get("timestamp", 0),
+                    "expired": _time.time() - cache_data.get("timestamp", 0)
+                    >= self.cache_manager.expire_time,
+                    "has_screenshot": has_screenshot,
+                }
+            )
         items.sort(key=lambda x: x.get("timestamp", 0), reverse=True)
         return jsonify({"stats": stats, "items": items})
 
     async def _api_cache_clear(self):
         """清空所有缓存"""
-        from quart import jsonify
+        from astrbot.api.web import json_response as jsonify
 
         self.cache_manager.clear()
         stats = self.cache_manager.get_stats()
-        return jsonify({
-            "message": f"已清空所有缓存，当前缓存数量: {stats['total']} 个",
-            "stats": stats,
-        })
+        return jsonify(
+            {
+                "message": f"已清空所有缓存，当前缓存数量: {stats['total']} 个",
+                "stats": stats,
+            }
+        )
 
     async def _api_cache_delete(self):
         """删除指定 URL 的缓存"""
-        from quart import jsonify, request
+        from astrbot.api.web import json_response as jsonify
+        from astrbot.api.web import request
 
-        data = await request.get_json()
+        data = await request.json(default={})
+        if not isinstance(data, dict):
+            return jsonify({"error": "请求必须为 JSON 对象"}, status_code=400)
         url = data.get("url", "")
         if not url:
-            return jsonify({"error": "缺少 url 参数"}), 400
+            return jsonify({"error": "缺少 url 参数"}, status_code=400)
         self.cache_manager.delete(url)
         return jsonify({"message": f"已删除缓存: {url}"})
 
     async def _api_domains(self):
         """获取域名管理配置"""
-        from quart import jsonify
+        from astrbot.api.web import json_response as jsonify
 
-        return jsonify({
-            "enable_unified_domain": self.enable_unified_domain,
-            "allowed_domains": list(self.allowed_domains),
-            "blocked_domains": list(self.blocked_domains),
-        })
+        return jsonify(
+            {
+                "enable_unified_domain": self.enable_unified_domain,
+                "allowed_domains": list(self.allowed_domains),
+                "blocked_domains": list(self.blocked_domains),
+            }
+        )
 
     async def _api_domains_add(self):
         """添加域名"""
-        from quart import jsonify, request
+        from astrbot.api.web import json_response as jsonify
+        from astrbot.api.web import request
 
-        data = await request.get_json()
+        data = await request.json(default={})
+        if not isinstance(data, dict):
+            return jsonify({"error": "请求必须为 JSON 对象"}, status_code=400)
         domain_type = data.get("type", "")
-        value = data.get("value", "").strip()
+        value = data.get("value", "")
+        if not isinstance(value, str):
+            return jsonify({"error": "域名必须为文本"}, status_code=400)
+        value = value.strip()
         if not value or domain_type not in ("allowed", "blocked"):
-            return jsonify({"error": "参数无效"}), 400
+            return jsonify({"error": "参数无效"}, status_code=400)
 
-        if domain_type == "allowed":
-            if value not in self.allowed_domains:
-                self.allowed_domains.append(value)
-        else:
-            if value not in self.blocked_domains:
-                self.blocked_domains.append(value)
-
-        self._save_domain_config()
-        return jsonify({"message": f"已添加域名: {value}"})
+        path = "基础设置.域名管理." + (
+            "allowed_domains" if domain_type == "allowed" else "blocked_domains"
+        )
+        domains = list(
+            self.allowed_domains if domain_type == "allowed" else self.blocked_domains
+        )
+        if value not in domains:
+            domains.append(value)
+        payload, status = await self._update_dashboard_config(
+            {path: "\n".join(domains)}
+        )
+        return jsonify(payload, status_code=status)
 
     async def _api_domains_remove(self):
         """移除域名"""
-        from quart import jsonify, request
+        from astrbot.api.web import json_response as jsonify
+        from astrbot.api.web import request
 
-        data = await request.get_json()
+        data = await request.json(default={})
+        if not isinstance(data, dict):
+            return jsonify({"error": "请求必须为 JSON 对象"}, status_code=400)
         domain_type = data.get("type", "")
-        value = data.get("value", "").strip()
+        value = data.get("value", "")
+        if not isinstance(value, str):
+            return jsonify({"error": "域名必须为文本"}, status_code=400)
+        value = value.strip()
         if not value or domain_type not in ("allowed", "blocked"):
-            return jsonify({"error": "参数无效"}), 400
+            return jsonify({"error": "参数无效"}, status_code=400)
 
-        if domain_type == "allowed":
-            if value in self.allowed_domains:
-                self.allowed_domains.remove(value)
-        else:
-            if value in self.blocked_domains:
-                self.blocked_domains.remove(value)
-
-        self._save_domain_config()
-        return jsonify({"message": f"已移除域名: {value}"})
+        path = "基础设置.域名管理." + (
+            "allowed_domains" if domain_type == "allowed" else "blocked_domains"
+        )
+        domains = list(
+            self.allowed_domains if domain_type == "allowed" else self.blocked_domains
+        )
+        if value in domains:
+            domains.remove(value)
+        payload, status = await self._update_dashboard_config(
+            {path: "\n".join(domains)}
+        )
+        return jsonify(payload, status_code=status)
 
     async def _api_domains_toggle(self):
         """切换域名统一处理"""
-        from quart import jsonify, request
+        from astrbot.api.web import json_response as jsonify
+        from astrbot.api.web import request
 
-        data = await request.get_json()
-        enabled = data.get("enabled", False)
-        self.enable_unified_domain = enabled
-        self._save_domain_config()
-        return jsonify({"message": f"域名统一处理已{'启用' if enabled else '禁用'}"})
+        data = await request.json(default={})
+        if not isinstance(data, dict):
+            return jsonify({"error": "请求必须为 JSON 对象"}, status_code=400)
+        enabled = data.get("enabled")
+        payload, status = await self._update_dashboard_config(
+            {"基础设置.域名管理.enable_unified_domain": enabled}
+        )
+        return jsonify(payload, status_code=status)
 
     def _save_domain_config(self):
         """保存域名配置到配置文件"""
@@ -1637,122 +1678,136 @@ class WebAnalyzerPlugin(Star):
 
     async def _api_groups(self):
         """获取群聊黑名单"""
-        from quart import jsonify
+        from astrbot.api.web import json_response as jsonify
 
         return jsonify({"group_blacklist": list(self.group_blacklist)})
 
     async def _api_groups_add(self):
         """添加群聊到黑名单"""
-        from quart import jsonify, request
+        from astrbot.api.web import json_response as jsonify
+        from astrbot.api.web import request
 
-        data = await request.get_json()
-        group_id = data.get("group_id", "").strip()
+        data = await request.json(default={})
+        if not isinstance(data, dict):
+            return jsonify({"error": "请求必须为 JSON 对象"}, status_code=400)
+        group_id = data.get("group_id", "")
+        if not isinstance(group_id, str):
+            return jsonify({"error": "群号必须为文本"}, status_code=400)
+        group_id = group_id.strip()
         if not group_id:
-            return jsonify({"error": "缺少 group_id 参数"}), 400
+            return jsonify({"error": "缺少 group_id 参数"}, status_code=400)
         if group_id in self.group_blacklist:
             return jsonify({"message": f"群聊 {group_id} 已在黑名单中"})
-        self.group_blacklist.append(group_id)
-        self._save_group_blacklist()
-        return jsonify({"message": f"已添加群聊 {group_id} 到黑名单"})
+        groups = list(self.group_blacklist)
+        groups.append(group_id)
+        payload, status = await self._update_dashboard_config(
+            {"消息管理.群聊设置.group_blacklist": "\n".join(groups)}
+        )
+        return jsonify(payload, status_code=status)
 
     async def _api_groups_remove(self):
         """从黑名单移除群聊"""
-        from quart import jsonify, request
+        from astrbot.api.web import json_response as jsonify
+        from astrbot.api.web import request
 
-        data = await request.get_json()
-        group_id = data.get("group_id", "").strip()
+        data = await request.json(default={})
+        if not isinstance(data, dict):
+            return jsonify({"error": "请求必须为 JSON 对象"}, status_code=400)
+        group_id = data.get("group_id", "")
+        if not isinstance(group_id, str):
+            return jsonify({"error": "群号必须为文本"}, status_code=400)
+        group_id = group_id.strip()
         if not group_id:
-            return jsonify({"error": "缺少 group_id 参数"}), 400
+            return jsonify({"error": "缺少 group_id 参数"}, status_code=400)
         if group_id not in self.group_blacklist:
             return jsonify({"message": f"群聊 {group_id} 不在黑名单中"})
-        self.group_blacklist.remove(group_id)
-        self._save_group_blacklist()
-        return jsonify({"message": f"已从黑名单移除群聊 {group_id}"})
+        groups = list(self.group_blacklist)
+        groups.remove(group_id)
+        payload, status = await self._update_dashboard_config(
+            {"消息管理.群聊设置.group_blacklist": "\n".join(groups)}
+        )
+        return jsonify(payload, status_code=status)
 
     async def _api_config(self):
         """获取插件配置信息"""
-        from quart import jsonify
+        from astrbot.api.web import json_response as jsonify
 
-        return jsonify({
-            "network": {
-                "max_content_length": self.max_content_length,
-                "request_timeout_s": self.request_timeout_s,
-                "retry_count": self.retry_count,
-                "retry_delay_s": self.retry_delay_s,
-                "user_agent": self.user_agent,
-                "proxy": self.proxy or "未配置",
-                "hide_ip": self.hide_ip,
-                "max_concurrency": self.max_concurrency,
-                "fetch_mode": self.fetch_mode,
-            },
-            "analysis": {
-                "analysis_mode": self.analysis_mode,
-                "llmtool_url_strategy": getattr(
-                    self, "llmtool_url_strategy", "auto_analyze"
-                ),
-                "max_summary_length": self.max_summary_length,
-                "enable_emoji": self.enable_emoji,
-                "enable_statistics": self.enable_statistics,
-                "enable_specific_extraction": getattr(
-                    self, "enable_specific_extraction", False
-                ),
-            },
-            "display": {
-                "send_content_type": self.send_content_type,
-                "result_template": getattr(self, "result_template", "default"),
-                "enable_screenshot": self.enable_screenshot,
-                "screenshot_quality": self.screenshot_quality,
-                "screenshot_width": self.screenshot_width,
-                "screenshot_height": self.screenshot_height,
-                "screenshot_format": self.screenshot_format,
-                "screenshot_full_page": self.screenshot_full_page,
-                "screenshot_wait_ms": self.screenshot_wait_ms,
-                "screenshot_wait_strategy": self.screenshot_wait_strategy,
-                "enable_crop": self.enable_crop,
-            },
-            "llm": {
-                "llm_enabled": self.llm_enabled,
-                "enable_llm_decision": getattr(
-                    self, "enable_llm_decision", False
-                ),
-                "enable_translation": getattr(
-                    self, "enable_translation", False
-                ),
-                "target_language": getattr(self, "target_language", "zh"),
-            },
-            "message": {
-                "merge_forward_group": self.merge_forward_group,
-                "merge_forward_private": self.merge_forward_private,
-                "enable_recall": self.enable_recall,
-                "recall_type": self.recall_type,
-                "recall_time_s": self.recall_time_s,
-                "allow_llm_propagation": self.allow_llm_propagation,
-            },
-            "cache": {
-                "enable_cache": self.enable_cache,
-                "cache_expire_time_min": self.cache_expire_time_min,
-                "max_cache_size": self.max_cache_size,
-                "cache_preload_enabled": self.cache_preload_enabled,
-            },
-        })
+        return jsonify(
+            {
+                "network": {
+                    "max_content_length": self.max_content_length,
+                    "request_timeout_s": self.request_timeout_s,
+                    "retry_count": self.retry_count,
+                    "retry_delay_s": self.retry_delay_s,
+                    "user_agent": self.user_agent,
+                    "proxy": "已配置" if self.proxy else "未配置",
+                    "hide_ip": self.hide_ip,
+                    "max_concurrency": self.max_concurrency,
+                    "fetch_mode": self.fetch_mode,
+                },
+                "analysis": {
+                    "analysis_mode": self.analysis_mode,
+                    "llmtool_url_strategy": getattr(
+                        self, "llmtool_url_strategy", "auto_analyze"
+                    ),
+                    "max_summary_length": self.max_summary_length,
+                    "enable_emoji": self.enable_emoji,
+                    "enable_statistics": self.enable_statistics,
+                    "enable_specific_extraction": getattr(
+                        self, "enable_specific_extraction", False
+                    ),
+                },
+                "display": {
+                    "send_content_type": self.send_content_type,
+                    "result_template": getattr(self, "result_template", "default"),
+                    "enable_screenshot": self.enable_screenshot,
+                    "screenshot_quality": self.screenshot_quality,
+                    "screenshot_width": self.screenshot_width,
+                    "screenshot_height": self.screenshot_height,
+                    "screenshot_format": self.screenshot_format,
+                    "screenshot_full_page": self.screenshot_full_page,
+                    "screenshot_wait_ms": self.screenshot_wait_ms,
+                    "screenshot_wait_strategy": self.screenshot_wait_strategy,
+                    "enable_crop": self.enable_crop,
+                },
+                "llm": {
+                    "llm_enabled": self.llm_enabled,
+                    "enable_llm_decision": getattr(self, "enable_llm_decision", False),
+                    "enable_translation": getattr(self, "enable_translation", False),
+                    "target_language": getattr(self, "target_language", "zh"),
+                },
+                "message": {
+                    "merge_forward_group": self.merge_forward_group,
+                    "merge_forward_private": self.merge_forward_private,
+                    "enable_recall": self.enable_recall,
+                    "recall_type": self.recall_type,
+                    "recall_time_s": self.recall_time_s,
+                    "allow_llm_propagation": self.allow_llm_propagation,
+                },
+                "cache": {
+                    "enable_cache": self.enable_cache,
+                    "cache_expire_time_min": self.cache_expire_time_min,
+                    "max_cache_size": self.max_cache_size,
+                    "cache_preload_enabled": self.cache_preload_enabled,
+                },
+            }
+        )
 
     def _load_schema(self) -> dict:
-        """加载并缓存 _conf_schema.json
+        """Read the bundled configuration schema once per plugin instance.
 
-        Schema 文件随插件一起部署，运行时不会变化；配置热重载会重启插件，
-        因此首次加载后缓存是安全的，可避免每次 API 调用重复读取磁盘。
+        Returns:
+            The cached AstrBot schema definition.
         """
-        if self._cached_schema is not None:
-            return self._cached_schema
-        schema_path = os.path.join(os.path.dirname(__file__), "_conf_schema.json")
-        with open(schema_path, encoding="utf-8") as f:
-            self._cached_schema = json.load(f)
+        if self._cached_schema is None:
+            schema_path = Path(__file__).with_name("_conf_schema.json")
+            self._cached_schema = json.loads(schema_path.read_text(encoding="utf-8"))
         return self._cached_schema
 
     async def _api_config_schema(self):
         """获取配置 schema 及当前值，用于编辑表单"""
 
-        from quart import jsonify
+        from astrbot.api.web import json_response
 
         schema = self._load_schema()
 
@@ -1801,7 +1856,7 @@ class WebAnalyzerPlugin(Star):
 
             groups.append(group)
 
-        return jsonify({"groups": groups})
+        return json_response({"groups": groups})
 
     def _collect_schema_fields(self, fields_list, items, path):
         """递归收集 schema 中的配置字段"""
@@ -1817,142 +1872,240 @@ class WebAnalyzerPlugin(Star):
                 if field:
                     fields_list.append(field)
 
+    def _schema_value(self, path_parts, schema_item):
+        """Read a saved schema field, falling back to its declared default.
+
+        Args:
+            path_parts: Configuration keys from the root to the field.
+            schema_item: Field definition from the plugin schema.
+
+        Returns:
+            The saved value or the field default.
+        """
+        value = ConfigLoader._apply_compatibility_mapping(self.config)
+        for part in path_parts:
+            if not isinstance(value, dict) or part not in value:
+                return schema_item.get("default", "")
+            value = value[part]
+        return value
+
     def _build_config_field(self, name, schema_item, path):
-        """构建单个字段的描述信息"""
-        full_path = ".".join(path + [name])
-        attr_name = self._SCHEMA_KEY_TO_ATTR.get(name, name)
-        current_value = getattr(self, attr_name, None)
+        """Build an editable field without exposing stored credentials.
 
-        if current_value is None and "default" in schema_item:
-            current_value = schema_item["default"]
+        Args:
+            name: Field key.
+            schema_item: AstrBot configuration field definition.
+            path: Parent configuration keys.
 
-        # 列表值转换为换行分隔的文本，便于编辑
-        if isinstance(current_value, list):
-            current_value = "\n".join(str(v) for v in current_value)
-
+        Returns:
+            A JSON-serializable field descriptor.
+        """
+        current_value = self._schema_value(path + [name], schema_item)
+        secret = bool(schema_item.get("secret"))
         field = {
             "key": name,
-            "path": full_path,
+            "path": ".".join(path + [name]),
             "label": schema_item.get("description", name),
             "hint": schema_item.get("hint", ""),
             "type": schema_item.get("type", "string"),
-            "value": current_value,
+            "value": "" if secret else current_value,
         }
-
-        for opt_key in ("minimum", "maximum", "default", "options"):
-            if opt_key in schema_item:
-                field[opt_key] = schema_item[opt_key]
-
+        if secret:
+            field["has_value"] = bool(current_value)
+        elif isinstance(current_value, list):
+            field["value"] = "\n".join(str(value) for value in current_value)
+        for key in (
+            "minimum",
+            "maximum",
+            "default",
+            "options",
+            "labels",
+            "subtitles",
+            "secret",
+            "slider",
+        ):
+            if key in schema_item:
+                field[key] = schema_item[key]
         if "_special" in schema_item:
             field["special"] = schema_item["_special"]
-
         return field
 
     async def _api_config_update(self):
-        """更新插件配置"""
-        from quart import jsonify, request
+        """Save and immediately apply a validated dashboard configuration batch.
 
-        data = await request.get_json()
-        updates = data.get("updates", {})
+        Returns:
+            A JSON response with saved paths or validation errors.
+        """
+        from astrbot.api.web import json_response, request
 
+        data = await request.json(default={})
+        if not isinstance(data, dict) or not isinstance(data.get("updates"), dict):
+            return json_response({"error": "请求必须包含配置更新对象"}, status_code=400)
+        result, status = await self._update_dashboard_config(data["updates"])
+        return json_response(result, status_code=status)
+
+    async def _update_dashboard_config(self, updates):
+        """Validate a batch and keep saved and live settings in sync.
+
+        Args:
+            updates: Full schema paths mapped to their new values.
+
+        Returns:
+            A response payload and HTTP status code. Invalid batches are not saved.
+        """
         if not updates:
-            return jsonify({"error": "没有需要更新的配置项"}), 400
-
-        # 加载 schema 以获取字段定义和范围约束
-        schema_fields = self._load_schema_field_map()
-
-        applied = []
-        errors = []
-
-        for path_str, new_value in updates.items():
-            path_parts = path_str.split(".")
-            leaf_key = path_parts[-1]
-            attr_name = self._SCHEMA_KEY_TO_ATTR.get(leaf_key, leaf_key)
-
-            try:
-                # 白名单验证：确保 attr_name 是已知的配置属性
-                known_attrs = {
-                    k
-                    for k in vars(self).keys()
-                    if not k.startswith("_") and k != "config"
-                }
-                if attr_name not in known_attrs:
-                    errors.append({"path": path_str, "error": f"未知配置项: {attr_name}"})
+            return {"error": "没有需要更新的配置项"}, 400
+        async with self._config_update_lock:
+            fields = self._load_schema_field_map()
+            if not fields:
+                return {"error": "无法加载配置定义"}, 500
+            old_config = copy.deepcopy(dict(self.config))
+            candidate = ConfigLoader._apply_compatibility_mapping(
+                copy.deepcopy(old_config)
+            )
+            errors = []
+            values = {}
+            for path, value in updates.items():
+                if not isinstance(path, str) or path not in fields:
+                    errors.append({"path": str(path), "error": "未知配置路径"})
                     continue
-
-                old_value = getattr(self, attr_name, None)
-
-                # 根据原值类型进行安全转换
-                if isinstance(old_value, bool):
-                    # 安全的布尔转换：字符串 "false"/"0" 等应转为 False
-                    if isinstance(new_value, str):
-                        new_value = new_value.lower() in ("true", "1", "yes", "on")
+                spec = fields[path]
+                try:
+                    field_type = spec["type"]
+                    if field_type == "bool":
+                        if type(value) is not bool:
+                            raise ValueError("必须为开关值")
+                    elif field_type == "int":
+                        if type(value) is not int:
+                            raise ValueError("必须为整数")
+                    elif field_type == "float":
+                        if type(value) not in (int, float) or not math.isfinite(value):
+                            raise ValueError("必须为有限数值")
+                        value = float(value)
+                    elif field_type in ("string", "text"):
+                        if not isinstance(value, str):
+                            raise ValueError("必须为文本")
                     else:
-                        new_value = bool(new_value)
-                elif isinstance(old_value, int) and not isinstance(old_value, bool):
-                    new_value = int(new_value)
-                elif isinstance(old_value, float):
-                    new_value = float(new_value)
-                elif isinstance(old_value, list):
-                    # 换行分隔的文本转回列表
-                    if isinstance(new_value, str):
-                        new_value = [
-                            v.strip() for v in new_value.split("\n") if v.strip()
-                        ]
-
-                # 数值范围验证（使用完整路径查找约束）
-                schema_def = schema_fields.get(path_str)
-                range_error = self._validate_value_range(new_value, schema_def)
-                if range_error:
-                    errors.append({"path": path_str, "error": range_error})
-                    continue
-
-                # 选项值验证（防止 select 类型字段接受非法选项）
-                # 仅校验单值类型（string/number），列表类型（如域名列表）不属于 select 字段
-                if schema_def and "options" in schema_def and not isinstance(new_value, list):
-                    if new_value not in schema_def["options"]:
-                        errors.append({
-                            "path": path_str,
-                            "error": f"值 '{new_value}' 不在允许选项 {schema_def['options']} 中",
-                        })
-                        continue
-
-                # 更新实例属性
-                setattr(self, attr_name, new_value)
-
-                # 更新 config 对象中的值
-                self._set_nested_config(path_parts, new_value)
-
-                applied.append({
-                    "path": path_str,
-                    "key": attr_name,
-                    "old_value": old_value,
-                    "new_value": new_value,
-                })
-                logger.info(
-                    f"配置已更新: {attr_name} = {new_value} (原值: {old_value})"
+                        raise ValueError("不支持的配置类型")
+                    if self._validate_value_range(value, spec):
+                        raise ValueError("数值超出允许范围")
+                    if "options" in spec and value not in spec["options"]:
+                        raise ValueError("请选择列表中的选项")
+                    if path == "基础设置.网络设置.proxy" and value:
+                        value = value.strip()
+                        proxy = urlparse(value)
+                        if proxy.scheme not in ("http", "https") or not proxy.hostname:
+                            raise ValueError("请输入有效的 HTTP 或 HTTPS 代理地址")
+                        if proxy.port is not None and not 1 <= proxy.port <= 65535:
+                            raise ValueError("代理端口无效")
+                        if any(char.isspace() for char in value):
+                            raise ValueError("代理地址不能含空白字符")
+                    if path == "展示设置.网页截图.裁剪设置.crop_area":
+                        area = json.loads(value)
+                        if (
+                            not isinstance(area, list)
+                            or len(area) != 4
+                            or any(type(number) is not int for number in area)
+                            or min(area) < 0
+                            or area[2] <= area[0]
+                            or area[3] <= area[1]
+                        ):
+                            raise ValueError(
+                                "裁剪区域必须为有效的 [左, 上, 右, 下] 坐标"
+                            )
+                    node = candidate
+                    parts = path.split(".")
+                    for part in parts[:-1]:
+                        node = node.setdefault(part, {})
+                    node[parts[-1]] = value
+                    values[path] = value
+                except (TypeError, ValueError, OverflowError):
+                    # Do not echo a supplied value: it may contain credentials.
+                    errors.append(
+                        {"path": path, "error": "配置值的格式、类型或范围无效"}
+                    )
+            if errors:
+                return {
+                    "error": "配置未保存，请检查输入",
+                    "applied": 0,
+                    "errors": errors,
+                }, 400
+            try:
+                normalized = ConfigLoader.load_all_config(candidate, self.context)
+                previous = ConfigLoader.load_all_config(
+                    copy.deepcopy(old_config), self.context
                 )
-
-            except Exception as e:
-                errors.append({"path": path_str, "error": str(e)})
-                logger.error(f"更新配置失败 {path_str}: {e}")
-
-        # 保存配置到文件
-        if applied:
+            except Exception:
+                return {"error": "无法读取配置，未保存修改"}, 400
+            self.config.clear()
+            self.config.update(candidate)
             try:
                 self.config.save_config()
-            except Exception as e:
-                return jsonify({"error": f"保存配置文件失败: {e}"}), 500
+            except Exception:
+                self.config.clear()
+                self.config.update(old_config)
+                return {"error": "保存配置文件失败，修改未生效"}, 500
+            try:
+                await self._apply_dashboard_runtime_config(normalized)
+            except (Exception, asyncio.CancelledError) as error:
+                self.config.clear()
+                self.config.update(old_config)
+                try:
+                    self.config.save_config()
+                    await asyncio.shield(self._apply_dashboard_runtime_config(previous))
+                except Exception:
+                    logger.error("Dashboard configuration rollback failed")
+                    if isinstance(error, asyncio.CancelledError):
+                        raise error
+                    return {
+                        "error": "配置应用失败且无法完整恢复，请检查日志并重载插件"
+                    }, 500
+                if isinstance(error, asyncio.CancelledError):
+                    raise error
+                logger.error(
+                    "Dashboard configuration update failed; previous settings restored"
+                )
+                return {"error": "配置未生效，已恢复原设置"}, 500
+            safe_values = {
+                path: value
+                for path, value in values.items()
+                if not fields[path].get("secret")
+            }
+            secret_fields = {
+                path: bool(value)
+                for path, value in values.items()
+                if fields[path].get("secret")
+            }
+            return {
+                "message": f"已保存并生效，共 {len(values)} 项",
+                "applied": len(values),
+                "applied_paths": list(values),
+                "values": safe_values,
+                "secret_fields": secret_fields,
+                "errors": [],
+            }, 200
 
-        msg = f"已更新 {len(applied)} 项配置"
-        if errors:
-            msg += f"，{len(errors)} 项失败"
+    async def _apply_dashboard_runtime_config(self, settings):
+        """Apply normalized settings to existing runtime components.
 
-        return jsonify({
-            "message": msg,
-            "applied": len(applied),
-            "errors": errors,
-        })
+        Args:
+            settings: Normalized values returned by ConfigLoader.
+        """
+        await self.analyzer.apply_runtime_config(settings)
+        self.message_handler.apply_runtime_config(settings)
+        self.cache_manager.apply_runtime_config(settings)
+        for name in (
+            "llm_enabled",
+            "llm_provider",
+            "custom_prompt",
+            "max_summary_length",
+            "enable_emoji",
+        ):
+            setattr(self.llm_analyzer, name, settings[name])
+        self.result_formatter.enable_emoji = settings["enable_emoji"]
+        self.result_formatter.enable_statistics = settings["enable_statistics"]
+        for name, value in settings.items():
+            setattr(self, name, value)
 
     def _load_schema_field_map(self) -> dict:
         """加载字段约束映射，用于范围和选项验证
@@ -1969,24 +2122,21 @@ class WebAnalyzerPlugin(Star):
             logger.warning(f"加载 schema 字段映射失败: {e}")
             return {}
 
-    def _collect_schema_ranges(self, items: dict, field_map: dict, path: list | None = None):
+    def _collect_schema_ranges(
+        self, items: dict, field_map: dict, path: list | None = None
+    ):
         """递归收集 schema 中的数值范围和选项约束，使用完整路径作为键"""
         path = path or []
         for key, item_data in items.items():
             if not isinstance(item_data, dict):
                 continue
             full_key = ".".join(path + [key])
-            constraints = {}
-            if "minimum" in item_data:
-                constraints["minimum"] = item_data["minimum"]
-            if "maximum" in item_data:
-                constraints["maximum"] = item_data["maximum"]
-            if "options" in item_data:
-                constraints["options"] = item_data["options"]
-            if constraints:
-                field_map[full_key] = constraints
-            if "items" in item_data and isinstance(item_data["items"], dict):
-                self._collect_schema_ranges(item_data["items"], field_map, path + [key])
+            if item_data.get("type") == "object":
+                self._collect_schema_ranges(
+                    item_data.get("items", {}), field_map, path + [key]
+                )
+            else:
+                field_map[full_key] = item_data
 
     @staticmethod
     def _validate_value_range(value, schema_def: dict) -> str | None:
@@ -2003,13 +2153,9 @@ class WebAnalyzerPlugin(Star):
             return None
 
         if "minimum" in schema_def and value < schema_def["minimum"]:
-            return (
-                f"配置值 {value} 低于最小值 {schema_def['minimum']}"
-            )
+            return f"配置值 {value} 低于最小值 {schema_def['minimum']}"
         if "maximum" in schema_def and value > schema_def["maximum"]:
-            return (
-                f"配置值 {value} 超过最大值 {schema_def['maximum']}"
-            )
+            return f"配置值 {value} 超过最大值 {schema_def['maximum']}"
 
         return None
 
@@ -2024,19 +2170,19 @@ class WebAnalyzerPlugin(Star):
 
     async def _api_browser(self):
         """获取浏览器状态"""
-        from quart import jsonify
+        from astrbot.api.web import json_response as jsonify
 
         status = await self.analyzer.get_browser_status()
         return jsonify(status)
 
     async def _api_browser_uninstall(self):
         """卸载浏览器"""
-        from quart import jsonify
+        from astrbot.api.web import json_response as jsonify
 
         result = await self.analyzer.uninstall_browser()
         if result["success"]:
             return jsonify({"message": result["message"]})
-        return jsonify({"error": result["message"]}), 500
+        return jsonify({"error": result["message"]}, status_code=500)
 
     # ==================== End Dashboard Web API ====================
 
@@ -2067,12 +2213,12 @@ class WebAnalyzerPlugin(Star):
         except Exception as e:
             logger.debug(f"清理浏览器池时出错（可忽略）: {e}")
 
-        # 关闭HTTP客户端
+        # Close every HTTP generation and the runtime memory monitor.
         try:
-            if hasattr(self, "analyzer") and self.analyzer.client:
-                await self.analyzer.client.aclose()
-        except Exception as e:
-            logger.debug(f"关闭HTTP客户端时出错（可忽略）: {e}")
+            if hasattr(self, "analyzer"):
+                await self.analyzer.close()
+        except Exception:
+            logger.debug("Analyzer cleanup failed during shutdown")
 
         # 清理截图临时文件
         try:
@@ -2084,12 +2230,14 @@ class WebAnalyzerPlugin(Star):
         logger.info("网页分析插件已卸载")
 
     async def _close_browser_pool(self):
-        """关闭浏览器实例池中的所有浏览器实例"""
-        while WebAnalyzer._browser_pool:
-            browser = WebAnalyzer._browser_pool.pop(0)
+        """Close idle, checked-out and still-starting plugin browser instances."""
+        browsers = set(WebAnalyzer._browser_pool) | WebAnalyzer._browser_instances
+        WebAnalyzer._browser_pool.clear()
+        WebAnalyzer._browser_last_used.clear()
+        for browser in browsers:
             try:
-                if browser.is_connected():
-                    await browser.close()
-            except Exception:
-                pass
-        logger.info("浏览器实例池已清空")
+                await browser.close()
+            except Exception as exc:
+                logger.warning(f"Failed to close a browser during shutdown: {exc}")
+        WebAnalyzer._browser_instances.clear()
+        logger.info("Browser resources have been closed")

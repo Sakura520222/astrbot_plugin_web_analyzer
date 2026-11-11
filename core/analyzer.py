@@ -11,12 +11,13 @@
 使用异步HTTP客户端和BeautifulSoup进行网页处理，支持代理、重试等高级功能。
 """
 
+import asyncio
 import gc
 import io
 import ipaddress
 import re
 import time
-from urllib.parse import urljoin, urlparse
+from urllib.parse import unquote, urljoin, urlparse
 
 import httpx
 import psutil
@@ -25,7 +26,34 @@ from PIL import Image
 
 from astrbot.api import logger
 
+from .browser import (
+    BrowserInstance,
+    BrowserLaunchError,
+    detect_system_browser,
+    sweep_stale_browser_artifacts,
+)
 from .utils import WebAnalyzerUtils
+
+# 启用"隐藏IP"时注入的 WebRTC 屏蔽脚本，防止真实IP通过WebRTC泄漏
+_WEBRTC_BLOCK_JS = """\
+// 屏蔽WebRTC以防止IP泄漏
+const originalRTC = window.RTCPeerConnection || window.webkitRTCPeerConnection;
+if (originalRTC) {
+    window.RTCPeerConnection = function() {
+        const pc = new originalRTC(...arguments);
+        const origSetLocalDescription = pc.setLocalDescription.bind(pc);
+        pc.setLocalDescription = function(desc) {
+            if (desc && desc.type === 'offer') {
+                desc.sdp = desc.sdp.replace(/a=candidate:.+\\r\\n/g, '');
+            }
+            return origSetLocalDescription(desc);
+        };
+        return pc;
+    };
+    window.RTCPeerConnection.prototype = originalRTC.prototype;
+}
+Object.defineProperty(navigator, 'connection', { get: () => null });
+"""
 
 
 # 自定义异常类
@@ -81,11 +109,14 @@ class WebAnalyzer:
     _cleanup_interval = 60 * 5  # 清理间隔，5分钟
     _instance_timeout = 60 * 30  # 实例超时时间，30分钟未使用则清理
 
-    # 浏览器安装相关
-    _browser_install_lock = None  # 浏览器安装进程锁
-    _browser_install_status_file = None  # 浏览器安装状态文件路径
-    _is_installing = False  # 是否正在安装浏览器
-    _playwright_browser_checked = False  # 类级别标记：浏览器是否已检查
+    # 系统浏览器检测结果缓存（类级别，所有实例共享）
+    _detected_browser_path = ""  # 浏览器可执行文件路径
+    _detected_browser_name = ""  # 浏览器名称，如 Google Chrome
+    _detected_browser_version = ""  # 浏览器版本号
+    _last_profile_sweep = 0  # 上次清理残留临时目录的时间
+    _browser_blacklist: set[str] = set()  # Paths that failed to launch this session.
+    _browser_instances: set = set()  # Includes checked-out and starting instances.
+
     _shutting_down = False  # 插件正在关闭标志，阻止新的浏览器操作
 
     def __init__(
@@ -100,7 +131,7 @@ class WebAnalyzer:
         memory_threshold: float = 80.0,  # 内存使用阈值百分比
         enable_unified_domain: bool = True,  # 是否启用域名统一处理
         hide_ip: bool = False,  # 截图时是否隐藏真实IP
-        fetch_mode: str = "httpx",  # 网页抓取模式：httpx 或 playwright
+        fetch_mode: str = "httpx",  # 网页抓取模式：httpx 或 browser（兼容旧值 playwright）
         sandbox_mode: str = "auto",  # 浏览器沙箱模式：auto / always_disabled / always_enabled
     ):
         """初始化网页分析器
@@ -115,7 +146,7 @@ class WebAnalyzer:
             enable_memory_monitor: 是否启用内存监控
             memory_threshold: 内存使用阈值百分比，超过此阈值时自动释放内存
             enable_unified_domain: 是否启用域名统一处理（如google.com和www.google.com视为同一域名）
-            fetch_mode: 网页抓取模式，httpx(轻量快速) 或 playwright(浏览器渲染)
+            fetch_mode: 网页抓取模式，httpx(轻量快速) 或 browser(系统浏览器渲染)
             sandbox_mode: 浏览器沙箱模式，auto(自动检测) / always_disabled(始终禁用) / always_enabled(始终启用)
         """
         self.max_content_length = max_content_length
@@ -130,15 +161,23 @@ class WebAnalyzer:
             logger.warning("已启用截图隐藏IP，但未配置代理，IP隐藏功能将不会生效")
         self.retry_count = retry_count
         self.retry_delay = retry_delay
-        self.fetch_mode = (
-            fetch_mode if fetch_mode in ("httpx", "playwright") else "httpx"
-        )
+        # 兼容旧配置值 playwright，统一映射为 browser
+        mode = "browser" if fetch_mode == "playwright" else fetch_mode
+        self.fetch_mode = mode if mode in ("httpx", "browser") else "httpx"
         # 沙箱模式
         valid_modes = ("auto", "always_disabled", "always_enabled")
         self.sandbox_mode = sandbox_mode if sandbox_mode in valid_modes else "auto"
         self._sandbox_disabled = self._resolve_sandbox_disabled()
         self.client = None
-        self.browser = None
+        self._client_refs = 0  # HTTP 客户端并发引用计数（并发 async with 场景）
+        self._client_lock = asyncio.Lock()
+        self._client_generations = {}
+        self._task_clients = {}
+        self._client_entries = []
+        self._memory_monitor_task = None
+        self._browser_proxy_credentials = (
+            None  # 浏览器代理认证凭据 (username, password)
+        )
         # 内存监控相关
         self.enable_memory_monitor = enable_memory_monitor
         self.memory_threshold = memory_threshold
@@ -146,62 +185,38 @@ class WebAnalyzer:
         self.memory_check_interval = 60 * 5  # 内存检查间隔，单位为秒，从60秒延长到5分钟
         # URL处理相关
         self.enable_unified_domain = enable_unified_domain
-        # 存储检测到的浏览器可执行文件路径
-        self._detected_browser_path = None
 
         # 初始化浏览器锁
         if not WebAnalyzer._browser_lock:
-            import asyncio
-
             WebAnalyzer._browser_lock = asyncio.Lock()
 
-        # 初始化浏览器安装锁
-        if not WebAnalyzer._browser_install_lock:
-            import asyncio
+    def _apply_ip_hide_args(self, args: list[str]) -> None:
+        """将IP隐藏相关参数应用到浏览器启动参数中
 
-            WebAnalyzer._browser_install_lock = asyncio.Lock()
-
-        # 初始化浏览器安装状态文件路径
-        if not WebAnalyzer._browser_install_status_file:
-            from pathlib import Path
-
-            try:
-                from astrbot.core.utils.astrbot_path import get_astrbot_data_path
-
-                # 确保 data_path 是 Path 对象，修复路径拼接错误
-                data_path_raw = get_astrbot_data_path()
-                data_path = (
-                    Path(data_path_raw)
-                    if not isinstance(data_path_raw, Path)
-                    else data_path_raw
-                )
-
-                status_file_path = (
-                    data_path
-                    / "plugin_data"
-                    / "astrbot_plugin_web_analyzer"
-                    / "browser_install_status.json"
-                )
-                # 确保目录存在
-                status_file_path.parent.mkdir(parents=True, exist_ok=True)
-                WebAnalyzer._browser_install_status_file = str(status_file_path)
-                logger.debug(
-                    f"浏览器状态文件路径已初始化: {WebAnalyzer._browser_install_status_file}"
-                )
-            except Exception as e:
-                logger.warning(f"无法初始化浏览器状态文件路径: {e}, 将使用临时路径")
-                import tempfile
-
-                WebAnalyzer._browser_install_status_file = str(
-                    Path(tempfile.gettempdir()) / "browser_install_status.json"
-                )
-
-    def _apply_ip_hide_args(self, launch_args: dict) -> None:
-        """将IP隐藏相关参数应用到浏览器启动参数中"""
+        Chromium 的 --proxy-server 不支持内嵌认证信息，带凭据的代理串会被
+        解析为无效代理并静默回退直连（导致真实IP泄漏），因此先拆出凭据，
+        启动参数只携带地址，认证挑战由 CDP Fetch.authRequired 自动应答。
+        """
         if not self.hide_ip or not self.proxy:
             return
-        launch_args["proxy"] = {"server": self.proxy}
-        launch_args["args"].extend(
+        parsed = urlparse(self.proxy)
+        proxy_for_launch = self.proxy
+        if parsed.username or parsed.password:
+            netloc = parsed.hostname or ""
+            if ":" in netloc:
+                netloc = f"[{netloc}]"
+            if parsed.port:
+                netloc = f"{netloc}:{parsed.port}"
+            proxy_for_launch = f"{parsed.scheme}://{netloc}"
+            if parsed.scheme not in ("http", "https"):
+                raise ScreenshotError("带认证的浏览器代理仅支持 HTTP/HTTPS")
+            self._browser_proxy_credentials = (
+                unquote(parsed.username or ""),
+                unquote(parsed.password or ""),
+            )
+            logger.debug("检测到带凭据的代理，已拆分认证信息供 CDP 自动应答")
+        args.append(f"--proxy-server={proxy_for_launch}")
+        args.extend(
             [
                 "--disable-webrtc-hw-encoding",
                 "--disable-webrtc-hw-decoding",
@@ -225,67 +240,73 @@ class WebAnalyzer:
             logger.debug("检测到非容器环境，将启用浏览器沙箱")
         return is_container
 
-    def _build_browser_launch_args(self) -> dict:
-        """构建浏览器启动参数，统一所有启动位置的参数构建逻辑"""
-        args = ["--disable-dev-shm-usage", "--disable-gpu"]
+    def _build_browser_launch_args(self) -> list[str]:
+        """构建浏览器启动参数（沙箱与代理策略），基础参数由 BrowserInstance 提供"""
+        args = []
         if self._sandbox_disabled:
-            args = ["--no-sandbox", "--disable-setuid-sandbox"] + args
-        launch_args = {"headless": True, "timeout": 20000, "args": args}
-        self._apply_ip_hide_args(launch_args)
-        return launch_args
+            args.extend(["--no-sandbox", "--disable-setuid-sandbox"])
+        self._apply_ip_hide_args(args)
+        return args
 
     @staticmethod
     async def _cleanup_browser_pool():
-        """定期清理浏览器实例池，移除过期或无效的实例
+        """Remove expired, disconnected or excess idle instances."""
+        now = time.time()
+        if now - WebAnalyzer._last_cleanup_time < WebAnalyzer._cleanup_interval:
+            return
+        async with WebAnalyzer._browser_lock:
+            WebAnalyzer._last_cleanup_time = now
+            keep = []
+            discard = []
+            for browser in dict.fromkeys(WebAnalyzer._browser_pool):
+                last_used = WebAnalyzer._browser_last_used.get(id(browser), 0)
+                if (
+                    browser.is_connected()
+                    and now - last_used < WebAnalyzer._instance_timeout
+                    and len(keep) < WebAnalyzer._max_browser_instances
+                ):
+                    keep.append(browser)
+                else:
+                    discard.append(browser)
+            WebAnalyzer._browser_pool = keep
+        for browser in discard:
+            try:
+                await browser.close()
+            except Exception as exc:
+                logger.warning(f"Failed to close an expired browser: {exc}")
+            finally:
+                WebAnalyzer._browser_instances.discard(browser)
+                WebAnalyzer._browser_last_used.pop(id(browser), None)
 
-        该方法会：
-        1. 清理超过30分钟未使用的浏览器实例
-        2. 清理已断开连接的浏览器实例
-        3. 确保实例池大小不超过最大值
+    @staticmethod
+    def _get_memory_usage_percent() -> float:
+        """获取当前内存使用率（百分比）
+
+        Linux 容器内 psutil.virtual_memory() 读取的是宿主机 /proc/meminfo，
+        不反映容器的 cgroup 内存限制（docker -m 的场景下会读到宿主机的
+        个位数百分比，导致保护逻辑永不触发，容器被内核 OOM-kill）。
+        存在 cgroup 内存限制时优先按限制计算，否则回退 psutil。
         """
-        try:
-            current_time = time.time()
-
-            # 检查是否需要执行清理
-            if (
-                current_time - WebAnalyzer._last_cleanup_time
-                < WebAnalyzer._cleanup_interval
-            ):
-                return
-
-            async with WebAnalyzer._browser_lock:
-                WebAnalyzer._last_cleanup_time = current_time
-                valid_browsers = []
-
-                for browser in WebAnalyzer._browser_pool:
-                    last_used = WebAnalyzer._browser_last_used.get(id(browser), 0)
-                    try:
-                        # 检查浏览器实例是否有效（未过期且已连接）
-                        if (
-                            current_time - last_used < WebAnalyzer._instance_timeout
-                            and browser.is_connected()
-                        ):
-                            valid_browsers.append(browser)
-                        else:
-                            # 关闭过期或已断开连接的浏览器实例
-                            await browser.close()
-                            logger.info("关闭过期或已断开连接的浏览器实例")
-                    except Exception as e:
-                        logger.error(f"检查浏览器实例状态失败: {e}, 将关闭该实例")
-                        try:
-                            await browser.close()
-                        except Exception as close_e:
-                            logger.error(f"关闭异常浏览器实例失败: {close_e}")
-
-                # 更新浏览器实例池，确保不超过最大实例数量
-                WebAnalyzer._browser_pool = valid_browsers[
-                    : WebAnalyzer._max_browser_instances
-                ]
-                logger.debug(
-                    f"浏览器实例池清理完成，当前池大小: {len(WebAnalyzer._browser_pool)}"
-                )
-        except Exception as e:
-            logger.error(f"清理浏览器实例池失败: {e}")
+        # cgroup v2 与 v1 的使用量/上限文件
+        for current_path, limit_path in (
+            ("/sys/fs/cgroup/memory.current", "/sys/fs/cgroup/memory.max"),
+            (
+                "/sys/fs/cgroup/memory/memory.usage_in_bytes",
+                "/sys/fs/cgroup/memory/memory.limit_in_bytes",
+            ),
+        ):
+            try:
+                with open(current_path) as f:
+                    used = int(f.read().strip())
+                with open(limit_path) as f:
+                    raw = f.read().strip()
+                # "max" 或无效值表示无限制
+                limit = int(raw) if raw.isdigit() else 0
+                if limit > 0:
+                    return used / limit * 100
+            except (OSError, ValueError):
+                continue
+        return psutil.virtual_memory().percent
 
     def _check_memory_usage(self):
         """检查内存使用情况，超过阈值时自动释放内存
@@ -302,8 +323,7 @@ class WebAnalyzer:
 
         try:
             # 获取内存使用情况
-            memory_info = psutil.virtual_memory()
-            memory_usage = memory_info.percent
+            memory_usage = self._get_memory_usage_percent()
 
             logger.debug(f"当前内存使用情况: {memory_usage:.1f}%")
 
@@ -331,8 +351,7 @@ class WebAnalyzer:
         try:
             async with WebAnalyzer._browser_lock:
                 # 获取当前内存使用情况
-                memory_info = psutil.virtual_memory()
-                memory_usage = memory_info.percent
+                memory_usage = self._get_memory_usage_percent()
 
                 # 根据内存使用情况决定保留的实例数量
                 if memory_usage > 90:
@@ -348,14 +367,13 @@ class WebAnalyzer:
                 while len(WebAnalyzer._browser_pool) > max_keep:
                     browser = WebAnalyzer._browser_pool.pop()
                     try:
-                        if browser.is_connected():
-                            await browser.close()
-                            logger.info(
-                                f"释放空闲浏览器实例，当前池大小: {len(WebAnalyzer._browser_pool)}"
-                            )
+                        await browser.close()
+                        logger.debug("Closed an idle browser under memory pressure")
                     except Exception as e:
-                        logger.error(f"释放浏览器实例失败: {e}")
-                        # 忽略单个实例释放失败，继续处理其他实例
+                        logger.error(f"Failed to release an idle browser: {e}")
+                    finally:
+                        WebAnalyzer._browser_instances.discard(browser)
+                        WebAnalyzer._browser_last_used.pop(id(browser), None)
         except Exception as e:
             logger.error(f"优化浏览器实例池失败: {e}")
 
@@ -386,34 +404,172 @@ class WebAnalyzer:
             logger.error(f"释放内存资源失败: {e}")
             # 增强容错机制，确保内存释放失败不会影响插件正常运行
 
+    async def apply_runtime_config(self, settings: dict) -> None:
+        """Apply normalized settings without replacing active request clients."""
+        mapping = {
+            "request_timeout_s": "timeout",
+            "retry_delay_s": "retry_delay",
+            "memory_threshold_percent": "memory_threshold",
+        }
+        accepted = {
+            "max_content_length",
+            "timeout",
+            "user_agent",
+            "proxy",
+            "retry_count",
+            "retry_delay",
+            "enable_unified_domain",
+            "hide_ip",
+            "fetch_mode",
+            "sandbox_mode",
+            "enable_memory_monitor",
+            "memory_threshold",
+        }
+        for key, value in settings.items():
+            attr = mapping.get(key, key)
+            if attr in accepted:
+                setattr(
+                    self,
+                    attr,
+                    "browser"
+                    if attr == "fetch_mode" and value == "playwright"
+                    else value,
+                )
+        self._sandbox_disabled = self._resolve_sandbox_disabled()
+        self._browser_proxy_credentials = self._parse_browser_proxy_credentials()
+        await self._close_incompatible_idle_browsers()
+        self._sync_memory_monitor()
+
+    def _parse_browser_proxy_credentials(self):
+        if not self.hide_ip or not self.proxy:
+            return None
+        parsed = urlparse(self.proxy)
+        if parsed.username is None and parsed.password is None:
+            return None
+        return (unquote(parsed.username or ""), unquote(parsed.password or ""))
+
+    async def _close_incompatible_idle_browsers(self):
+        async with WebAnalyzer._browser_lock:
+            old = [
+                browser
+                for browser in WebAnalyzer._browser_pool
+                if getattr(browser, "pool_key", None) != self._browser_pool_key()
+            ]
+            WebAnalyzer._browser_pool = [
+                browser for browser in WebAnalyzer._browser_pool if browser not in old
+            ]
+        for browser in old:
+            try:
+                await browser.close()
+            finally:
+                WebAnalyzer._browser_instances.discard(browser)
+                WebAnalyzer._browser_last_used.pop(id(browser), None)
+
+    def _sync_memory_monitor(self):
+        task = getattr(self, "_memory_monitor_task", None)
+        if not self.enable_memory_monitor:
+            if task and not task.done():
+                task.cancel()
+            self._memory_monitor_task = None
+        elif task is None or task.done():
+            try:
+                self._memory_monitor_task = asyncio.get_running_loop().create_task(
+                    self._memory_monitor_loop()
+                )
+            except RuntimeError:
+                pass
+
+    async def _memory_monitor_loop(self):
+        try:
+            while self.enable_memory_monitor:
+                await asyncio.sleep(self.memory_check_interval)
+                if self.enable_memory_monitor:
+                    self._check_memory_usage()
+        except asyncio.CancelledError:
+            pass
+
+    async def close(self) -> None:
+        """Cancel runtime monitoring and close all owned HTTP client generations."""
+        task = getattr(self, "_memory_monitor_task", None)
+        self.enable_memory_monitor = False
+        if task and not task.done():
+            task.cancel()
+            await asyncio.gather(task, return_exceptions=True)
+        self._memory_monitor_task = None
+        async with self._client_lock:
+            generations = list(self._client_generations.values())
+            self._client_generations.clear()
+            self._task_clients.clear()
+            self._client_refs = 0
+            self.client = None
+        if generations:
+            await asyncio.gather(
+                *(generation["client"].aclose() for generation in generations),
+                return_exceptions=True,
+            )
+
     async def __aenter__(self):
         """异步上下文管理器入口
 
-        初始化异步HTTP客户端，配置：
-        - 请求超时时间
-        - 代理设置（如果提供）
-        - 其他HTTP客户端参数
+        惰性创建/复用共享 HTTP 客户端（引用计数保护）：
+        同一 WebAnalyzer 实例会被并发请求重复进入，无保护的
+        "进入即新建、退出即关闭" 会让并发请求互相关闭对方的客户端。
+        第一个进入者创建客户端，最后一个退出者关闭。
 
         Returns:
             返回WebAnalyzer实例自身，用于上下文管理
         """
-        # 配置客户端参数
-        client_params = {
+        async with self._client_lock:
+            task = asyncio.current_task()
+            signature = (self.timeout, self.proxy)
+            generation = next(
+                (
+                    g
+                    for g in self._client_generations.values()
+                    if g["signature"] == signature
+                ),
+                None,
+            )
+            if generation is None:
+                params = {"timeout": self.timeout}
+                if self.proxy:
+                    params["proxy"] = self.proxy
+                generation = {
+                    "signature": signature,
+                    "client": httpx.AsyncClient(**params),
+                    "refs": 0,
+                }
+                self._client_generations[id(generation)] = generation
+            generation["refs"] += 1
+            self.client = generation["client"]
+            self._client_refs += 1
+            self._task_clients.setdefault(task, []).append(
+                (generation, self._request_snapshot())
+            )
+        return self
+
+    def _request_snapshot(self):
+        return {
             "timeout": self.timeout,
+            "proxy": self.proxy,
+            "user_agent": self.user_agent,
+            "retry_count": self.retry_count,
+            "retry_delay": self.retry_delay,
         }
 
-        # 添加代理配置（如果有）
-        if self.proxy:
-            client_params["proxy"] = self.proxy
+    def _current_request_snapshot(self):
+        entries = self._task_clients.get(asyncio.current_task(), ())
+        return entries[-1][1] if entries else self._request_snapshot()
 
-        self.client = httpx.AsyncClient(**client_params)
-        return self
+    def _current_client(self):
+        entries = self._task_clients.get(asyncio.current_task(), ())
+        return entries[-1][0]["client"] if entries else self.client
 
     async def __aexit__(self, exc_type, exc_val, exc_tb):
         """异步上下文管理器出口
 
         清理资源，确保：
-        - 异步HTTP客户端正确关闭
+        - 异步HTTP客户端正确关闭（最后一个退出者负责）
         - 浏览器实例正确处理（放回池中或关闭）
         - 资源泄漏的防止
 
@@ -422,46 +578,57 @@ class WebAnalyzer:
             exc_val: 异常值（如果有）
             exc_tb: 异常回溯（如果有）
         """
-        if self.client:
-            await self.client.aclose()
-
-        if self.browser:
-            try:
-                # 插件正在关闭时，不再将浏览器放回池中
-                if WebAnalyzer._shutting_down:
-                    await self.browser.close()
-                    logger.debug("插件正在关闭，直接关闭浏览器实例")
-                else:
-                    # 将浏览器实例放回池中，以便复用
-                    async with WebAnalyzer._browser_lock:
-                        # 检查浏览器实例是否仍然可用
-                        if (
-                            len(WebAnalyzer._browser_pool)
-                            < WebAnalyzer._max_browser_instances
-                        ):
-                            # 更新最后使用时间
-                            WebAnalyzer._browser_last_used[id(self.browser)] = (
-                                time.time()
-                            )
-                            # 将浏览器实例放回池中
-                            WebAnalyzer._browser_pool.append(self.browser)
-                            logger.debug(
-                                f"浏览器实例已放回池中，当前池大小: {len(WebAnalyzer._browser_pool)}"
-                            )
-                        else:
-                            # 池已满，关闭浏览器实例
-                            await self.browser.close()
-                            logger.debug("浏览器实例池已满，关闭浏览器实例")
-            except Exception as e:
-                logger.error(f"处理浏览器实例失败: {e}")
-                # 出现错误时，确保浏览器实例被关闭
-                try:
-                    await self.browser.close()
-                except Exception:
-                    pass
+        async with self._client_lock:
+            task = asyncio.current_task()
+            entries = self._task_clients.get(task, [])
+            if not entries:
+                owner = next(
+                    (
+                        owner
+                        for owner, contexts in self._task_clients.items()
+                        if contexts
+                    ),
+                    None,
+                )
+                if owner is not None:
+                    task = owner
+                    entries = self._task_clients[owner]
+            generation, _snapshot = entries.pop() if entries else (None, None)
+            if not entries:
+                self._task_clients.pop(task, None)
+            self._client_refs = max(0, self._client_refs - 1)
+            if generation:
+                generation["refs"] -= 1
+                if generation["refs"] == 0:
+                    await generation["client"].aclose()
+                    self._client_generations.pop(id(generation), None)
+            self.client = next(
+                (g["client"] for g in self._client_generations.values()), None
+            )
 
         # 检查内存使用情况
         self._check_memory_usage()
+
+    async def _recycle_browser(self, browser):
+        """Return one exclusively owned browser to the bounded idle pool."""
+        async with WebAnalyzer._browser_lock:
+            if browser in WebAnalyzer._browser_pool:
+                return
+            if (
+                not WebAnalyzer._shutting_down
+                and browser.is_connected()
+                and getattr(browser, "pool_key", self._browser_pool_key())
+                == self._browser_pool_key()
+                and len(WebAnalyzer._browser_pool) < WebAnalyzer._max_browser_instances
+            ):
+                WebAnalyzer._browser_last_used[id(browser)] = time.time()
+                WebAnalyzer._browser_pool.append(browser)
+                return
+        try:
+            await browser.close()
+        finally:
+            WebAnalyzer._browser_instances.discard(browser)
+            WebAnalyzer._browser_last_used.pop(id(browser), None)
 
     def extract_urls(
         self,
@@ -627,9 +794,9 @@ class WebAnalyzer:
 
         根据配置的抓取模式选择不同的抓取方式：
         - httpx: 使用HTTP客户端轻量快速抓取
-        - playwright: 使用浏览器渲染抓取，支持JS动态内容
+        - browser: 使用系统浏览器渲染抓取，支持JS动态内容
 
-        Playwright模式失败时会自动回退到httpx模式。
+        浏览器模式失败时会自动回退到httpx模式。
 
         Args:
             url: 要抓取的网页URL
@@ -640,12 +807,12 @@ class WebAnalyzer:
         Raises:
             NetworkError: 当网络请求失败时抛出
         """
-        # Playwright模式：浏览器渲染抓取，失败时回退到httpx
-        if self.fetch_mode == "playwright":
+        # 浏览器模式：系统浏览器渲染抓取，失败时回退到httpx
+        if self.fetch_mode == "browser":
             try:
-                return await self._fetch_with_playwright(url)
+                return await self._fetch_with_browser(url)
             except Exception as e:
-                logger.warning(f"Playwright抓取失败，回退到httpx: {url}, 错误: {e}")
+                logger.warning(f"浏览器抓取失败，回退到httpx: {url}, 错误: {e}")
 
         # httpx模式：轻量快速HTTP请求
         headers = self._build_http_headers()
@@ -658,7 +825,7 @@ class WebAnalyzer:
             包含完整请求头的字典
         """
         return {
-            "User-Agent": self.user_agent,
+            "User-Agent": self._current_request_snapshot()["user_agent"],
             "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
             "Accept-Language": "zh-CN,zh;q=0.8,zh-TW;q=0.7,zh-HK;q=0.5,en-US;q=0.3,en;q=0.2",
             "Accept-Encoding": "gzip, deflate, br",
@@ -683,12 +850,11 @@ class WebAnalyzer:
         """
         import asyncio
 
-        # 实现重试机制，最多尝试 retry_count + 1 次
-        for attempt in range(self.retry_count + 1):
+        snapshot = self._current_request_snapshot()
+        client = self._current_client()
+        for attempt in range(snapshot["retry_count"] + 1):
             try:
-                response = await self.client.get(
-                    url, headers=headers, follow_redirects=True
-                )
+                response = await client.get(url, headers=headers, follow_redirects=True)
                 response.raise_for_status()
 
                 # 检查响应大小，防止超大响应导致OOM（10MB限制）
@@ -713,7 +879,7 @@ class WebAnalyzer:
                     logger.warning(
                         f"抓取网页失败，将重试: {url}, 错误: {e} (尝试 {attempt + 1}/{self.retry_count + 1})"
                     )
-                    await asyncio.sleep(self.retry_delay)
+                    await asyncio.sleep(snapshot["retry_delay"])
                 else:
                     # 重试次数用完，抛出网络错误
                     logger.error(
@@ -721,8 +887,8 @@ class WebAnalyzer:
                     )
                     raise NetworkError(f"抓取网页失败: {url}, 错误: {str(e)}") from e
 
-    async def _fetch_with_playwright(self, url: str) -> str:
-        """使用Playwright浏览器抓取网页HTML内容
+    async def _fetch_with_browser(self, url: str) -> str:
+        """使用系统浏览器抓取网页HTML内容
 
         通过浏览器渲染获取JavaScript动态生成的内容，可绕过部分反爬机制。
 
@@ -735,43 +901,25 @@ class WebAnalyzer:
         Raises:
             NetworkError: 当浏览器抓取失败时抛出
         """
-        # 确保浏览器已安装
-        await self._ensure_browser_installed()
+        # 确保系统浏览器可用
+        await self._ensure_browser_detected()
         # 清理浏览器池中的无效实例
         await self._cleanup_browser_pool()
 
         browser = None
-        pw_instance = None
         page = None
+        success = False
 
         try:
-            # 从池中获取或创建新的浏览器实例
-            browser, pw_instance = await self._get_or_create_browser()
+            # Acquire one browser exclusively for this operation.
+            browser, _ = await self._get_or_create_browser()
 
             # 创建新页面
             page = await browser.new_page(user_agent=self.user_agent)
 
             # 隐藏IP：注入脚本屏蔽WebRTC，防止IP泄漏
             if self.hide_ip and self.proxy:
-                await page.add_init_script("""
-                    // 屏蔽WebRTC以防止IP泄漏
-                    const originalRTC = window.RTCPeerConnection || window.webkitRTCPeerConnection;
-                    if (originalRTC) {
-                        window.RTCPeerConnection = function() {
-                            const pc = new originalRTC(...arguments);
-                            const origSetLocalDescription = pc.setLocalDescription.bind(pc);
-                            pc.setLocalDescription = function(desc) {
-                                if (desc && desc.type === 'offer') {
-                                    desc.sdp = desc.sdp.replace(/a=candidate:.+\\r\\n/g, '');
-                                }
-                                return origSetLocalDescription(desc);
-                            };
-                            return pc;
-                        };
-                        window.RTCPeerConnection.prototype = originalRTC.prototype;
-                    }
-                    Object.defineProperty(navigator, 'connection', { get: () => null });
-                """)
+                await page.add_init_script(_WEBRTC_BLOCK_JS)
 
             # 导航到目标URL，等待DOM加载完成
             await page.goto(
@@ -784,26 +932,35 @@ class WebAnalyzer:
             # 获取渲染后的HTML内容
             html = await page.content()
 
-            logger.info(f"Playwright抓取网页成功: {url}")
+            logger.info(f"浏览器抓取网页成功: {url}")
+            success = True
             return html
 
         except Exception as e:
-            logger.error(f"Playwright抓取网页失败: {url}, 错误: {e}")
-            raise NetworkError(f"Playwright抓取网页失败: {url}, 错误: {str(e)}") from e
+            logger.error(f"浏览器抓取网页失败: {url}, 错误: {e}")
+            raise NetworkError(f"浏览器抓取网页失败: {url}, 错误: {str(e)}") from e
 
         finally:
-            # 确保页面被关闭
-            if page:
-                try:
-                    await page.close()
-                except Exception:
-                    pass
-            # 将浏览器实例放回池中或保存
-            if browser:
-                try:
-                    await self._handle_browser_after_use(browser, pw_instance)
-                except Exception as e:
-                    logger.warning(f"浏览器实例回收失败: {e}")
+            try:
+                if page:
+                    try:
+                        await page.close()
+                    except BaseException:
+                        # Never re-pool a browser whose page cleanup was interrupted.
+                        success = False
+                        raise
+            finally:
+                if browser:
+                    try:
+                        if success:
+                            await self._recycle_browser(browser)
+                        else:
+                            try:
+                                await browser.close()
+                            finally:
+                                WebAnalyzer._browser_instances.discard(browser)
+                    except Exception as e:
+                        logger.warning(f"Browser cleanup failed: {e}")
 
     def extract_content(self, html: str, url: str) -> dict:
         """从HTML中提取结构化的网页内容
@@ -1003,9 +1160,9 @@ class WebAnalyzer:
         wait_strategy: str = "fixed",
         format: str = "jpeg",
     ) -> bytes:
-        """使用Playwright捕获网页截图
+        """使用系统浏览器捕获网页截图
 
-        自动处理浏览器的安装和配置，支持：
+        自动检测系统已安装的浏览器（Chrome / Edge / Chromium），支持：
         - 自定义分辨率和质量
         - 全屏截图或可视区域截图
         - 自定义等待时间，确保页面加载完成
@@ -1026,1013 +1183,268 @@ class WebAnalyzer:
         Raises:
             ScreenshotError: 当截图失败时抛出
         """
+        browser = None
         try:
-            # 确保浏览器已安装
-            await self._ensure_browser_installed()
-
-            # 清理浏览器实例池
+            await self._ensure_browser_detected()
             await self._cleanup_browser_pool()
-
-            # 获取或创建浏览器实例
-            browser, playwright_instance = await self._get_or_create_browser()
-
-            try:
-                # 执行截图操作
-                screenshot_bytes = await self._perform_screenshot(
-                    browser=browser,
-                    url=url,
-                    width=width,
-                    height=height,
-                    quality=quality,
-                    full_page=full_page,
-                    wait_time=wait_time,
-                    wait_strategy=wait_strategy,
-                    format=format,
-                )
-
-                # 处理浏览器实例（放回池中或保存）
-                await self._handle_browser_after_use(browser, playwright_instance)
-
-                return screenshot_bytes
-
-            except Exception as screenshot_error:
-                # 截图失败时的错误处理
-                screenshot_bytes = await self._handle_screenshot_error(
-                    browser=browser,
-                    playwright_instance=playwright_instance,
-                    screenshot_error=screenshot_error,
-                    url=url,
-                    width=width,
-                    height=height,
-                    quality=quality,
-                    full_page=full_page,
-                    wait_time=wait_time,
-                    wait_strategy=wait_strategy,
-                    format=format,
-                )
-                return screenshot_bytes
-
-            finally:
-                # 确保playwright实例被关闭
-                if playwright_instance:
-                    await playwright_instance.stop()
-
+            browser, from_pool = await self._get_or_create_browser()
+            attempts = 2 if from_pool else 1
+            for attempt in range(attempts):
+                success = False
+                try:
+                    result = await self._perform_screenshot(
+                        browser=browser,
+                        url=url,
+                        width=width,
+                        height=height,
+                        quality=quality,
+                        full_page=full_page,
+                        wait_time=wait_time,
+                        wait_strategy=wait_strategy,
+                        format=format,
+                    )
+                    success = True
+                    return result
+                except Exception:
+                    if attempt + 1 == attempts:
+                        raise
+                    logger.warning(
+                        "Pooled browser failed; retrying with a new instance"
+                    )
+                finally:
+                    owned, browser = browser, None
+                    if success:
+                        await self._recycle_browser(owned)
+                    else:
+                        try:
+                            await owned.close()
+                        finally:
+                            WebAnalyzer._browser_instances.discard(owned)
+                browser = await self._create_new_browser()
         except Exception as e:
-            logger.error(f"捕获网页截图失败: {url}, 错误: {e}")
-            raise ScreenshotError(f"捕获网页截图失败: {url}, 错误: {str(e)}") from e
+            logger.error(f"Screenshot capture failed: {url}: {e}")
+            raise ScreenshotError(f"捕获网页截图失败: {url}, 错误: {e}") from e
 
-    def _get_browser_install_path(self, ensure_exists: bool = True) -> str:
-        """获取浏览器安装路径
-
-        Args:
-            ensure_exists: 是否确保目录存在（默认 True）
+    async def _ensure_browser_detected(self) -> str:
+        """确保已检测到系统可用的浏览器（结果缓存于类级别）
 
         Returns:
-            str: 浏览器安装路径
+            str: 浏览器可执行文件路径
+
+        Raises:
+            ScreenshotError: 未检测到系统浏览器时抛出
+        """
+        import asyncio
+        import os
+
+        if WebAnalyzer._shutting_down:
+            raise RuntimeError("插件正在关闭，拒绝浏览器操作")
+
+        cached_path = WebAnalyzer._detected_browser_path
+        if cached_path and os.path.isfile(cached_path):
+            return cached_path
+
+        # 浏览器检测涉及子进程调用，放到线程池避免阻塞事件循环
+        loop = asyncio.get_event_loop()
+        found, browser_path, browser_name, version = await loop.run_in_executor(
+            None,
+            lambda: detect_system_browser(exclude_paths=WebAnalyzer._browser_blacklist),
+        )
+        if not found:
+            error_msg = (
+                "未检测到系统已安装的浏览器！\n"
+                "本插件直接使用系统已安装的 Chrome / Edge / Chromium，无需额外下载。\n"
+                "请安装其中任意一款浏览器后重试"
+            )
+            logger.error(error_msg)
+            raise ScreenshotError(error_msg) from None
+
+        WebAnalyzer._detected_browser_path = browser_path
+        WebAnalyzer._detected_browser_name = browser_name
+        WebAnalyzer._detected_browser_version = version
+        return browser_path
+
+    def _get_legacy_playwright_artifacts(self) -> dict:
+        """定位旧版本插件通过 Playwright 下载的浏览器残留文件
+
+        Returns:
+            dict: {"install_dir": Path | None, "status_file": Path | None}
         """
         from pathlib import Path
+
+        artifacts: dict = {"install_dir": None, "status_file": None}
 
         try:
             from astrbot.core.utils.astrbot_path import get_astrbot_data_path
 
-            # 确保 data_path 是 Path 对象，修复路径拼接错误
             data_path_raw = get_astrbot_data_path()
             data_path = (
                 Path(data_path_raw)
                 if not isinstance(data_path_raw, Path)
                 else data_path_raw
             )
-
-            browser_path = (
+            artifacts["install_dir"] = (
                 data_path
                 / "plugin_data"
                 / "astrbot_plugin_web_analyzer"
                 / "playwright_browsers"
             )
-            if ensure_exists:
-                browser_path.mkdir(parents=True, exist_ok=True)
-            logger.debug(f"浏览器安装路径: {browser_path}")
-            return str(browser_path)
+            artifacts["status_file"] = (
+                data_path
+                / "plugin_data"
+                / "astrbot_plugin_web_analyzer"
+                / "browser_install_status.json"
+            )
         except Exception as e:
-            logger.warning(f"无法获取AstrBot数据路径，使用临时路径: {e}")
-            import tempfile
+            logger.debug(f"获取 AstrBot 数据路径失败，无法定位旧版残留文件: {e}")
 
-            temp_path = Path(tempfile.gettempdir()) / "astrbot_web_analyzer_browsers"
-            temp_path.mkdir(parents=True, exist_ok=True)
-            logger.debug(f"使用临时浏览器路径: {temp_path}")
-            return str(temp_path)
-
-    def _load_install_status(self) -> dict:
-        """加载浏览器安装状态
-
-        Returns:
-            dict: 安装状态字典，包含installed、install_path、install_time等信息
-        """
-        import json
-        from pathlib import Path
-
-        status_file = Path(WebAnalyzer._browser_install_status_file)
-
-        if not status_file.exists():
-            return {"installed": False}
-
-        try:
-            with open(status_file, encoding="utf-8") as f:
-                return json.load(f)
-        except Exception as e:
-            logger.warning(f"加载浏览器安装状态失败: {e}")
-            return {"installed": False}
-
-    def _save_install_status(self, status: dict):
-        """保存浏览器安装状态
-
-        Args:
-            status: 要保存的状态字典
-        """
-        import json
-        from pathlib import Path
-
-        try:
-            status_file = Path(WebAnalyzer._browser_install_status_file)
-            status_file.parent.mkdir(parents=True, exist_ok=True)
-
-            with open(status_file, "w", encoding="utf-8") as f:
-                json.dump(status, f, ensure_ascii=False, indent=2)
-
-            logger.debug(f"已保存浏览器安装状态: {status}")
-        except Exception as e:
-            logger.error(f"保存浏览器安装状态失败: {e}")
+        return artifacts
 
     @staticmethod
-    def _which_browser(command: str) -> str | None:
-        """使用系统命令查找浏览器可执行文件路径
-
-        Args:
-            command: 浏览器命令名（如 google-chrome、msedge）
-
-        Returns:
-            找到的路径字符串，未找到返回 None
-        """
-        import shutil
-
-        return shutil.which(command)
-
-    @staticmethod
-    def _detect_system_browser() -> tuple[bool, str, str]:
-        """检测系统已安装的 Chromium 内核浏览器
-
-        检测优先级: Chrome > Edge > Chromium
-        支持 Windows、Linux 和 macOS
-
-        Returns:
-            tuple: (是否找到, 浏览器路径, 浏览器名称)
-        """
-        import os
-        import platform
-        import subprocess
-
-        system = platform.system()
-        logger.info("开始检测系统已安装的浏览器...")
-
-        # 定义浏览器检测：(名称, 命令名, 固定路径列表)
-        browser_candidates: list[tuple[str, str, list[str]]] = []
-
-        if system == "Windows":
-            local_app_data = os.environ.get("LOCALAPPDATA") or os.path.join(
-                os.environ.get("USERPROFILE", ""), "AppData", "Local"
-            )
-            program_files = os.environ.get("ProgramFiles", r"C:\Program Files")
-            program_files_x86 = os.environ.get(
-                "ProgramFiles(x86)", r"C:\Program Files (x86)"
-            )
-
-            browser_candidates = [
-                (
-                    "Google Chrome",
-                    "chrome",
-                    [
-                        os.path.join(
-                            program_files,
-                            "Google",
-                            "Chrome",
-                            "Application",
-                            "chrome.exe",
-                        ),
-                        os.path.join(
-                            program_files_x86,
-                            "Google",
-                            "Chrome",
-                            "Application",
-                            "chrome.exe",
-                        ),
-                        os.path.join(
-                            local_app_data,
-                            "Google",
-                            "Chrome",
-                            "Application",
-                            "chrome.exe",
-                        ),
-                    ],
-                ),
-                (
-                    "Microsoft Edge",
-                    "msedge",
-                    [
-                        os.path.join(
-                            program_files_x86,
-                            "Microsoft",
-                            "Edge",
-                            "Application",
-                            "msedge.exe",
-                        ),
-                        os.path.join(
-                            program_files,
-                            "Microsoft",
-                            "Edge",
-                            "Application",
-                            "msedge.exe",
-                        ),
-                    ],
-                ),
-            ]
-        elif system == "Linux":
-            browser_candidates = [
-                (
-                    "Google Chrome",
-                    "google-chrome",
-                    [
-                        "/usr/bin/google-chrome",
-                        "/usr/bin/google-chrome-stable",
-                        "/opt/google/chrome/google-chrome",
-                    ],
-                ),
-                (
-                    "Microsoft Edge",
-                    "microsoft-edge",
-                    [
-                        "/usr/bin/microsoft-edge",
-                        "/usr/bin/microsoft-edge-stable",
-                    ],
-                ),
-                (
-                    "Chromium",
-                    "chromium",
-                    [
-                        "/usr/bin/chromium",
-                        "/usr/bin/chromium-browser",
-                        "/snap/bin/chromium",
-                    ],
-                ),
-            ]
-        elif system == "Darwin":
-            browser_candidates = [
-                (
-                    "Google Chrome",
-                    "Google Chrome",
-                    [
-                        "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
-                    ],
-                ),
-                (
-                    "Microsoft Edge",
-                    "Microsoft Edge",
-                    [
-                        "/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge",
-                    ],
-                ),
-                (
-                    "Chromium",
-                    "Chromium",
-                    [
-                        "/Applications/Chromium.app/Contents/MacOS/Chromium",
-                    ],
-                ),
-            ]
-
-        for browser_name, command, paths in browser_candidates:
-            # 先用 which/shutil 检查 PATH 中是否存在
-            which_path = WebAnalyzer._which_browser(command)
-            if which_path:
-                logger.debug(f"通过 PATH 检测到 {browser_name}: {which_path}")
-                found_path = which_path
-            else:
-                # 回退到固定路径检测
-                found_path = ""
-                for path in paths:
-                    exists = os.path.exists(path)
-                    logger.debug(
-                        f"检测 {browser_name}: {path} - {'找到!' if exists else '不存在'}"
-                    )
-                    if exists:
-                        found_path = path
-                        break
-
-            if not found_path:
-                continue
-
-            # 尝试获取浏览器版本
-            version = ""
-            try:
-                result = subprocess.run(
-                    [found_path, "--version"],
-                    capture_output=True,
-                    text=True,
-                    timeout=5,
-                )
-                version = result.stdout.strip()
-            except Exception as e:
-                logger.debug(f"获取 {browser_name} 版本失败: {e}")
-
-            version_info = f" (版本: {version})" if version else ""
-            logger.info(
-                f"检测到系统已安装的 {browser_name}: {found_path}{version_info}"
-            )
-            logger.info("将使用系统浏览器，跳过 Playwright 自带浏览器的下载安装")
-            return True, found_path, browser_name
-
-        logger.debug("未检测到系统已安装的浏览器，将使用 Playwright 自带浏览器")
-        return False, "", ""
-
-    async def _check_browser_installed_async(self) -> tuple[bool, str]:
-        """异步检查浏览器是否已安装（智能路径探测版本）
-
-        Returns:
-            tuple: (是否已安装, 浏览器路径或错误信息)
-        """
-        import asyncio
-        import os
+    def _dir_size_mb(path) -> float:
+        """统计目录总大小（MB），失败时返回 0.0"""
         from pathlib import Path
 
-        # 优先检测系统已安装的浏览器（使用线程池避免阻塞事件循环）
-        loop = asyncio.get_event_loop()
-        found, sys_path, sys_name = await loop.run_in_executor(
-            None, self._detect_system_browser
-        )
-        if found:
-            self._system_browser_name = sys_name
-            return True, sys_path
-
-        from playwright.async_api import async_playwright
-
         try:
-            pw = await async_playwright().start()
-            try:
-                # 尝试获取 Playwright 默认的浏览器路径
-                default_path = pw.chromium.executable_path
-
-                # 如果默认路径存在，直接返回
-                if os.path.exists(default_path):
-                    return True, default_path
-
-                # 默认路径不存在，尝试智能路径探测
-                logger.debug(f"默认浏览器路径不存在: {default_path}，开始智能路径探测")
-
-                # 优先级1: 用户自定义安装路径
-                custom_install_path = self._get_browser_install_path()
-                if custom_install_path:
-                    # 尝试查找 chromium-* 目录
-                    custom_path = Path(custom_install_path)
-                    if custom_path.exists():
-                        # 查找所有 chromium-* 目录
-                        chromium_dirs = list(custom_path.glob("chromium-*"))
-                        if chromium_dirs:
-                            # 选择最新的版本目录（按名称排序，通常版本号越新越靠后）
-                            latest_dir = sorted(chromium_dirs, reverse=True)[0]
-                            # 尝试多个可能的可执行文件路径
-                            possible_exec_paths = [
-                                latest_dir / "chrome-linux" / "chrome",
-                                latest_dir / "chrome-linux64" / "chrome",
-                                latest_dir
-                                / "chrome-headless-shell-linux64"
-                                / "chrome-headless-shell",
-                                latest_dir / "chrome" / "chrome",
-                                latest_dir / "chrome.exe",
-                                latest_dir / "msedge" / "msedge",
-                            ]
-
-                            for exec_path in possible_exec_paths:
-                                if exec_path.exists():
-                                    logger.info(f"找到自定义路径的浏览器: {exec_path}")
-                                    return True, str(exec_path)
-
-                # 优先级2: 尝试常见的 Playwright 安装路径
-                common_paths = [
-                    # Linux 系统路径
-                    Path.home()
-                    / ".cache"
-                    / "ms-playwright"
-                    / "chromium-*"
-                    / "chrome-linux"
-                    / "chrome",
-                    Path.home()
-                    / ".cache"
-                    / "ms-playwright"
-                    / "chromium-*"
-                    / "chrome-linux64"
-                    / "chrome",
-                    Path("/root/.cache/ms-playwright/chromium-*/chrome-linux/chrome"),
-                    Path("/root/.cache/ms-playwright/chromium-*/chrome-linux64/chrome"),
-                    # Windows 系统路径
-                    Path.home()
-                    / "AppData"
-                    / "Local"
-                    / "ms-playwright"
-                    / "chromium-*"
-                    / "chrome-win"
-                    / "chrome.exe",
-                    # macOS 系统路径
-                    Path.home()
-                    / "Library"
-                    / "Caches"
-                    / "ms-playwright"
-                    / "chromium-*"
-                    / "chrome-mac"
-                    / "Chromium.app"
-                    / "Contents"
-                    / "MacOS"
-                    / "Chromium",
-                ]
-
-                for pattern_path in common_paths:
-                    # 处理通配符
-                    if "*" in str(pattern_path):
-                        parent_dir = pattern_path.parent.parent
-                        if parent_dir.exists():
-                            matching_dirs = list(
-                                parent_dir.glob(pattern_path.parent.name)
-                            )
-                            if matching_dirs:
-                                exec_path = matching_dirs[0] / pattern_path.name
-                                if exec_path.exists():
-                                    logger.info(f"找到常见路径的浏览器: {exec_path}")
-                                    return True, str(exec_path)
-                    else:
-                        if pattern_path.exists():
-                            logger.info(f"找到常见路径的浏览器: {pattern_path}")
-                            return True, str(pattern_path)
-
-                # 所有路径都找不到，但 Playwright 可能能启动，记录警告
-                logger.warning(
-                    "未找到浏览器可执行文件，但 Playwright 可能仍能启动浏览器"
-                )
-                return False, "未找到浏览器可执行文件"
-
-            finally:
-                await pw.stop()
-        except Exception as e:
-            logger.debug(f"检查浏览器安装时出错: {e}")
-            return False, str(e)
-
-    async def _install_browser_async(self) -> str:
-        """异步安装浏览器（优化版本，增强成功判断）
-
-        Returns:
-            str: 安装路径
-
-        Raises:
-            ScreenshotError: 安装失败时抛出
-        """
-        import asyncio
-        import os
-        import sys
-
-        install_path = self._get_browser_install_path()
-        logger.info(f"开始安装浏览器到: {install_path}")
-
-        # 设置环境变量，指定安装路径
-        env = {**os.environ, "PLAYWRIGHT_BROWSERS_PATH": install_path}
-
-        process = await asyncio.create_subprocess_exec(
-            sys.executable,
-            "-m",
-            "playwright",
-            "install",
-            "chromium",
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-            env=env,
-        )
-
-        try:
-            # 等待进程完成，设置超时
-            stdout, stderr = await asyncio.wait_for(
-                process.communicate(),
-                timeout=300,  # 5分钟超时
-            )
-
-            # 解码输出
-            stdout_text = stdout.decode("utf-8", errors="replace")
-            stderr_text = stderr.decode("utf-8", errors="replace")
-
-            # 合并标准输出和错误输出
-            full_output = f"STDOUT:\n{stdout_text}\n\nSTDERR:\n{stderr_text}"
-
-            logger.debug(f"浏览器安装进程输出:\n{full_output}")
-
-            # 检查是否真正失败（忽略仅有弃用警告的情况）
-            install_success = False
-            install_reason = ""
-
-            if process.returncode == 0:
-                # 返回码为 0，明确成功
-                install_success = True
-                install_reason = "进程返回码为 0"
-            else:
-                # 返回码非 0，需要进一步判断（软验证机制）
-                # 检查 stderr 是否只有弃用警告（而非真正的错误）
-                stderr_lines = [
-                    line for line in stderr_text.split("\n") if line.strip()
-                ]
-
-                # 更精确的错误检测：排除 DeprecationWarning
-                has_real_error = False
-                for line in stderr_lines:
-                    # 跳过 DeprecationWarning
-                    if "DeprecationWarning" in line or "deprecated" in line.lower():
-                        continue
-                    # 检查真正的错误关键词
-                    if any(
-                        keyword in line.lower()
-                        for keyword in [
-                            "error",
-                            "failed",
-                            "exception",
-                            "cannot",
-                            "unable",
-                        ]
-                    ):
-                        # 排除一些常见的非致命错误信息
-                        if "CVE" not in line:  # 忽略 CVE 相关警告
-                            has_real_error = True
-                            break
-
-                # 检查输出中是否包含成功下载的标记
-                download_success = (
-                    "Chromium" in stdout_text and "downloaded to" in stdout_text
-                )
-
-                # 额外检查：是否有多个组件成功下载
-                component_count = stdout_text.count("downloaded to")
-                multiple_components = (
-                    component_count >= 2
-                )  # 至少下载了2个组件（Chromium + 其他）
-
-                if download_success and not has_real_error:
-                    # 浏览器实际下载成功，只是有弃用警告或非致命返回码
-                    install_success = True
-                    if multiple_components:
-                        install_reason = f"文件下载成功（{component_count}个组件），忽略非零返回码 {process.returncode} 和弃用警告"
-                    else:
-                        install_reason = f"文件下载成功，忽略非零返回码 {process.returncode} 和弃用警告"
-                elif multiple_components and not has_real_error:
-                    # 即使没有明确的 Chromium 标记，但多个组件下载成功
-                    install_success = True
-                    install_reason = f"多个组件下载成功（{component_count}个），忽略非零返回码 {process.returncode}"
-                else:
-                    install_success = False
-                    install_reason = f"进程返回码: {process.returncode}, 存在实际错误"
-
-            # 在 Linux 环境下安装系统依赖（如 libnspr4 等）
-            if install_success and sys.platform == "linux":
-                try:
-                    logger.info("正在安装浏览器系统依赖（install-deps）...")
-                    deps_process = await asyncio.create_subprocess_exec(
-                        sys.executable,
-                        "-m",
-                        "playwright",
-                        "install-deps",
-                        "chromium",
-                        stdout=asyncio.subprocess.PIPE,
-                        stderr=asyncio.subprocess.PIPE,
-                        env=env,
-                    )
-                    deps_stdout, deps_stderr = await asyncio.wait_for(
-                        deps_process.communicate(),
-                        timeout=300,
-                    )
-                    if deps_process.returncode == 0:
-                        logger.info("浏览器系统依赖安装成功")
-                    else:
-                        deps_err = deps_stderr.decode("utf-8", errors="replace")
-                        logger.warning(f"安装系统依赖失败（非致命）: {deps_err}")
-                except Exception as deps_error:
-                    logger.warning(f"安装系统依赖异常（非致命）: {deps_error}")
-
-            # 验证浏览器可执行文件是否真实存在（使用自定义路径验证）
-            if install_success:
-                try:
-                    # 直接在自定义路径中查找浏览器，不依赖 Playwright 的默认路径
-                    from pathlib import Path
-
-                    install_path_obj = Path(install_path)
-                    if not install_path_obj.exists():
-                        raise FileNotFoundError(f"安装路径不存在: {install_path}")
-
-                    # 查找 chromium-* 目录
-                    chromium_dirs = list(install_path_obj.glob("chromium-*"))
-                    if not chromium_dirs:
-                        raise FileNotFoundError(
-                            f"未找到 chromium-* 目录在: {install_path}"
-                        )
-
-                    # 选择最新的版本
-                    latest_dir = sorted(chromium_dirs, reverse=True)[0]
-
-                    # 尝试多个可能的可执行文件路径
-                    possible_exec_paths = [
-                        latest_dir / "chrome-linux" / "chrome",
-                        latest_dir / "chrome-linux64" / "chrome",
-                        latest_dir / "chrome" / "chrome",
-                        latest_dir / "chrome.exe",
-                    ]
-
-                    browser_executable = None
-                    for exec_path in possible_exec_paths:
-                        if exec_path.exists():
-                            browser_executable = str(exec_path)
-                            break
-
-                    if browser_executable:
-                        logger.info(f"浏览器安装成功且文件验证通过: {install_reason}")
-                        logger.info(f"浏览器可执行文件路径: {browser_executable}")
-                        return install_path
-                    else:
-                        logger.warning(
-                            f"浏览器文件验证失败: 在 {latest_dir} 中未找到可执行文件"
-                        )
-                        logger.warning(
-                            f"尝试过的路径: {[str(p) for p in possible_exec_paths]}"
-                        )
-                        install_success = False
-                        install_reason = "浏览器可执行文件不存在"
-
-                except Exception as verify_error:
-                    logger.warning(f"验证浏览器安装失败: {verify_error}")
-                    install_success = False
-                    install_reason = f"验证失败: {verify_error}"
-
-            # 安装失败，抛出错误
-            error_msg = (
-                f"浏览器安装失败: {install_reason}\n"
-                f"完整输出:\n{full_output}\n\n"
-                f"请尝试手动安装:\n"
-                f"  1. 运行: pip install --upgrade playwright\n"
-                f"  2. 运行: PLAYWRIGHT_BROWSERS_PATH={install_path} python -m playwright install chromium\n"
-                f"  3. 如果仍然失败,可能需要配置代理或检查网络连接"
-            )
-            logger.error(error_msg)
-            raise ScreenshotError(error_msg) from None
-
-        except asyncio.TimeoutError:
-            # 超时时终止进程
-            try:
-                process.kill()
-                await process.wait()
-            except Exception:
-                pass
-            error_msg = "浏览器安装超时（超过 300 秒）"
-            logger.error(error_msg)
-            raise ScreenshotError(error_msg) from None
-
-    async def _ensure_browser_installed(self):
-        """确保Playwright浏览器已安装（优化版本）
-
-        改进点：
-        1. 使用持久化记录，避免重复检查
-        2. 使用安装锁，防止并发安装
-        3. 完全异步化，避免阻塞
-        4. 使用安全路径，避免被清理
-
-        Raises:
-            ScreenshotError: 浏览器安装失败时抛出
-        """
-        import asyncio
-
-        # 先检查 playwright 是否已安装（模块级检查，无竞态）
-        try:
-            import importlib.util
-
-            if importlib.util.find_spec("playwright"):
-                logger.debug("Playwright 已安装")
-            else:
-                raise ImportError()
-        except ImportError:
-            error_msg = (
-                "Playwright 未安装！\n"
-                "请运行以下命令安装:\n"
-                "  pip install playwright\n"
-                "然后运行:\n"
-                "  playwright install chromium"
-            )
-            logger.error(error_msg)
-            raise ScreenshotError(error_msg) from None
-
-        # 获取安装锁，所有浏览器检查和安装状态的读写均在锁保护下
-        async with WebAnalyzer._browser_install_lock:
-            # 检查浏览器是否已在类级别标记为已检查
-            if WebAnalyzer._playwright_browser_checked:
-                return
-
-            # 加载持久化的安装状态
-            install_status = self._load_install_status()
-
-            if install_status.get("installed", False):
-                saved_path = install_status.get("install_path", "")
-                logger.info(f"浏览器已安装（从持久化记录）: {saved_path or '未知路径'}")
-                # 恢复保存的浏览器路径
-                if saved_path:
-                    import os
-
-                    if os.path.isfile(saved_path):
-                        self._detected_browser_path = saved_path
-                        logger.debug(f"从持久化记录恢复浏览器路径: {saved_path}")
-                        WebAnalyzer._playwright_browser_checked = True
-                        return
-                    else:
-                        logger.warning(
-                            f"保存的浏览器路径不存在: {saved_path}，将重新检测"
-                        )
-                        # 清除失效的安装状态，继续走完整检测流程
-                        self._save_install_status({"installed": False})
-            # 双重检查：可能在等待锁的过程中已被其他实例安装
-            install_status = self._load_install_status()
-            if install_status.get("installed", False):
-                logger.info(
-                    f"浏览器已在其他实例中安装: {install_status.get('install_path', '未知路径')}"
-                )
-                WebAnalyzer._playwright_browser_checked = True
-                return
-
-            # 检查是否正在安装
-            if WebAnalyzer._is_installing:
-                logger.info("浏览器正在其他实例中安装，等待完成...")
-                # 等待安装完成（最多等待5分钟）
-                for _ in range(300):
-                    await asyncio.sleep(1)
-                    install_status = self._load_install_status()
-                    if install_status.get("installed", False):
-                        logger.info("浏览器安装完成")
-                        WebAnalyzer._playwright_browser_checked = True
-                        return
-                # 超时
-                error_msg = "等待浏览器安装超时"
-                logger.error(error_msg)
-                raise ScreenshotError(error_msg) from None
-
-            # 标记开始安装
-            WebAnalyzer._is_installing = True
-            logger.info("正在检查浏览器...")
-
-            try:
-                # 异步检查浏览器是否已安装
-                installed, browser_info = await self._check_browser_installed_async()
-
-                if installed:
-                    logger.info(f"浏览器已安装: {browser_info}")
-                    # 保存检测到的浏览器路径供启动时使用
-                    self._detected_browser_path = browser_info
-                    # 确定浏览器类型（映射为规范标识）
-                    system_browser_name = getattr(self, "_system_browser_name", "")
-                    browser_type_map = {
-                        "Google Chrome": "chrome",
-                        "Microsoft Edge": "edge",
-                        "Chromium": "chromium",
-                    }
-                    browser_type = browser_type_map.get(system_browser_name, "chromium")
-                    # 保存安装状态
-                    self._save_install_status(
-                        {
-                            "installed": True,
-                            "install_path": browser_info,
-                            "install_time": time.time(),
-                            "browser_type": browser_type,
-                        }
-                    )
-                    WebAnalyzer._playwright_browser_checked = True
-                    return
-
-                # 浏览器未安装，开始安装
-                logger.info("浏览器未安装，开始自动安装...")
-                install_path = await self._install_browser_async()
-
-                # 安装后重新检测浏览器可执行文件的确切路径
-                (
-                    installed,
-                    browser_executable,
-                ) = await self._check_browser_installed_async()
-                if installed:
-                    self._detected_browser_path = browser_executable
-
-                # 保存安装状态
-                self._save_install_status(
-                    {
-                        "installed": installed,
-                        "install_path": browser_executable if installed else "",
-                        "install_time": time.time(),
-                        "browser_type": "chromium",
-                    }
-                )
-
-                logger.info(
-                    f"浏览器安装成功: {browser_executable if installed else install_path}"
-                )
-
-            except Exception as e:
-                logger.error(f"浏览器安装失败: {e}")
-                # 清理安装状态
-                install_status = self._load_install_status()
-                if install_status.get("installed", False):
-                    # 如果之前的安装成功，不需要清理
-                    pass
-                else:
-                    # 安装失败，清理状态
-                    self._save_install_status({"installed": False})
-                raise
-            finally:
-                # 清除安装标志
-                WebAnalyzer._is_installing = False
-
-        # 标记已检查浏览器
-        WebAnalyzer._playwright_browser_checked = True
+            total = sum(f.stat().st_size for f in Path(path).rglob("*") if f.is_file())
+            return round(total / (1024 * 1024), 1)
+        except Exception:
+            return 0.0
 
     async def uninstall_browser(self) -> dict:
-        """卸载通过插件自动安装的 Playwright 浏览器（Chromium）
+        """清理旧版本插件通过 Playwright 下载的浏览器残留文件
 
-        执行步骤：
-        1. 检查是否正在安装浏览器，若正在安装则拒绝卸载
-        2. 关闭浏览器实例池中的所有浏览器实例
-        3. 删除浏览器安装目录（playwright_browsers）
-        4. 清除安装状态文件
-        5. 重置相关类级别状态
+        新版本直接使用系统已安装的浏览器，不再下载浏览器文件。
+        该命令用于清理旧版本留下的 playwright_browsers 目录和状态文件。
 
         Returns:
-            dict: 卸载结果，包含 success(bool)、message(str)、detail(str)
+            dict: 清理结果，包含 success(bool)、message(str)、detail(str)
         """
         import shutil
-        from pathlib import Path
 
         result = {"success": False, "message": "", "detail": ""}
 
-        # 1. 检查是否正在安装浏览器
-        if WebAnalyzer._is_installing:
-            result["message"] = (
-                "浏览器正在安装中，无法执行卸载操作，请等待安装完成后再试"
-            )
-            logger.warning("卸载浏览器失败：浏览器正在安装中")
-            return result
+        try:
+            # System browser instances are unrelated to legacy downloaded files.
 
-        # 获取安装锁，防止卸载过程中触发新的安装
-        async with WebAnalyzer._browser_install_lock:
-            try:
-                # 2. 关闭浏览器实例池中的所有浏览器实例
-                closed_count = 0
-                async with WebAnalyzer._browser_lock:
-                    while WebAnalyzer._browser_pool:
-                        browser = WebAnalyzer._browser_pool.pop(0)
-                        try:
-                            if browser.is_connected():
-                                await browser.close()
-                                closed_count += 1
-                        except Exception as e:
-                            logger.warning(f"关闭浏览器实例失败（继续卸载）: {e}")
-                            try:
-                                await browser.close()
-                                closed_count += 1
-                            except Exception:
-                                pass
+            # 2. 删除旧版 Playwright 浏览器目录
+            artifacts = self._get_legacy_playwright_artifacts()
+            install_dir = artifacts.get("install_dir")
+            deleted_files = False
 
-                WebAnalyzer._browser_last_used.clear()
-                logger.info(f"已关闭 {closed_count} 个浏览器实例")
-
-                # 3. 删除浏览器安装目录
-                install_path = self._get_browser_install_path(ensure_exists=False)
-                install_dir = Path(install_path)
-                deleted_files = False
-
-                if install_dir.exists():
-                    try:
-                        # 统计目录大小用于报告
-                        total_size = sum(
-                            f.stat().st_size
-                            for f in install_dir.rglob("*")
-                            if f.is_file()
-                        )
-                        size_mb = total_size / (1024 * 1024)
-
-                        shutil.rmtree(install_dir)
-                        deleted_files = True
-                        logger.info(
-                            f"已删除浏览器安装目录: {install_dir}（释放 {size_mb:.1f} MB 空间）"
-                        )
-                        result["detail"] = f"已释放 {size_mb:.1f} MB 磁盘空间"
-                    except PermissionError as e:
-                        result["message"] = (
-                            f"删除浏览器目录失败（权限不足）: {install_dir}\n"
-                            f"错误: {e}\n"
-                            f"请手动删除该目录，或使用管理员权限运行"
-                        )
-                        logger.error(f"删除浏览器目录权限不足: {e}")
-                        return result
-                    except Exception as e:
-                        result["message"] = (
-                            f"删除浏览器目录失败: {install_dir}\n"
-                            f"错误: {e}\n"
-                            f"请手动删除该目录"
-                        )
-                        logger.error(f"删除浏览器目录失败: {e}")
-                        return result
-                else:
-                    logger.info("浏览器安装目录不存在，跳过删除")
-                    result["detail"] = (
-                        "浏览器安装目录不存在（可能未安装或已被手动清理）"
+            if install_dir and install_dir.exists():
+                try:
+                    size_mb = self._dir_size_mb(install_dir)
+                    shutil.rmtree(install_dir)
+                    deleted_files = True
+                    logger.info(
+                        f"已删除旧版浏览器目录: {install_dir}（释放 {size_mb:.1f} MB 空间）"
                     )
-
-                # 4. 清除安装状态文件
-                status_file = Path(WebAnalyzer._browser_install_status_file)
-                if status_file.exists():
-                    try:
-                        status_file.unlink()
-                        logger.info(f"已删除安装状态文件: {status_file}")
-                    except Exception as e:
-                        logger.warning(f"删除安装状态文件失败（非致命）: {e}")
-                        try:
-                            self._save_install_status({"installed": False})
-                            logger.info("已降级写入安装状态为未安装")
-                        except Exception as write_err:
-                            logger.warning(f"降级写入安装状态也失败: {write_err}")
-
-                # 5. 重置相关状态
-                self._detected_browser_path = None
-                WebAnalyzer._playwright_browser_checked = False
-                if hasattr(self, "_system_browser_name"):
-                    delattr(self, "_system_browser_name")
-
-                result["success"] = True
-                if deleted_files:
-                    result["message"] = "✅ 浏览器卸载成功"
-                else:
+                    result["detail"] = f"已释放 {size_mb:.1f} MB 磁盘空间"
+                except PermissionError as e:
                     result["message"] = (
-                        "✅ 浏览器状态已清理（未发现需要删除的浏览器文件）"
+                        f"删除旧版浏览器目录失败（权限不足）: {install_dir}\n"
+                        f"错误: {e}\n"
+                        f"请手动删除该目录，或使用管理员权限运行"
                     )
+                    logger.error(f"删除旧版浏览器目录权限不足: {e}")
+                    return result
+                except Exception as e:
+                    result["message"] = (
+                        f"删除旧版浏览器目录失败: {install_dir}\n"
+                        f"错误: {e}\n"
+                        f"请手动删除该目录"
+                    )
+                    logger.error(f"删除旧版浏览器目录失败: {e}")
+                    return result
+            else:
+                logger.info("旧版浏览器目录不存在，跳过删除")
+                result["detail"] = "旧版浏览器目录不存在（可能已被清理）"
 
-                logger.info("浏览器卸载操作完成")
+            # 3. 删除旧版安装状态文件
+            status_file = artifacts.get("status_file")
+            if status_file and status_file.exists():
+                try:
+                    status_file.unlink()
+                    logger.info(f"已删除旧版安装状态文件: {status_file}")
+                except Exception as e:
+                    logger.warning(f"删除旧版安装状态文件失败（非致命）: {e}")
 
-            except Exception as e:
-                result["message"] = f"卸载浏览器时发生意外错误: {str(e)}"
-                logger.error(f"卸载浏览器时发生意外错误: {e}")
+            # 4. 重置浏览器检测结果缓存，下次使用时重新检测
+            WebAnalyzer._detected_browser_path = ""
+            WebAnalyzer._detected_browser_name = ""
+            WebAnalyzer._detected_browser_version = ""
+
+            result["success"] = True
+            if deleted_files:
+                result["message"] = "✅ 旧版浏览器文件清理成功"
+            else:
+                result["message"] = "✅ 清理完成（未发现需要删除的旧版浏览器文件）"
+
+            logger.info("旧版浏览器文件清理完成")
+
+        except Exception as e:
+            result["message"] = f"清理旧版浏览器文件时发生意外错误: {str(e)}"
+            logger.error(f"清理旧版浏览器文件时发生意外错误: {e}")
 
         return result
 
     async def get_browser_status(self) -> dict:
-        """获取浏览器安装和运行状态
+        """获取系统浏览器可用性和实例池状态
 
         Returns:
             dict: 浏览器状态信息
         """
+        import asyncio
         from pathlib import Path
 
-        status_info = {
-            "installed": False,
-            "install_path": "",
-            "install_time": "",
-            "browser_type": "",
-            "browser_pool_size": 0,
-            "is_installing": WebAnalyzer._is_installing,
-            "install_dir_exists": False,
-            "install_dir_size_mb": 0.0,
+        # 检测系统浏览器（优先使用类级别缓存）
+        detected = False
+        browser_path = WebAnalyzer._detected_browser_path
+        if browser_path and Path(browser_path).is_file():
+            detected = True
+        else:
+            try:
+                loop = asyncio.get_event_loop()
+                found, path, name, version = await loop.run_in_executor(
+                    None, lambda: detect_system_browser(WebAnalyzer._browser_blacklist)
+                )
+                if found:
+                    detected = True
+                    browser_path = path
+                    WebAnalyzer._detected_browser_path = path
+                    WebAnalyzer._detected_browser_name = name
+                    WebAnalyzer._detected_browser_version = version
+            except Exception as e:
+                logger.debug(f"检测系统浏览器失败: {e}")
+
+        browser_type_map = {
+            "Google Chrome": "chrome",
+            "Microsoft Edge": "edge",
+            "Chromium": "chromium",
         }
 
-        # 读取持久化的安装状态
-        install_status = self._load_install_status()
-        if install_status.get("installed", False):
-            status_info["installed"] = True
-            status_info["install_path"] = install_status.get("install_path", "未知")
-            install_time = install_status.get("install_time")
-            if install_time:
-                import time as _time
+        # 旧版 Playwright 残留文件信息
+        artifacts = self._get_legacy_playwright_artifacts()
+        legacy_dir = artifacts.get("install_dir")
+        legacy_dir_exists = bool(legacy_dir and legacy_dir.exists())
+        legacy_size_mb = self._dir_size_mb(legacy_dir) if legacy_dir_exists else 0.0
 
-                status_info["install_time"] = _time.strftime(
-                    "%Y-%m-%d %H:%M:%S", _time.localtime(install_time)
-                )
-            status_info["browser_type"] = install_status.get("browser_type", "未知")
-
-        # 检查安装目录（不触发目录创建）
-        install_path = self._get_browser_install_path(ensure_exists=False)
-        install_dir = Path(install_path)
-        status_info["install_dir_exists"] = install_dir.exists()
-        if install_dir.exists():
-            try:
-                total_size = sum(
-                    f.stat().st_size for f in install_dir.rglob("*") if f.is_file()
-                )
-                status_info["install_dir_size_mb"] = round(
-                    total_size / (1024 * 1024), 1
-                )
-            except Exception:
-                pass
-
-        # 浏览器池状态
-        status_info["browser_pool_size"] = len(WebAnalyzer._browser_pool)
+        # 字段名与旧版保持一致，供命令输出和前端兼容
+        status_info = {
+            "installed": detected,
+            "install_path": browser_path if detected else "",
+            "install_time": "",
+            "browser_type": browser_type_map.get(
+                WebAnalyzer._detected_browser_name,
+                WebAnalyzer._detected_browser_name or "",
+            ),
+            "browser_version": WebAnalyzer._detected_browser_version or "",
+            "browser_pool_size": len(WebAnalyzer._browser_pool),
+            "is_installing": False,
+            "install_dir_exists": legacy_dir_exists,
+            "install_dir_size_mb": legacy_size_mb,
+        }
 
         return status_info
 
@@ -2040,8 +1452,7 @@ class WebAnalyzer:
         """从池中获取或创建新的浏览器实例
 
         Returns:
-            tuple: (browser实例, playwright实例)
-            playwright_instance为None表示从池中获取的浏览器
+            tuple: (浏览器实例, 是否来自实例池)
         """
         if WebAnalyzer._shutting_down:
             raise RuntimeError("插件正在关闭，拒绝创建新的浏览器实例")
@@ -2049,71 +1460,78 @@ class WebAnalyzer:
         browser = await self._try_get_browser_from_pool()
 
         if browser:
-            return browser, None
+            return browser, True
 
         # 创建新的浏览器实例
-        return await self._create_new_browser()
+        return await self._create_new_browser(), False
+
+    def _browser_pool_key(self):
+        """Keep browser-level proxy and sandbox settings isolated between users."""
+        return (self.sandbox_mode, self.hide_ip, self.proxy if self.hide_ip else None)
 
     async def _try_get_browser_from_pool(self):
-        """尝试从浏览器实例池获取有效的浏览器实例
-
-        Returns:
-            有效的浏览器实例，如果没有可用实例则返回None
-        """
-
+        """Check out a connected browser with compatible launch settings."""
         async with WebAnalyzer._browser_lock:
-            while WebAnalyzer._browser_pool:
-                candidate_browser = WebAnalyzer._browser_pool.pop(0)
-                try:
-                    if candidate_browser.is_connected():
-                        logger.debug("从浏览器实例池获取有效浏览器实例")
-                        return candidate_browser
-                    else:
-                        logger.warning("跳过已断开连接的浏览器实例")
-                        await candidate_browser.close()
-                except Exception as e:
-                    logger.error(f"检查浏览器实例连接状态失败: {e}, 将跳过该实例")
+            for candidate in list(WebAnalyzer._browser_pool):
+                if not candidate.is_connected():
+                    WebAnalyzer._browser_pool.remove(candidate)
+                    WebAnalyzer._browser_last_used.pop(id(candidate), None)
                     try:
-                        await candidate_browser.close()
-                    except Exception:
-                        pass
-
+                        await candidate.close()
+                    finally:
+                        WebAnalyzer._browser_instances.discard(candidate)
+                elif candidate.pool_key == self._browser_pool_key():
+                    WebAnalyzer._browser_pool.remove(candidate)
+                    WebAnalyzer._browser_last_used.pop(id(candidate), None)
+                    return candidate
         return None
 
-    async def _create_new_browser(self) -> tuple:
-        """创建新的浏览器实例
+    async def _create_new_browser(self) -> BrowserInstance:
+        """创建新的浏览器实例（启动系统已安装的浏览器进程）
 
         Returns:
-            tuple: (browser实例, playwright实例)
+            BrowserInstance: 新的浏览器实例
         """
-        import os
-
-        from playwright.async_api import async_playwright
-
         logger.debug("创建新的浏览器实例")
 
-        # 如果有检测到的浏览器路径，使用它
-        if self._detected_browser_path and os.path.exists(self._detected_browser_path):
-            pass
-        else:
-            # 否则使用自定义路径（必须在 start() 之前设置环境变量）
-            custom_browser_path = self._get_browser_install_path()
-            os.environ["PLAYWRIGHT_BROWSERS_PATH"] = custom_browser_path
-            logger.debug(f"设置 PLAYWRIGHT_BROWSERS_PATH={custom_browser_path}")
+        # Cleanup is filesystem-only and verifies profile ownership.
+        if time.time() - WebAnalyzer._last_profile_sweep > 3600:
+            WebAnalyzer._last_profile_sweep = time.time()
+            await sweep_stale_browser_artifacts()
 
-        playwright_instance = await async_playwright().start()
-
-        # 构建启动参数
         launch_args = self._build_browser_launch_args()
-
-        # 使用检测到的浏览器路径（如果有）
-        if self._detected_browser_path and os.path.exists(self._detected_browser_path):
-            launch_args["executable_path"] = self._detected_browser_path
-            logger.debug(f"使用检测到的浏览器路径: {self._detected_browser_path}")
-
-        browser = await playwright_instance.chromium.launch(**launch_args)
-
-        return browser, playwright_instance
+        while not WebAnalyzer._shutting_down:
+            browser_path = await self._ensure_browser_detected()
+            instance = BrowserInstance(
+                executable_path=browser_path,
+                extra_args=launch_args,
+                proxy_credentials=self._browser_proxy_credentials,
+            )
+            instance.pool_key = self._browser_pool_key()
+            WebAnalyzer._browser_instances.add(instance)
+            try:
+                await instance.start()
+                if WebAnalyzer._shutting_down:
+                    await instance.close()
+                    raise RuntimeError("Plugin is shutting down")
+                WebAnalyzer._detected_browser_version = instance.version
+                return instance
+            except BrowserLaunchError:
+                WebAnalyzer._browser_instances.discard(instance)
+                WebAnalyzer._browser_blacklist.add(browser_path)
+                WebAnalyzer._detected_browser_path = ""
+                WebAnalyzer._detected_browser_name = ""
+                WebAnalyzer._detected_browser_version = ""
+                logger.warning(
+                    "System browser failed to launch; trying another candidate"
+                )
+            except BaseException:
+                try:
+                    await instance.close()
+                finally:
+                    WebAnalyzer._browser_instances.discard(instance)
+                raise
+        raise RuntimeError("Plugin is shutting down")
 
     async def _perform_screenshot(
         self,
@@ -2149,29 +1567,10 @@ class WebAnalyzer:
             user_agent=self.user_agent,
         )
 
-        # 隐藏IP：注入脚本屏蔽WebRTC，防止IP泄漏
-        if self.hide_ip and self.proxy:
-            await page.add_init_script("""
-                // 屏蔽WebRTC以防止IP泄漏
-                const originalRTC = window.RTCPeerConnection || window.webkitRTCPeerConnection;
-                if (originalRTC) {
-                    window.RTCPeerConnection = function() {
-                        const pc = new originalRTC(...arguments);
-                        const origSetLocalDescription = pc.setLocalDescription.bind(pc);
-                        pc.setLocalDescription = function(desc) {
-                            if (desc && desc.type === 'offer') {
-                                desc.sdp = desc.sdp.replace(/a=candidate:.+\\r\\n/g, '');
-                            }
-                            return origSetLocalDescription(desc);
-                        };
-                        return pc;
-                    };
-                    window.RTCPeerConnection.prototype = originalRTC.prototype;
-                }
-                Object.defineProperty(navigator, 'connection', { get: () => null });
-            """)
-
         try:
+            if self.hide_ip and self.proxy:
+                await page.add_init_script(_WEBRTC_BLOCK_JS)
+
             # 导航到目标URL
             await page.goto(
                 url, wait_until="domcontentloaded", timeout=self.timeout * 1000
@@ -2200,7 +1599,7 @@ class WebAnalyzer:
             # 构建截图参数
             screenshot_params = {
                 "full_page": full_page,
-                "type": format,
+                "format": format,
             }
 
             # quality 参数只适用于 jpeg 格式
@@ -2215,118 +1614,6 @@ class WebAnalyzer:
 
         finally:
             await page.close()
-
-    async def _handle_browser_after_use(self, browser, playwright_instance):
-        """处理使用后的浏览器实例
-
-        Args:
-            browser: 浏览器实例
-            playwright_instance: playwright实例（如果为None表示从池中获取的浏览器）
-        """
-        if playwright_instance is None:
-            # 从池中获取的浏览器实例，放回池中
-            async with WebAnalyzer._browser_lock:
-                WebAnalyzer._browser_last_used[id(browser)] = time.time()
-                WebAnalyzer._browser_pool.append(browser)
-                logger.debug(
-                    f"浏览器实例已放回池中，当前池大小: {len(WebAnalyzer._browser_pool)}"
-                )
-        else:
-            # 新创建的浏览器实例，保存到self.browser
-            self.browser = browser
-
-    async def _handle_screenshot_error(
-        self,
-        browser,
-        playwright_instance,
-        screenshot_error: Exception,
-        url: str,
-        width: int,
-        height: int,
-        quality: int,
-        full_page: bool,
-        wait_time: int,
-        wait_strategy: str = "fixed",
-        format: str = "jpeg",
-    ) -> bytes:
-        """处理截图过程中的错误
-
-        Args:
-            browser: 发生错误的浏览器实例
-            playwright_instance: playwright实例
-            screenshot_error: 截图错误
-            url: 目标URL
-            width: 视口宽度
-            height: 视口高度
-            quality: 截图质量
-            full_page: 是否全页截图
-            wait_time: 等待时间
-            format: 截图格式
-
-        Returns:
-            截图的二进制数据
-
-        Raises:
-            Exception: 如果错误处理失败，则重新抛出异常
-        """
-        if playwright_instance is not None:
-            # 新创建的浏览器实例出错，直接抛出异常
-            raise screenshot_error
-
-        # 从池中获取的浏览器实例无效，尝试创建新实例
-        logger.error(
-            f"从池中获取的浏览器实例无效，重新创建浏览器实例: {screenshot_error}"
-        )
-
-        try:
-            await browser.close()
-        except Exception:
-            pass
-
-        # 创建新的浏览器实例并重试
-        from playwright.async_api import async_playwright
-
-        new_playwright_instance = await async_playwright().start()
-
-        # 构建启动参数（与_create_new_browser保持一致）
-        retry_launch_args = self._build_browser_launch_args()
-
-        # 浏览器路径配置：与_create_new_browser保持一致
-        import os
-
-        if self._detected_browser_path and os.path.exists(self._detected_browser_path):
-            retry_launch_args["executable_path"] = self._detected_browser_path
-            logger.debug(f"重试时使用检测到的浏览器路径: {self._detected_browser_path}")
-        else:
-            custom_browser_path = self._get_browser_install_path()
-            os.environ["PLAYWRIGHT_BROWSERS_PATH"] = custom_browser_path
-            logger.debug(f"重试时设置 PLAYWRIGHT_BROWSERS_PATH={custom_browser_path}")
-
-        new_browser = await new_playwright_instance.chromium.launch(**retry_launch_args)
-
-        try:
-            # 使用新浏览器实例重试截图
-            screenshot_bytes = await self._perform_screenshot(
-                browser=new_browser,
-                url=url,
-                width=width,
-                height=height,
-                quality=quality,
-                full_page=full_page,
-                wait_time=wait_time,
-                wait_strategy=wait_strategy,
-                format=format,
-            )
-
-            logger.info("使用新浏览器实例截图成功")
-
-            # 保存新创建的浏览器实例
-            self.browser = new_browser
-
-            return screenshot_bytes
-
-        finally:
-            await new_playwright_instance.stop()
 
     def extract_specific_content(
         self, html: str, url: str, extract_types: list[str]

@@ -6,7 +6,7 @@
 |----------|----------|
 | 异步HTTP请求 | `httpx` |
 | HTML解析 | `BeautifulSoup` + `lxml` |
-| 网页截图 | `playwright` 无头浏览器 |
+| 网页截图 | 系统 Chrome/Edge/Chromium (CDP 驱动) |
 | 异步并发 | `asyncio.gather` |
 | 缓存机制 | 内存缓存 + 文件缓存 |
 | LLM集成 | AstrBot LLM接口 |
@@ -63,7 +63,7 @@
    - 智能分析结果生成
 
 6. **截图生成**
-   - 使用playwright无头浏览器
+   - 使用系统已安装的浏览器（CDP驱动）
    - 支持自定义尺寸和格式
    - 自动处理页面加载
 
@@ -111,10 +111,10 @@
 
 ### 网页截图
 
-1. **playwright无头浏览器**
-   - 自动安装浏览器
-   - 支持多种浏览器引擎（Chrome、Firefox、WebKit）
-   - 高性能和稳定性
+1. **系统浏览器 CDP 驱动**
+   - 直接使用系统已安装的 Chrome / Edge / Chromium，无需下载浏览器文件
+   - 通过 Chrome DevTools Protocol（WebSocket）驱动，仅依赖轻量的 websockets 库
+   - 启动快、资源占用低，浏览器实例可在池中复用
 
 2. **截图配置**
    - 支持自定义质量、宽度、高度
@@ -243,18 +243,19 @@
 
 | 技术/库 | 版本 | 用途 |
 |---------|------|------|
-| Python | 3.10+ | 开发语言 |
-| httpx | >=0.24.0 | 异步HTTP客户端 |
+| Python | 3.12+ | 开发语言 |
+| httpx | >=0.28.0 | 异步HTTP客户端 |
 | BeautifulSoup4 | >=4.12.0 | HTML解析 |
 | lxml | >=4.9.0 | XML/HTML解析器 |
-| playwright | >=1.40.0 | 网页截图 |
+| websockets | >=12.0 | 浏览器CDP通信 |
+| Pillow | >=10.0.0 | 截图裁剪 |
 | asyncio | 内置 | 异步编程 |
 | yaml | 内置 | 配置文件解析 |
 | json | 内置 | 数据交换格式 |
 
 ## 开发环境要求
 
-- Python 3.10+ 
+- Python 3.12+
 - pip 22.0+ 
 - 支持的操作系统：Windows、Linux、macOS
 
