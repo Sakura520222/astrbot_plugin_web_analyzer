@@ -9,15 +9,7 @@ import os
 import time
 from collections import OrderedDict
 
-# 条件导入 logger
-logger = None
-try:
-    from astrbot.api import logger
-except ImportError:
-    import logging
-
-    logging.basicConfig(level=logging.INFO)
-    logger = logging.getLogger(__name__)
+from astrbot.api import logger
 
 
 class ScreenshotTempManager:
@@ -36,7 +28,7 @@ class ScreenshotTempManager:
         """初始化临时文件管理器
 
         Args:
-            temp_dir: 临时文件目录，默认使用项目根目录下的 data/temp
+            temp_dir: 临时文件目录，默认使用 AstrBot 标准数据路径下的 plugin_data/astrbot_plugin_web_analyzer/temp
             ttl: 文件生存期（秒），默认 60 秒
             cleanup_interval: 清理任务执行间隔（秒），默认 60 秒
             max_memory_cache: 内存缓存最大容量，默认 30 张截图
@@ -74,9 +66,15 @@ class ScreenshotTempManager:
             最终使用的临时目录路径
         """
         if not temp_dir:
-            # 使用默认临时目录（项目根目录下的 data/temp）
-            project_root = os.path.dirname(os.path.dirname(__file__))
-            temp_dir = os.path.join(project_root, "data", "temp")
+            # 使用 AstrBot 标准数据路径下的 plugin_data/astrbot_plugin_web_analyzer/temp
+            try:
+                from astrbot.core.utils.astrbot_path import get_astrbot_plugin_data_path
+                plugin_data_path = get_astrbot_plugin_data_path()
+            except ImportError:
+                # 兼容旧版本
+                from astrbot.core.utils.astrbot_path import get_astrbot_data_path
+                plugin_data_path = os.path.join(get_astrbot_data_path(), "plugin_data")
+            temp_dir = os.path.join(plugin_data_path, "astrbot_plugin_web_analyzer", "temp")
 
         # 确保目录存在
         os.makedirs(temp_dir, exist_ok=True)

@@ -4,6 +4,7 @@
 负责处理单个和批量 URL 分析、发送分析结果等。
 """
 
+import asyncio
 import hashlib
 import json
 import os
@@ -48,6 +49,8 @@ class MessageHandler:
         merge_forward_group: bool = False,
         merge_forward_private: bool = False,
         merge_forward_include_screenshot: bool = False,
+        send_retry_count: int = 3,
+        send_retry_delay_s: int = 2,
         screenshot_temp_ttl: int = 60,
         screenshot_cache_size: int = 30,
         max_concurrency: int = 5,
@@ -84,6 +87,9 @@ class MessageHandler:
         self.merge_forward_group = merge_forward_group
         self.merge_forward_private = merge_forward_private
         self.merge_forward_include_screenshot = merge_forward_include_screenshot
+        # 发送重试配置
+        self.send_retry_count = max(0, min(10, send_retry_count))
+        self.send_retry_delay_s = max(0, min(30, send_retry_delay_s))
         self._runtime_settings_revision = None
         self._runtime_settings_signature = None
 
@@ -235,6 +241,8 @@ class MessageHandler:
             "merge_forward_group",
             "merge_forward_private",
             "merge_forward_include_screenshot",
+            "send_retry_count",
+            "send_retry_delay_s",
         )
         for name in fields:
             if name in settings:
@@ -1117,6 +1125,39 @@ class MessageHandler:
         except Exception as e:
             logger.error(f"从缓存加载截图失败: {url}, 错误: {e}")
             return None
+
+    async def _send_with_retry(self, event: AstrMessageEvent, send_func, *args, **kwargs):
+        """使用重试机制发送消息
+
+        Args:
+            event: 消息事件对象
+            send_func: 发送函数（如 event.chain_result）
+            *args: 发送函数的位置参数
+            **kwargs: 发送函数的关键字参数
+
+        Returns:
+            发送结果
+
+        Raises:
+            最后一次重试的异常
+        """
+        last_exception = None
+        for attempt in range(self.send_retry_count + 1):
+            try:
+                return await send_func(*args, **kwargs)
+            except Exception as e:
+                last_exception = e
+                if attempt < self.send_retry_count:
+                    logger.warning(
+                        f"发送失败，将在 {self.send_retry_delay_s} 秒后重试 "
+                        f"({attempt + 1}/{self.send_retry_count + 1}): {e}"
+                    )
+                    await asyncio.sleep(self.send_retry_delay_s)
+                else:
+                    logger.error(
+                        f"发送失败，已重试 {self.send_retry_count} 次: {e}"
+                    )
+        raise last_exception
 
     async def _send_screenshots_only(
         self, event: AstrMessageEvent, analysis_results: list

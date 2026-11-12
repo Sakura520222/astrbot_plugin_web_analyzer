@@ -103,7 +103,7 @@ class DashboardConfigTests(unittest.IsolatedAsyncioTestCase):
             path: copy.deepcopy(spec.get("default", ""))
             for path, spec in fields.items()
         }
-        self.assertEqual(len(updates), 63)
+        self.assertEqual(len(updates), 66)
         payload, status = await self.plugin._update_dashboard_config(updates)
         self.assertEqual(status, 200, payload)
         self.assertEqual(payload["applied"], len(fields))
@@ -277,7 +277,7 @@ class DashboardConfigTests(unittest.IsolatedAsyncioTestCase):
         encoded = json.dumps(semantics, sort_keys=True, ensure_ascii=False).encode()
         self.assertEqual(
             hashlib.sha256(encoded).hexdigest(),
-            "14421e17ed7e2e541505a5c5a37dba2c711a658fee074bade8667fe7d7bdc993",
+            "5181869d829e6ca94c781a900e940aa70184e0083e1bfa6801071c89d9f90509",
         )
 
 

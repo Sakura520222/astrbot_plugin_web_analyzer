@@ -156,6 +156,7 @@ class MessageHelpers:
     async def send_processing_message(
         event: AstrMessageEvent,
         message: str,
+        enable_processing_message: bool,
         enable_recall: bool,
         recall_type: str,
         recall_time_s: int,
@@ -167,6 +168,7 @@ class MessageHelpers:
         Args:
             event: 消息事件对象
             message: 要发送的消息
+            enable_processing_message: 是否发送处理提示消息
             enable_recall: 是否启用撤回
             recall_type: 撤回类型
             recall_time_s: 撤回时间（秒）
@@ -174,9 +176,13 @@ class MessageHelpers:
             recall_tasks: 撤回任务列表
 
         Returns:
-            (message_id, bot) 元组
+            (message_id, bot) 元组，如果未发送则返回 (None, None)
         """
         import asyncio
+
+        if not enable_processing_message:
+            logger.debug("enable_processing_message 为 False，跳过发送处理提示消息")
+            return None, None
 
         # 获取平台名称
         platform_name = (

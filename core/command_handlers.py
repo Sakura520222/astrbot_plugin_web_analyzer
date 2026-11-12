@@ -444,8 +444,15 @@ class CommandMixin:
 
         # 执行导出操作
         try:
-            # 创建data目录（如果不存在）
-            data_dir = os.path.join(os.path.dirname(__file__), "data")
+            # 使用 AstrBot 标准数据路径下的 plugin_data/astrbot_plugin_web_analyzer/exports
+            try:
+                from astrbot.core.utils.astrbot_path import get_astrbot_plugin_data_path
+                plugin_data_path = get_astrbot_plugin_data_path()
+            except ImportError:
+                # 兼容旧版本
+                from astrbot.core.utils.astrbot_path import get_astrbot_data_path
+                plugin_data_path = os.path.join(get_astrbot_data_path(), "plugin_data")
+            data_dir = os.path.join(plugin_data_path, "astrbot_plugin_web_analyzer", "exports")
             os.makedirs(data_dir, exist_ok=True)
 
             # 生成文件名

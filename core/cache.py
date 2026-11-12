@@ -16,16 +16,7 @@ import os
 import time
 from typing import Any
 
-# 条件导入 logger，用于测试
-logger = None
-try:
-    from astrbot.api import logger
-except ImportError:
-    # 测试环境下，创建一个简单的 logger 替代
-    import logging
-
-    logging.basicConfig(level=logging.INFO)
-    logger = logging.getLogger(__name__)
+from astrbot.api import logger
 
 
 # 自定义异常类
@@ -71,7 +62,7 @@ class CacheManager:
         """初始化缓存管理器
 
         Args:
-            cache_dir: 缓存文件存储目录，默认使用插件目录下的data/cache
+            cache_dir: 缓存文件存储目录，默认使用 AstrBot 标准数据路径下的 plugin_data/astrbot_plugin_web_analyzer/cache
             max_size: 最大缓存数量，超过会自动删除最旧的缓存
             expire_time: 缓存过期时间，单位为分钟
             preload_enabled: 是否启用缓存预加载
@@ -139,10 +130,15 @@ class CacheManager:
             最终使用的缓存目录路径
         """
         if not cache_dir:
-            # 使用默认缓存目录（项目根目录下的 data/cache）
-            # 获取项目根目录（core 的父目录）
-            project_root = os.path.dirname(os.path.dirname(__file__))
-            cache_dir = os.path.join(project_root, "data", "cache")
+            # 使用 AstrBot 标准数据路径下的 plugin_data/astrbot_plugin_web_analyzer/cache
+            try:
+                from astrbot.core.utils.astrbot_path import get_astrbot_plugin_data_path
+                plugin_data_path = get_astrbot_plugin_data_path()
+            except ImportError:
+                # 兼容旧版本
+                from astrbot.core.utils.astrbot_path import get_astrbot_data_path
+                plugin_data_path = os.path.join(get_astrbot_data_path(), "plugin_data")
+            cache_dir = os.path.join(plugin_data_path, "astrbot_plugin_web_analyzer", "cache")
 
         # 确保缓存目录存在
         os.makedirs(cache_dir, exist_ok=True)

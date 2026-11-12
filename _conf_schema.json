@@ -247,12 +247,29 @@
           "include_screenshot": {
             "description": "将截图放入转发消息", "type": "bool", "default": false,
             "hint": "关闭时单独发送截图。"
+          },
+          "发送重试": {
+            "description": "发送重试", "type": "object", "hint": "设置发送消息/图片失败时的重试策略。",
+            "items": {
+              "send_retry_count": {
+                "description": "重试次数", "type": "int", "default": 3,
+                "hint": "发送失败后允许的重试次数。", "minimum": 0, "maximum": 10
+              },
+              "send_retry_delay_s": {
+                "description": "重试间隔（秒）", "type": "int", "default": 2,
+                "hint": "再次发送前等待的时间。", "minimum": 0, "maximum": 30
+              }
+            }
           }
         }
       },
       "消息撤回": {
         "description": "提示消息撤回", "type": "object", "hint": "仅撤回“正在分析”的提示消息，依赖平台支持。",
         "items": {
+          "enable_processing_message": {
+            "description": "发送提示消息", "type": "bool", "default": true,
+            "hint": "是否发送“正在分析...”提示消息。关闭则不发送提示，分析完成直接发送结果。"
+          },
           "enable_recall": {
             "description": "自动撤回提示", "type": "bool", "default": true,
             "hint": "开启后按下方策略撤回。"

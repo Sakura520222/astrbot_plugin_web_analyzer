@@ -39,7 +39,7 @@ from .core.utils import WebAnalyzerUtils
     "astrbot_plugin_web_analyzer",
     "Sakura520222",
     "自动识别网页链接，智能抓取解析内容，集成大语言模型进行深度分析和总结，支持网页截图、缓存机制和多种管理命令",
-    "1.6.6",
+    "1.7.1",
     "https://github.com/Sakura520222/astrbot_plugin_web_analyzer",
 )
 class WebAnalyzerPlugin(Star):
@@ -141,6 +141,8 @@ class WebAnalyzerPlugin(Star):
             merge_forward_group=self.merge_forward_group,
             merge_forward_private=self.merge_forward_private,
             merge_forward_include_screenshot=self.merge_forward_include_screenshot,
+            send_retry_count=getattr(self, "send_retry_count", 3),
+            send_retry_delay_s=getattr(self, "send_retry_delay_s", 2),
             max_concurrency=self.max_concurrency,
         )
         self.message_handler.apply_runtime_config(config_dict)
@@ -201,6 +203,7 @@ class WebAnalyzerPlugin(Star):
         processing_message_id, bot = await MessageHelpers.send_processing_message(
             event,
             message,
+            self.enable_processing_message,
             self.enable_recall,
             self.recall_type,
             self.recall_time_s,
@@ -262,6 +265,7 @@ class WebAnalyzerPlugin(Star):
         processing_message_id, bot = await MessageHelpers.send_processing_message(
             event,
             message,
+            self.enable_processing_message,
             self.enable_recall,
             self.recall_type,
             self.recall_time_s,
@@ -344,6 +348,7 @@ class WebAnalyzerPlugin(Star):
         processing_message_id, bot = await MessageHelpers.send_processing_message(
             event,
             message,
+            self.enable_processing_message,
             self.enable_recall,
             self.recall_type,
             self.recall_time_s,
@@ -431,6 +436,7 @@ class WebAnalyzerPlugin(Star):
         processing_message_id, bot = await MessageHelpers.send_processing_message(
             event,
             message,
+            self.enable_processing_message,
             self.enable_recall,
             self.recall_type,
             self.recall_time_s,
@@ -536,6 +542,7 @@ class WebAnalyzerPlugin(Star):
                 ) = await MessageHelpers.send_processing_message(
                     event,
                     message,
+                    self.enable_processing_message,
                     self.enable_recall,
                     self.recall_type,
                     self.recall_time_s,
@@ -576,6 +583,7 @@ class WebAnalyzerPlugin(Star):
             processing_message_id, bot = await MessageHelpers.send_processing_message(
                 event,
                 message,
+                self.enable_processing_message,
                 self.enable_recall,
                 self.recall_type,
                 self.recall_time_s,
@@ -590,7 +598,9 @@ class WebAnalyzerPlugin(Star):
                 async for result in self._batch_process_urls(
                     event, allowed_urls, processing_message_id, bot
                 ):
-                    await self.context.send_message(event.unified_msg_origin, result)
+                    await self._send_with_retry(
+                        event, self.context.send_message, event.unified_msg_origin, result
+                    )
             else:
                 # 默认行为：yield 结果，阻止事件传播到 LLM
                 async for result in self._batch_process_urls(
@@ -1089,8 +1099,15 @@ class WebAnalyzerPlugin(Star):
 
         # 执行导出操作
         try:
-            # 创建data目录（如果不存在）
-            data_dir = os.path.join(os.path.dirname(__file__), "data")
+            # 使用 AstrBot 标准数据路径下的 plugin_data/astrbot_plugin_web_analyzer/exports
+            try:
+                from astrbot.core.utils.astrbot_path import get_astrbot_plugin_data_path
+                plugin_data_path = get_astrbot_plugin_data_path()
+            except ImportError:
+                # 兼容旧版本
+                from astrbot.core.utils.astrbot_path import get_astrbot_data_path
+                plugin_data_path = os.path.join(get_astrbot_data_path(), "plugin_data")
+            data_dir = os.path.join(plugin_data_path, "astrbot_plugin_web_analyzer", "exports")
             os.makedirs(data_dir, exist_ok=True)
 
             # 生成文件名
@@ -1463,6 +1480,39 @@ class WebAnalyzerPlugin(Star):
                 self.recall_type,
                 self.smart_recall_enabled,
             )
+
+    async def _send_with_retry(self, event: AstrMessageEvent, send_func, *args, **kwargs):
+        """使用重试机制发送消息（仅用于 context.send_message 等直接发送 API）
+
+        Args:
+            event: 消息事件对象
+            send_func: 发送函数（如 self.context.send_message）
+            *args: 发送函数的位置参数
+            **kwargs: 发送函数的关键字参数
+
+        Returns:
+            发送结果
+
+        Raises:
+            最后一次重试的异常
+        """
+        last_exception = None
+        for attempt in range(self.send_retry_count + 1):
+            try:
+                return await send_func(*args, **kwargs)
+            except Exception as e:
+                last_exception = e
+                if attempt < self.send_retry_count:
+                    logger.warning(
+                        f"发送失败，将在 {self.send_retry_delay_s} 秒后重试 "
+                        f"({attempt + 1}/{self.send_retry_count + 1}): {e}"
+                    )
+                    await asyncio.sleep(self.send_retry_delay_s)
+                else:
+                    logger.error(
+                        f"发送失败，已重试 {self.send_retry_count} 次: {e}"
+                    )
+        raise last_exception
 
     # ==================== Dashboard Web API ====================
 

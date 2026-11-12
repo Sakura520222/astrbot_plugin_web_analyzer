@@ -3,7 +3,7 @@ name: astrbot_plugin_web_analyzer
 display_name: 网页分析插件
 author: Sakura520222
 description: 自动识别并分析网页链接，支持内容提取、网页截图和缓存管理
-version: 1.7.0
+version: 1.7.1
 repo: https://github.com/Sakura520222/astrbot_plugin_web_analyzer
 support_platforms:
   - aiocqhttp

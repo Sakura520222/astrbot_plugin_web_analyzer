@@ -124,14 +124,19 @@ class ConfigLoader:
             "private": "merge_forward_private",
             "include_screenshot": "merge_forward_include_screenshot",
         },
-        "群聊设置": {
-            "group_blacklist": "group_blacklist",
+        "发送重试": {
+            "send_retry_count": "send_retry_count",
+            "send_retry_delay_s": "send_retry_delay_s",
         },
         "消息撤回": {
+            "enable_processing_message": "enable_processing_message",
             "enable_recall": "enable_recall",
             "recall_type": "recall_type",
             "recall_time_s": "recall_time_s",
             "smart_recall_enabled": "smart_recall_enabled",
+        },
+        "群聊设置": {
+            "group_blacklist": "group_blacklist",
         },
         "事件传播": {
             "allow_llm_propagation": "allow_llm_propagation",
@@ -407,15 +412,22 @@ class ConfigLoader:
         # 消息撤回
         old_recall = config_dict.get("recall_settings", {})
         recall = {}
+        recall["enable_processing_message"] = old_recall.get("enable_processing_message", True)
         recall["enable_recall"] = old_recall.get("enable_recall", True)
         recall["recall_type"] = old_recall.get("recall_type", "smart")
         recall["recall_time_s"] = old_recall.get("recall_time", 10)
         recall["smart_recall_enabled"] = old_recall.get("smart_recall_enabled", True)
 
+        # 发送重试（旧格式中没有对应配置，使用默认值）
+        send_retry = {}
+        send_retry["send_retry_count"] = 3
+        send_retry["send_retry_delay_s"] = 2
+
         new_config["消息管理"] = {
             "合并转发": merge_forward,
             "群聊设置": group_settings,
             "消息撤回": recall,
+            "发送重试": send_retry,
         }
 
         logger.info("旧格式配置已成功转换为新格式")
@@ -867,6 +879,9 @@ class ConfigLoader:
         )
 
         # 消息撤回
+        config_dict["enable_processing_message"] = ConfigLoader._get_nested_value(
+            config, "消息管理", "消息撤回", "enable_processing_message", True
+        )
         config_dict["enable_recall"] = ConfigLoader._get_nested_value(
             config, "消息管理", "消息撤回", "enable_recall", True
         )
@@ -878,6 +893,14 @@ class ConfigLoader:
         )
         config_dict["smart_recall_enabled"] = ConfigLoader._get_nested_value(
             config, "消息管理", "消息撤回", "smart_recall_enabled", True
+        )
+
+        # 发送重试
+        config_dict["send_retry_count"] = ConfigLoader._get_nested_value(
+            config, "消息管理", "发送重试", "send_retry_count", 3
+        )
+        config_dict["send_retry_delay_s"] = ConfigLoader._get_nested_value(
+            config, "消息管理", "发送重试", "send_retry_delay_s", 2
         )
 
         # 事件传播

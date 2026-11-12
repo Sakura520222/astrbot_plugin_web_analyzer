@@ -38,6 +38,19 @@ def _load_modules():
     sys.modules["astrbot.api.event"] = event
     sys.modules["astrbot.api.message_components"] = components
 
+    # 注入 mock 的 AstrBot 路径辅助模块，使缓存/临时目录使用标准数据路径
+    core = types.ModuleType("astrbot.core")
+    core.__path__ = []
+    sys.modules["astrbot.core"] = core
+    utils = types.ModuleType("astrbot.core.utils")
+    utils.__path__ = []
+    sys.modules["astrbot.core.utils"] = utils
+    astrbot_path = types.ModuleType("astrbot.core.utils.astrbot_path")
+    plugin_data = str(PLUGIN_ROOT / "data" / "plugin_data" / "astrbot_plugin_web_analyzer")
+    astrbot_path.get_astrbot_plugin_data_path = lambda: plugin_data
+    astrbot_path.get_astrbot_data_path = lambda: str(PLUGIN_ROOT / "data")
+    sys.modules["astrbot.core.utils.astrbot_path"] = astrbot_path
+
     for name in (
         "constants",
         "error_handler",

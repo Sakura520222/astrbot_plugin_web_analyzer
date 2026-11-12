@@ -1,5 +1,22 @@
 # 更新日志
 
+### [v1.7.1] - 2026-11-12
+
+#### 审计整改：统一使用 AstrBot 标准数据路径
+
+- **持久化位置修正**：磁盘缓存、临时截图与分析结果导出不再写入插件目录下的 `data/cache`、`data/temp`、`data/`，统一改为 AstrBot 标准路径 `data/plugin_data/astrbot_plugin_web_analyzer/{cache,temp,exports}`，随插件更新保留并纳入用户数据迁移与审计
+- **日志规范修正**：`core/cache.py` 与 `core/screenshot_temp_manager.py` 移除 try/except 回退分支中的 Python 内置 `logging` 导入，logger 统一从 `astrbot.api` 获取
+- **旧数据迁移**：启动时已将既有 `data/cache` 下的缓存文件迁移至新路径，避免历史数据丢失
+
+#### 发送可靠性增强
+
+- **发送重试机制**：新增「发送重试」配置组（`send_retry_count`、`send_retry_delay_s`），所有消息发送路径（截图、文字、合并转发）均支持指数退避重试，缓解 Telegram 等平台偶发的网络超时问题
+- **提示消息开关**：「消息撤回」组新增 `enable_processing_message`，可关闭“正在分析...”提示消息，分析完成直接发送结果，减少消息噪音
+
+#### 配置清理
+
+- **修复重复配置**：移除 `config_loader.py` 中重复的「消息撤回」配置段，避免 Dashboard 重复渲染
+
 ### [v1.7.0] - 2026-11-11
 
 #### ⚡ 重要变更：移除 Playwright 依赖
