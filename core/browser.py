@@ -7,6 +7,7 @@ to the user's interactive browser/profile.
 
 import asyncio
 import base64
+import errno
 import json
 import os
 import platform
@@ -27,6 +28,13 @@ except ImportError:  # websockets 12 uses the legacy asyncio implementation.
 from astrbot.api import logger
 
 PROFILE_DIR_PREFIX = "astrbot_wa_profile_"
+_STDERR_LOG_NAME = "browser-stderr.log"
+_STDERR_TAIL_BYTES = 800
+# Spawn failures that mean the executable itself is unusable on this system.
+# Memory and process limits report other errnos and may clear up on retry.
+_PERMANENT_SPAWN_ERRNOS = frozenset(
+    (errno.ENOENT, errno.EACCES, errno.EPERM, errno.ENOEXEC, errno.ENOTDIR)
+)
 _WS_MAX_SIZE = 64 * 1024 * 1024
 _LAUNCH_TIMEOUT = 20.0
 _DEFAULT_CMD_TIMEOUT = 30.0
@@ -36,11 +44,27 @@ _MAX_HTML_CHARS = 8_000_000
 
 
 class BrowserError(Exception):
-    """Report an unusable browser or a failed protocol operation."""
+    """Report an unusable browser or a failed protocol operation.
+
+    Attributes:
+        instance_failure: Whether another browser instance may succeed where
+            this one failed. Errors caused by the page itself clear it, so a
+            retry cannot help.
+    """
+
+    instance_failure = True
 
 
 class BrowserLaunchError(BrowserError):
-    """Report failure to start or connect to the browser."""
+    """Report failure to start or connect to the browser.
+
+    Such a failure can be transient, for example a slow start under resource
+    pressure, and does not disqualify the executable.
+    """
+
+
+class BrowserExecutableError(BrowserLaunchError):
+    """Report an executable that cannot run in the current environment."""
 
 
 class CdpError(BrowserError):
@@ -52,11 +76,19 @@ class CdpError(BrowserError):
 
 
 class CdpNavigationError(BrowserError):
-    """Report a failed navigation, such as a DNS or connection failure."""
+    """Report a failed navigation, such as a DNS error or a slow page."""
+
+    instance_failure = False
 
 
 class CdpTimeoutError(BrowserError):
-    """Report a protocol command or page readiness timeout."""
+    """Report a protocol command timeout."""
+
+
+class PageLimitError(BrowserError):
+    """Report page content beyond a capture limit."""
+
+    instance_failure = False
 
 
 def detect_system_browser(
@@ -65,12 +97,15 @@ def detect_system_browser(
     """Locate an installed browser, preferring Chrome, then Edge, then Chromium.
 
     Args:
-        exclude_paths: Executables previously rejected during this session.
+        exclude_paths: Executables rejected during this session. Aliases that
+            resolve to a rejected executable are skipped as well.
 
     Returns:
         Whether a browser was found, executable path, name and optional version.
     """
-    excluded = {os.path.normcase(p) for p in (exclude_paths or ())}
+    excluded = {
+        os.path.normcase(os.path.realpath(path)) for path in (exclude_paths or ())
+    }
     candidates = []
     system = platform.system()
     if system == "Windows":
@@ -116,43 +151,73 @@ def detect_system_browser(
                 )
             )
     elif system == "Linux":
+        # Fixed paths also cover containers whose PATH lacks system directories.
         candidates = [
             (
                 "Google Chrome",
                 ["google-chrome", "google-chrome-stable"],
-                [Path("/opt/google/chrome/google-chrome")],
+                [
+                    Path("/usr/bin/google-chrome"),
+                    Path("/usr/bin/google-chrome-stable"),
+                    Path("/opt/google/chrome/google-chrome"),
+                ],
             ),
-            ("Microsoft Edge", ["microsoft-edge", "microsoft-edge-stable"], []),
+            (
+                "Microsoft Edge",
+                ["microsoft-edge", "microsoft-edge-stable"],
+                [
+                    Path("/usr/bin/microsoft-edge"),
+                    Path("/usr/bin/microsoft-edge-stable"),
+                ],
+            ),
             (
                 "Chromium",
                 ["chromium", "chromium-browser"],
-                [Path("/snap/bin/chromium")],
+                [
+                    Path("/usr/bin/chromium"),
+                    Path("/usr/bin/chromium-browser"),
+                    Path("/snap/bin/chromium"),
+                ],
             ),
         ]
+    checked = []
     for name, commands, paths in candidates:
-        options = [shutil.which(command) for command in commands] + [
-            str(p) for p in paths
-        ]
+        options = dict.fromkeys(
+            [shutil.which(command) for command in commands] + [str(p) for p in paths]
+        )
         for path in options:
-            if (
-                not path
-                or os.path.normcase(path) in excluded
-                or not Path(path).is_file()
-            ):
+            if not path:
                 continue
-            # GUI executables on Windows may open a window even with --version.
-            # Read the authoritative version later via Browser.getVersion instead.
-            version = ""
-            if system != "Windows":
-                try:
-                    result = subprocess.run(
-                        [path, "--version"], capture_output=True, text=True, timeout=5
-                    )
-                    version = result.stdout.strip()
-                except (OSError, subprocess.TimeoutExpired):
-                    pass
-            logger.debug(f"Detected system browser: {name}: {path}")
-            return True, path, name, version
+            # Record why each known location was rejected to make failures
+            # diagnosable from the log alone.
+            if os.path.normcase(os.path.realpath(path)) in excluded:
+                checked.append(f"{path} (launch failed earlier)")
+            elif not Path(path).is_file():
+                checked.append(f"{path} (not found)")
+            elif not os.access(path, os.X_OK):
+                checked.append(f"{path} (not executable)")
+            else:
+                # GUI executables on Windows may open a window even with --version.
+                # Read the authoritative version later via Browser.getVersion instead.
+                version = ""
+                if system != "Windows":
+                    try:
+                        result = subprocess.run(
+                            [path, "--version"],
+                            capture_output=True,
+                            text=True,
+                            timeout=5,
+                        )
+                        version = result.stdout.strip()
+                    except (OSError, subprocess.TimeoutExpired):
+                        pass
+                logger.debug(f"Detected system browser: {name}: {path}")
+                return True, path, name, version
+    logger.warning(
+        "No system browser found; checked "
+        f"{', '.join(checked) or 'no known location'}; "
+        f"PATH={os.environ.get('PATH', '')}"
+    )
     return False, "", "", ""
 
 
@@ -308,13 +373,15 @@ class CDPPage:
             timeout: Total navigation timeout in milliseconds.
 
         Raises:
-            CdpNavigationError: Chrome reports a navigation failure.
-            CdpTimeoutError: Navigation does not finish within the deadline.
+            CdpNavigationError: Chrome reports a navigation failure, or the page
+                does not finish loading within the deadline.
+            CdpTimeoutError: Chrome does not answer the navigation command.
         """
         name = {"domcontentloaded": "DOMContentLoaded", "load": "load"}.get(wait_until)
         if name is None:
             raise ValueError(f"Unsupported navigation wait strategy: {wait_until}")
         self._lifecycle_events.clear()
+        result = None
         try:
             async with asyncio.timeout(timeout / 1000):
                 result = await self._send(
@@ -334,9 +401,10 @@ class CDPPage:
                     self._lifecycle_changed.clear()
                     await self._lifecycle_changed.wait()
         except TimeoutError:
-            raise CdpTimeoutError(
-                f"Page navigation timed out after {timeout}ms"
-            ) from None
+            # An unanswered command means a stuck browser, which another
+            # instance may survive. A slow page does not.
+            error = CdpTimeoutError if result is None else CdpNavigationError
+            raise error(f"Page navigation timed out after {timeout}ms") from None
 
     async def wait_for_load_state(
         self, state: str = "networkidle", timeout: int = 30000
@@ -378,7 +446,7 @@ class CDPPage:
             },
         )
         if result.get("exceptionDetails"):
-            raise BrowserError(
+            raise PageLimitError(
                 "Unable to serialize rendered HTML within the size limit"
             )
         return result.get("result", {}).get("value", "")
@@ -402,7 +470,7 @@ class CDPPage:
             Encoded image bytes. Oversized captures fail explicitly.
 
         Raises:
-            BrowserError: The image exceeds the pixel budget.
+            PageLimitError: The image exceeds the pixel budget.
         """
         format = format.lower()
         if format not in ("jpeg", "png"):
@@ -412,7 +480,7 @@ class CDPPage:
         width = size.get("width", size.get("clientWidth", 0))
         height = size.get("height", size.get("clientHeight", 0))
         if width * height > _MAX_SCREENSHOT_PIXELS:
-            raise BrowserError(
+            raise PageLimitError(
                 f"Screenshot exceeds {_MAX_SCREENSHOT_PIXELS:,} pixel limit ({width}x{height})"
             )
         params = {
@@ -468,6 +536,9 @@ class BrowserInstance:
         self._proxy_credentials = proxy_credentials
         self.version = ""
         self.pool_key = None
+        # Called once the process and profile are gone, including after a
+        # failed launch. Owners use it to account for the freed capacity.
+        self.on_closed = None
         self._process = None
         self._ws = None
         self._reader_task = None
@@ -485,7 +556,8 @@ class BrowserInstance:
         """Launch an isolated headless browser and establish a CDP connection.
 
         Raises:
-            BrowserLaunchError: Launch or connection handshake fails.
+            BrowserExecutableError: The executable cannot run in this environment.
+            BrowserLaunchError: Any other launch or connection handshake failure.
         """
         self._profile_dir = tempfile.mkdtemp(prefix=PROFILE_DIR_PREFIX)
         args = [
@@ -511,14 +583,7 @@ class BrowserInstance:
             # Shield the thread: a cancelled await must still obtain the Popen
             # result before cleanup, otherwise a late-spawned process is lost.
             self._launch_task = asyncio.create_task(
-                asyncio.to_thread(
-                    subprocess.Popen,
-                    args,
-                    stdin=subprocess.DEVNULL,
-                    stdout=subprocess.DEVNULL,
-                    stderr=subprocess.DEVNULL,
-                    **kwargs,
-                )
+                asyncio.to_thread(self._spawn, args, kwargs)
             )
             self._process = await asyncio.shield(self._launch_task)
             owners = [
@@ -548,16 +613,72 @@ class BrowserInstance:
                 raise
             if not isinstance(exc, Exception):
                 raise
+            # A process that was never spawned points at the executable or
+            # its permissions. Memory and process limits still may clear up.
+            if (
+                self._process is None
+                and isinstance(exc, OSError)
+                and exc.errno in _PERMANENT_SPAWN_ERRNOS
+            ):
+                raise BrowserExecutableError(
+                    f"Cannot execute system browser: {exc}"
+                ) from exc
             raise BrowserLaunchError(f"Failed to start system browser: {exc}") from exc
+
+    def _spawn(self, args: list[str], kwargs: dict):
+        """Start the process while keeping its stderr for launch diagnostics."""
+        try:
+            stderr = open(self._stderr_path(), "wb")
+        except OSError:
+            stderr = subprocess.DEVNULL
+        try:
+            return subprocess.Popen(
+                args,
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.DEVNULL,
+                stderr=stderr,
+                **kwargs,
+            )
+        finally:
+            # The child keeps its own inherited handle and goes on writing.
+            if stderr is not subprocess.DEVNULL:
+                stderr.close()
+
+    def _stderr_path(self) -> Path:
+        return Path(self._profile_dir) / _STDERR_LOG_NAME
+
+    def _stderr_tail(self) -> str:
+        """Return the last line the browser wrote to stderr before exiting.
+
+        Chromium names sandbox and missing-library failures there. Nothing is
+        kept in memory while the browser runs, so chatty pages cannot grow it.
+        """
+        try:
+            with open(self._stderr_path(), "rb") as log:
+                log.seek(0, os.SEEK_END)
+                log.seek(max(0, log.tell() - _STDERR_TAIL_BYTES))
+                lines = log.read().decode("utf-8", "replace").splitlines()
+        except OSError:
+            return ""
+        return next((line.strip() for line in reversed(lines) if line.strip()), "")
 
     async def _wait_for_devtools_port(self) -> str:
         port_file = Path(self._profile_dir) / "DevToolsActivePort"
         deadline = time.monotonic() + _LAUNCH_TIMEOUT
         while time.monotonic() < deadline:
             if self._process.poll() is not None:
-                raise BrowserLaunchError(
-                    f"Browser exited with code {self._process.returncode}"
-                )
+                code = self._process.returncode
+                if 0 < code < 256:
+                    # The browser rejected this environment, for example
+                    # because of missing libraries or sandbox restrictions.
+                    # Cleanup deletes the profile, so capture the reason now.
+                    detail = self._stderr_tail()
+                    raise BrowserExecutableError(
+                        f"Browser exited with code {code}"
+                        + (f": {detail}" if detail else "")
+                    )
+                # Signals and crashes point at resource pressure, which may pass.
+                raise BrowserLaunchError(f"Browser exited with code {code}")
             try:
                 lines = port_file.read_text(encoding="utf-8").splitlines()
                 if (
@@ -613,6 +734,8 @@ class BrowserInstance:
                     task.cancel()
             self._pages.clear()
             await self._cleanup_profile_dir()
+            if self.on_closed:
+                self.on_closed()
 
     async def _terminate_process(self):
         proc = self._process
@@ -728,11 +851,30 @@ class BrowserInstance:
                     )
         except asyncio.CancelledError:
             raise
-        except Exception:
-            logger.debug("Browser DevTools connection ended")
+        except Exception as exc:
+            self._report_disconnect(repr(exc))
+        else:
+            self._report_disconnect("closed by the browser")
         finally:
             self._ws_alive = False
             self._fail_pending_commands("Browser DevTools connection disconnected")
+
+    def _report_disconnect(self, reason: str) -> None:
+        """Log why the DevTools connection ended together with the process state."""
+        if self._close_task is not None:
+            logger.debug(f"Browser DevTools connection ended ({reason})")
+            return
+        code = self._process.poll() if self._process else None
+        if code is None:
+            state = "is still running"
+        elif code < 0:
+            # A negative code is a termination signal; 9 usually is the OOM killer.
+            state = f"was killed by signal {-code}"
+        else:
+            state = f"exited with code {code}"
+        logger.warning(
+            f"Browser DevTools connection lost ({reason}); browser process {state}"
+        )
 
     def _fail_pending_commands(self, reason: str):
         for future in self._pending_commands.values():
@@ -745,8 +887,11 @@ class BrowserInstance:
         self, viewport: dict | None = None, user_agent: str | None = None
     ) -> CDPPage:
         """Create and initialize an isolated tab, closing it on setup failure."""
+        # Starting a renderer is slow on constrained hosts. Page setup therefore
+        # gets the same deadline as every other protocol command.
+        timeout = self.command_timeout
         context = await self.send_command(
-            "Target.createBrowserContext", {"disposeOnDetach": True}, timeout=15
+            "Target.createBrowserContext", {"disposeOnDetach": True}, timeout=timeout
         )
         context_id = context["browserContextId"]
         page = None
@@ -754,13 +899,13 @@ class BrowserInstance:
             result = await self.send_command(
                 "Target.createTarget",
                 {"url": "about:blank", "browserContextId": context_id},
-                timeout=15,
+                timeout=timeout,
             )
             target_id = result["targetId"]
             attached = await self.send_command(
                 "Target.attachToTarget",
                 {"targetId": target_id, "flatten": True},
-                timeout=15,
+                timeout=timeout,
             )
             page = CDPPage(
                 self, target_id, attached["sessionId"], context_id=context_id

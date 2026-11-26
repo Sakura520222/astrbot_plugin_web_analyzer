@@ -15,6 +15,7 @@ import asyncio
 import gc
 import io
 import ipaddress
+import os
 import re
 import time
 from urllib.parse import unquote, urljoin, urlparse
@@ -27,8 +28,8 @@ from PIL import Image
 from astrbot.api import logger
 
 from .browser import (
+    BrowserExecutableError,
     BrowserInstance,
-    BrowserLaunchError,
     detect_system_browser,
     sweep_stale_browser_artifacts,
 )
@@ -102,9 +103,11 @@ class WebAnalyzer:
 
     # 类级别的浏览器实例池，用于复用浏览器实例
     _browser_pool = []
-    _max_browser_instances = 3  # 最大浏览器实例数量
+    _max_idle_browsers = 3  # 空闲实例池最多保留的实例数量
+    _max_browser_instances = 3  # 启动中、使用中与空闲实例的总量上限
     _browser_last_used = {}  # 记录每个浏览器实例的最后使用时间
     _browser_lock = None  # 浏览器实例池锁
+    _browser_slot_released = None  # 实例归还或关闭时唤醒等待实例的请求
     _last_cleanup_time = 0  # 上次清理时间，用于定期清理任务
     _cleanup_interval = 60 * 5  # 清理间隔，5分钟
     _instance_timeout = 60 * 30  # 实例超时时间，30分钟未使用则清理
@@ -113,8 +116,11 @@ class WebAnalyzer:
     _detected_browser_path = ""  # 浏览器可执行文件路径
     _detected_browser_name = ""  # 浏览器名称，如 Google Chrome
     _detected_browser_version = ""  # 浏览器版本号
+    _detect_lock = None  # 浏览器检测锁，并发的首次请求只检测一次
     _last_profile_sweep = 0  # 上次清理残留临时目录的时间
-    _browser_blacklist: set[str] = set()  # Paths that failed to launch this session.
+    # 无法启动的浏览器路径 -> (过期时刻, 原因)
+    _browser_blacklist: dict[str, tuple[float, str]] = {}
+    _browser_blacklist_ttl = 60 * 10  # 无法启动的浏览器暂时跳过的时长，10分钟后自动重试
     _browser_instances: set = set()  # Includes checked-out and starting instances.
 
     _shutting_down = False  # 插件正在关闭标志，阻止新的浏览器操作
@@ -133,6 +139,8 @@ class WebAnalyzer:
         hide_ip: bool = False,  # 截图时是否隐藏真实IP
         fetch_mode: str = "httpx",  # 网页抓取模式：httpx 或 browser（兼容旧值 playwright）
         sandbox_mode: str = "auto",  # 浏览器沙箱模式：auto / always_disabled / always_enabled
+        max_browser_instances: int = 3,  # 浏览器实例总量上限
+        screenshot_retry_count: int = 1,  # 浏览器实例故障时更换实例重试的次数
     ):
         """初始化网页分析器
 
@@ -148,9 +156,12 @@ class WebAnalyzer:
             enable_unified_domain: 是否启用域名统一处理（如google.com和www.google.com视为同一域名）
             fetch_mode: 网页抓取模式，httpx(轻量快速) 或 browser(系统浏览器渲染)
             sandbox_mode: 浏览器沙箱模式，auto(自动检测) / always_disabled(始终禁用) / always_enabled(始终启用)
+            max_browser_instances: 浏览器实例总量上限（启动中、使用中与空闲），由所有分析器共享
+            screenshot_retry_count: 截图时浏览器实例故障后更换实例重试的次数，页面自身的问题不重试
         """
         self.max_content_length = max_content_length
         self.timeout = timeout
+        self.screenshot_retry_count = screenshot_retry_count
         self.user_agent = (
             user_agent
             or "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
@@ -189,6 +200,35 @@ class WebAnalyzer:
         # 初始化浏览器锁
         if not WebAnalyzer._browser_lock:
             WebAnalyzer._browser_lock = asyncio.Lock()
+            WebAnalyzer._detect_lock = asyncio.Lock()
+            WebAnalyzer._browser_slot_released = asyncio.Event()
+        # 实例池由所有分析器共享，实例总量上限同样保持类级别
+        WebAnalyzer._set_browser_instance_limit(max_browser_instances)
+
+    @classmethod
+    def _set_browser_instance_limit(cls, value) -> None:
+        """应用配置的浏览器实例总量上限（最小为 1），并唤醒等待实例的请求"""
+        try:
+            limit = max(1, int(value))
+        except (TypeError, ValueError):
+            limit = 3
+        cls._max_browser_instances = limit
+        if cls._browser_slot_released is not None:
+            cls._browser_slot_released.set()
+
+    @classmethod
+    def reset_browser_session(cls) -> None:
+        """插件加载或重载时恢复浏览器操作，并清除上次加载留下的检测结果"""
+        cls._shutting_down = False
+        cls._reset_browser_detection()
+
+    @classmethod
+    def _reset_browser_detection(cls) -> None:
+        """清除启动失败记录和缓存的检测结果，下次使用时重新检测"""
+        cls._browser_blacklist.clear()
+        cls._detected_browser_path = ""
+        cls._detected_browser_name = ""
+        cls._detected_browser_version = ""
 
     def _apply_ip_hide_args(self, args: list[str]) -> None:
         """将IP隐藏相关参数应用到浏览器启动参数中
@@ -263,7 +303,7 @@ class WebAnalyzer:
                 if (
                     browser.is_connected()
                     and now - last_used < WebAnalyzer._instance_timeout
-                    and len(keep) < WebAnalyzer._max_browser_instances
+                    and len(keep) < WebAnalyzer._max_idle_browsers
                 ):
                     keep.append(browser)
                 else:
@@ -361,7 +401,7 @@ class WebAnalyzer:
                 elif memory_usage > 70:
                     max_keep = 2
                 else:
-                    max_keep = WebAnalyzer._max_browser_instances - 1
+                    max_keep = WebAnalyzer._max_idle_browsers - 1
 
                 # 释放超出保留数量的浏览器实例
                 while len(WebAnalyzer._browser_pool) > max_keep:
@@ -424,6 +464,7 @@ class WebAnalyzer:
             "sandbox_mode",
             "enable_memory_monitor",
             "memory_threshold",
+            "screenshot_retry_count",
         }
         for key, value in settings.items():
             attr = mapping.get(key, key)
@@ -435,10 +476,24 @@ class WebAnalyzer:
                     if attr == "fetch_mode" and value == "playwright"
                     else value,
                 )
+        if "max_browser_instances" in settings:
+            WebAnalyzer._set_browser_instance_limit(settings["max_browser_instances"])
+            await self._trim_idle_browsers()
+        # 启动参数已变化时，之前记录的启动失败不再适用
+        launch_settings = {"sandbox_mode", "hide_ip", "proxy"}
+        if WebAnalyzer._browser_blacklist and launch_settings & settings.keys():
+            WebAnalyzer._reset_browser_detection()
         self._sandbox_disabled = self._resolve_sandbox_disabled()
         self._browser_proxy_credentials = self._parse_browser_proxy_credentials()
         await self._close_incompatible_idle_browsers()
         self._sync_memory_monitor()
+
+    async def _trim_idle_browsers(self) -> None:
+        """关闭超出实例总量上限的空闲实例，使调小后的上限立即生效"""
+        async with WebAnalyzer._browser_lock:
+            surplus = WebAnalyzer._browser_pool[WebAnalyzer._max_browser_instances :]
+            del WebAnalyzer._browser_pool[WebAnalyzer._max_browser_instances :]
+        await self._close_browsers(surplus)
 
     def _parse_browser_proxy_credentials(self):
         if not self.hide_ip or not self.proxy:
@@ -619,10 +674,12 @@ class WebAnalyzer:
                 and browser.is_connected()
                 and getattr(browser, "pool_key", self._browser_pool_key())
                 == self._browser_pool_key()
-                and len(WebAnalyzer._browser_pool) < WebAnalyzer._max_browser_instances
+                and len(WebAnalyzer._browser_pool) < WebAnalyzer._max_idle_browsers
             ):
                 WebAnalyzer._browser_last_used[id(browser)] = time.time()
                 WebAnalyzer._browser_pool.append(browser)
+                # 实例数达到上限时，等待中的请求可以直接复用它
+                WebAnalyzer._browser_slot_released.set()
                 return
         try:
             await browser.close()
@@ -1187,9 +1244,11 @@ class WebAnalyzer:
         try:
             await self._ensure_browser_detected()
             await self._cleanup_browser_pool()
-            browser, from_pool = await self._get_or_create_browser()
-            attempts = 2 if from_pool else 1
+            # 池中实例与新建实例采用相同的恢复策略：仅当故障指向浏览器本身时，
+            # 按配置次数更换实例重试；页面自身的问题（加载失败、内容超限）不重试
+            attempts = self.screenshot_retry_count + 1
             for attempt in range(attempts):
+                browser, _ = await self._get_or_create_browser()
                 success = False
                 try:
                     result = await self._perform_screenshot(
@@ -1205,11 +1264,12 @@ class WebAnalyzer:
                     )
                     success = True
                     return result
-                except Exception:
-                    if attempt + 1 == attempts:
+                except Exception as exc:
+                    retryable = getattr(exc, "instance_failure", False)
+                    if attempt + 1 == attempts or not retryable:
                         raise
                     logger.warning(
-                        "Pooled browser failed; retrying with a new instance"
+                        f"Browser instance failed; retrying with another instance: {exc}"
                     )
                 finally:
                     owned, browser = browser, None
@@ -1220,7 +1280,6 @@ class WebAnalyzer:
                             await owned.close()
                         finally:
                             WebAnalyzer._browser_instances.discard(owned)
-                browser = await self._create_new_browser()
         except Exception as e:
             logger.error(f"Screenshot capture failed: {url}: {e}")
             raise ScreenshotError(f"捕获网页截图失败: {url}, 错误: {e}") from e
@@ -1232,37 +1291,72 @@ class WebAnalyzer:
             str: 浏览器可执行文件路径
 
         Raises:
-            ScreenshotError: 未检测到系统浏览器时抛出
+            ScreenshotError: 未检测到系统浏览器，或检测到的浏览器均因无法启动而被暂时跳过
         """
-        import asyncio
-        import os
-
         if WebAnalyzer._shutting_down:
             raise RuntimeError("插件正在关闭，拒绝浏览器操作")
 
-        cached_path = WebAnalyzer._detected_browser_path
-        if cached_path and os.path.isfile(cached_path):
-            return cached_path
-
-        # 浏览器检测涉及子进程调用，放到线程池避免阻塞事件循环
-        loop = asyncio.get_event_loop()
-        found, browser_path, browser_name, version = await loop.run_in_executor(
-            None,
-            lambda: detect_system_browser(exclude_paths=WebAnalyzer._browser_blacklist),
-        )
+        found, browser_path, _name, _version = await self._detect_browser()
         if not found:
-            error_msg = (
+            error_msg = self._browser_not_found_message()
+            logger.error(error_msg)
+            raise ScreenshotError(error_msg) from None
+        return browser_path
+
+    async def _detect_browser(self) -> tuple:
+        """检测系统浏览器并缓存结果；并发调用只执行一次检测
+
+        Returns:
+            tuple: (是否检测到, 路径, 名称, 版本)
+        """
+        async with WebAnalyzer._detect_lock:
+            # 等待锁期间，其他请求可能已经完成检测
+            cached_path = WebAnalyzer._detected_browser_path
+            if cached_path and os.path.isfile(cached_path):
+                return (
+                    True,
+                    cached_path,
+                    WebAnalyzer._detected_browser_name,
+                    WebAnalyzer._detected_browser_version,
+                )
+            now = time.monotonic()
+            for path, (until, _why) in list(WebAnalyzer._browser_blacklist.items()):
+                if until <= now:
+                    del WebAnalyzer._browser_blacklist[path]
+            # 浏览器检测涉及子进程调用，放到线程池避免阻塞事件循环。
+            # 传入副本：检测线程遍历期间，其他请求可能记录新的启动失败
+            excluded = set(WebAnalyzer._browser_blacklist)
+            loop = asyncio.get_running_loop()
+            found, browser_path, browser_name, version = await loop.run_in_executor(
+                None, lambda: detect_system_browser(exclude_paths=excluded)
+            )
+            if found:
+                WebAnalyzer._detected_browser_path = browser_path
+                WebAnalyzer._detected_browser_name = browser_name
+                WebAnalyzer._detected_browser_version = version
+            return found, browser_path, browser_name, version
+
+    @classmethod
+    def _browser_not_found_message(cls) -> str:
+        """生成检测失败的提示，区分未安装与因启动失败被暂时跳过"""
+        if not cls._browser_blacklist:
+            return (
                 "未检测到系统已安装的浏览器！\n"
                 "本插件直接使用系统已安装的 Chrome / Edge / Chromium，无需额外下载。\n"
                 "请安装其中任意一款浏览器后重试"
             )
-            logger.error(error_msg)
-            raise ScreenshotError(error_msg) from None
-
-        WebAnalyzer._detected_browser_path = browser_path
-        WebAnalyzer._detected_browser_name = browser_name
-        WebAnalyzer._detected_browser_version = version
-        return browser_path
+        failures = "\n".join(
+            f"{path}: {reason}"
+            for path, (_expires, reason) in cls._browser_blacklist.items()
+        )
+        wait = max(
+            int((expires - time.monotonic()) / 60) + 1
+            for expires, _reason in cls._browser_blacklist.values()
+        )
+        return (
+            f"系统浏览器启动失败，已暂时跳过：\n{failures}\n"
+            f"约 {wait} 分钟后自动重试；修复运行环境后可重载插件立即重试"
+        )
 
     def _get_legacy_playwright_artifacts(self) -> dict:
         """定位旧版本插件通过 Playwright 下载的浏览器残留文件
@@ -1370,10 +1464,8 @@ class WebAnalyzer:
                 except Exception as e:
                     logger.warning(f"删除旧版安装状态文件失败（非致命）: {e}")
 
-            # 4. 重置浏览器检测结果缓存，下次使用时重新检测
-            WebAnalyzer._detected_browser_path = ""
-            WebAnalyzer._detected_browser_name = ""
-            WebAnalyzer._detected_browser_version = ""
+            # 4. 重置浏览器检测结果缓存和启动失败记录，下次使用时重新检测
+            WebAnalyzer._reset_browser_detection()
 
             result["success"] = True
             if deleted_files:
@@ -1395,28 +1487,13 @@ class WebAnalyzer:
         Returns:
             dict: 浏览器状态信息
         """
-        import asyncio
-        from pathlib import Path
-
-        # 检测系统浏览器（优先使用类级别缓存）
+        # 检测系统浏览器（复用类级别缓存，并与截图请求共享同一次检测）
         detected = False
-        browser_path = WebAnalyzer._detected_browser_path
-        if browser_path and Path(browser_path).is_file():
-            detected = True
-        else:
-            try:
-                loop = asyncio.get_event_loop()
-                found, path, name, version = await loop.run_in_executor(
-                    None, lambda: detect_system_browser(WebAnalyzer._browser_blacklist)
-                )
-                if found:
-                    detected = True
-                    browser_path = path
-                    WebAnalyzer._detected_browser_path = path
-                    WebAnalyzer._detected_browser_name = name
-                    WebAnalyzer._detected_browser_version = version
-            except Exception as e:
-                logger.debug(f"检测系统浏览器失败: {e}")
+        browser_path = ""
+        try:
+            detected, browser_path, _name, _version = await self._detect_browser()
+        except Exception as e:
+            logger.debug(f"检测系统浏览器失败: {e}")
 
         browser_type_map = {
             "Google Chrome": "chrome",
@@ -1441,6 +1518,9 @@ class WebAnalyzer:
             ),
             "browser_version": WebAnalyzer._detected_browser_version or "",
             "browser_pool_size": len(WebAnalyzer._browser_pool),
+            "browser_instances": len(WebAnalyzer._browser_instances),
+            "max_browser_instances": WebAnalyzer._max_browser_instances,
+            "skipped_browsers": len(WebAnalyzer._browser_blacklist),
             "is_installing": False,
             "install_dir_exists": legacy_dir_exists,
             "install_dir_size_mb": legacy_size_mb,
@@ -1449,89 +1529,162 @@ class WebAnalyzer:
         return status_info
 
     async def _get_or_create_browser(self) -> tuple:
-        """从池中获取或创建新的浏览器实例
+        """获取一个独占的浏览器实例：优先复用池中空闲实例，否则启动新实例
+
+        启动中、使用中和空闲实例的总量不会超过 ``_max_browser_instances``。
 
         Returns:
             tuple: (浏览器实例, 是否来自实例池)
+
+        Raises:
+            ScreenshotError: 没有可用的系统浏览器、启动失败，或等待空闲实例超时
         """
         if WebAnalyzer._shutting_down:
             raise RuntimeError("插件正在关闭，拒绝创建新的浏览器实例")
 
-        browser = await self._try_get_browser_from_pool()
-
-        if browser:
-            return browser, True
-
-        # 创建新的浏览器实例
-        return await self._create_new_browser(), False
+        launch_args = self._build_browser_launch_args()
+        while True:
+            browser_path = await self._ensure_browser_detected()
+            browser, instance = await self._claim_browser_capacity(
+                browser_path, launch_args
+            )
+            if browser:
+                return browser, True
+            logger.debug("创建新的浏览器实例")
+            # Cleanup is filesystem-only and verifies profile ownership.
+            if time.time() - WebAnalyzer._last_profile_sweep > 3600:
+                WebAnalyzer._last_profile_sweep = time.time()
+                await sweep_stale_browser_artifacts()
+            try:
+                return await self._start_browser(instance), False
+            except BrowserExecutableError as exc:
+                self._reject_browser(browser_path, exc)
 
     def _browser_pool_key(self):
         """Keep browser-level proxy and sandbox settings isolated between users."""
         return (self.sandbox_mode, self.hide_ip, self.proxy if self.hide_ip else None)
 
-    async def _try_get_browser_from_pool(self):
-        """Check out a connected browser with compatible launch settings."""
-        async with WebAnalyzer._browser_lock:
-            for candidate in list(WebAnalyzer._browser_pool):
-                if not candidate.is_connected():
-                    WebAnalyzer._browser_pool.remove(candidate)
-                    WebAnalyzer._browser_last_used.pop(id(candidate), None)
-                    try:
-                        await candidate.close()
-                    finally:
-                        WebAnalyzer._browser_instances.discard(candidate)
-                elif candidate.pool_key == self._browser_pool_key():
-                    WebAnalyzer._browser_pool.remove(candidate)
-                    WebAnalyzer._browser_last_used.pop(id(candidate), None)
-                    return candidate
-        return None
+    async def _claim_browser_capacity(self, browser_path: str, launch_args: list):
+        """取出池中的空闲实例，或为启动新实例预留名额
 
-    async def _create_new_browser(self) -> BrowserInstance:
-        """创建新的浏览器实例（启动系统已安装的浏览器进程）
+        实例数达到上限时等待其他请求归还或关闭实例，不再启动新的浏览器进程；
+        等待期间只要有实例归还到池中，就优先复用它。
+
+        Args:
+            browser_path: 系统浏览器可执行文件路径
+            launch_args: 浏览器启动参数
 
         Returns:
-            BrowserInstance: 新的浏览器实例
+            tuple: (池中的实例或 None, 已登记但尚未启动的新实例或 None)，二者必有其一
+
+        Raises:
+            ScreenshotError: 实例数达到上限，且在请求超时时间内没有可用实例
+            RuntimeError: 插件正在关闭
         """
-        logger.debug("创建新的浏览器实例")
-
-        # Cleanup is filesystem-only and verifies profile ownership.
-        if time.time() - WebAnalyzer._last_profile_sweep > 3600:
-            WebAnalyzer._last_profile_sweep = time.time()
-            await sweep_stale_browser_artifacts()
-
-        launch_args = self._build_browser_launch_args()
-        while not WebAnalyzer._shutting_down:
-            browser_path = await self._ensure_browser_detected()
-            instance = BrowserInstance(
-                executable_path=browser_path,
-                extra_args=launch_args,
-                proxy_credentials=self._browser_proxy_credentials,
-            )
-            instance.pool_key = self._browser_pool_key()
-            WebAnalyzer._browser_instances.add(instance)
-            try:
-                await instance.start()
+        released = WebAnalyzer._browser_slot_released
+        deadline = time.monotonic() + self.timeout
+        while True:
+            async with WebAnalyzer._browser_lock:
+                # 先清空信号再检查状态，之后发生的归还或关闭不会遗漏
+                released.clear()
                 if WebAnalyzer._shutting_down:
-                    await instance.close()
-                    raise RuntimeError("Plugin is shutting down")
-                WebAnalyzer._detected_browser_version = instance.version
-                return instance
-            except BrowserLaunchError:
-                WebAnalyzer._browser_instances.discard(instance)
-                WebAnalyzer._browser_blacklist.add(browser_path)
-                WebAnalyzer._detected_browser_path = ""
-                WebAnalyzer._detected_browser_name = ""
-                WebAnalyzer._detected_browser_version = ""
-                logger.warning(
-                    "System browser failed to launch; trying another candidate"
+                    raise RuntimeError("插件正在关闭，拒绝创建新的浏览器实例")
+                browser, dead = self._take_from_pool()
+                instance = None
+                if not browser and (
+                    len(WebAnalyzer._browser_instances)
+                    < WebAnalyzer._max_browser_instances
+                ):
+                    # 登记新实例与上限检查在同一临界区内完成，并发请求不会超出上限
+                    instance = BrowserInstance(
+                        executable_path=browser_path,
+                        extra_args=launch_args,
+                        proxy_credentials=self._browser_proxy_credentials,
+                    )
+                    instance.pool_key = self._browser_pool_key()
+                    instance.on_closed = released.set
+                    WebAnalyzer._browser_instances.add(instance)
+            await self._close_browsers(dead)
+            if browser or instance:
+                return browser, instance
+            if dead:
+                # 关闭失效实例后可能空出了名额
+                continue
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise ScreenshotError(
+                    f"浏览器实例已达上限（{WebAnalyzer._max_browser_instances} 个），"
+                    f"等待 {self.timeout} 秒仍无空闲实例，请稍后重试或调大 max_browser_instances"
                 )
-            except BaseException:
-                try:
-                    await instance.close()
-                finally:
-                    WebAnalyzer._browser_instances.discard(instance)
-                raise
-        raise RuntimeError("Plugin is shutting down")
+            logger.debug("浏览器实例已达上限，等待空闲实例")
+            try:
+                await asyncio.wait_for(released.wait(), remaining)
+            except TimeoutError:
+                pass
+
+    def _take_from_pool(self) -> tuple:
+        """在实例池锁内取出可用实例，并摘除已断开连接的实例
+
+        Returns:
+            tuple: (可用实例或 None, 已断开连接的实例列表)
+        """
+        picked = None
+        dead = []
+        for candidate in list(WebAnalyzer._browser_pool):
+            if not candidate.is_connected():
+                dead.append(candidate)
+            elif candidate.pool_key == self._browser_pool_key() and picked is None:
+                picked = candidate
+            else:
+                continue
+            WebAnalyzer._browser_pool.remove(candidate)
+            WebAnalyzer._browser_last_used.pop(id(candidate), None)
+        return picked, dead
+
+    async def _close_browsers(self, browsers) -> None:
+        """关闭实例并移出在用集合；在实例池锁外执行，不阻塞其他请求"""
+        for browser in browsers:
+            try:
+                await browser.close()
+            except Exception as exc:
+                logger.warning(f"Failed to close a browser: {exc}")
+            finally:
+                WebAnalyzer._browser_instances.discard(browser)
+                WebAnalyzer._browser_last_used.pop(id(browser), None)
+
+    async def _start_browser(self, instance: BrowserInstance) -> BrowserInstance:
+        """启动已登记的浏览器实例；失败时关闭实例并移出在用集合"""
+        try:
+            await instance.start()
+            if WebAnalyzer._shutting_down:
+                await instance.close()
+                raise RuntimeError("Plugin is shutting down")
+            WebAnalyzer._detected_browser_version = instance.version
+            return instance
+        except BrowserExecutableError:
+            # start() 在抛出前已经关闭实例
+            WebAnalyzer._browser_instances.discard(instance)
+            raise
+        except BaseException:
+            try:
+                await instance.close()
+            finally:
+                WebAnalyzer._browser_instances.discard(instance)
+            raise
+
+    @classmethod
+    def _reject_browser(cls, browser_path: str, error: Exception) -> None:
+        """暂时跳过无法启动的浏览器，让下一次检测尝试其他候选"""
+        cls._browser_blacklist[browser_path] = (
+            time.monotonic() + cls._browser_blacklist_ttl,
+            str(error),
+        )
+        cls._detected_browser_path = ""
+        cls._detected_browser_name = ""
+        cls._detected_browser_version = ""
+        logger.warning(
+            f"System browser cannot run here and is skipped for now: {browser_path}: {error}"
+        )
 
     async def _perform_screenshot(
         self,

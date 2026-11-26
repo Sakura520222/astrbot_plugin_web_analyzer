@@ -148,6 +148,10 @@
             "description": "等待时间（毫秒）", "type": "int", "default": 2000,
             "hint": "截图前额外等待的时间。", "minimum": 0, "maximum": 10000
           },
+          "screenshot_retry_count": {
+            "description": "失败重试次数", "type": "int", "default": 1,
+            "hint": "浏览器实例故障时更换实例重试的次数；页面加载失败或内容超限不重试。", "minimum": 0, "maximum": 3
+          },
           "裁剪设置": {
             "description": "截图裁剪", "type": "object", "hint": "只保留指定的矩形区域。",
             "items": {
@@ -347,6 +351,10 @@
             "hint": "自动模式按运行环境选择。禁用沙箱会降低浏览器隔离能力。",
             "options": ["auto", "always_disabled", "always_enabled"],
             "labels": ["自动检测", "始终禁用", "始终启用"]
+          },
+          "max_browser_instances": {
+            "description": "最大实例数", "type": "int", "default": 3,
+            "hint": "同时运行的浏览器进程上限，包含启动中和使用中的实例；内存紧张的容器可设为 1 或 2。", "minimum": 1, "maximum": 10
           }
         }
       },
