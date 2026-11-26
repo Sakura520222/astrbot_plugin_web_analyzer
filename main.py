@@ -39,7 +39,7 @@ from .core.utils import WebAnalyzerUtils
     "astrbot_plugin_web_analyzer",
     "Sakura520222",
     "自动识别网页链接，智能抓取解析内容，集成大语言模型进行深度分析和总结，支持网页截图、缓存机制和多种管理命令",
-    "1.7.1",
+    "1.7.2",
     "https://github.com/Sakura520222/astrbot_plugin_web_analyzer",
 )
 class WebAnalyzerPlugin(Star):
@@ -89,8 +89,9 @@ class WebAnalyzerPlugin(Star):
             preload_count=self.cache_preload_count,
         )
 
-        # A plugin reload must re-enable new browser operations.
-        WebAnalyzer._shutting_down = False
+        # A plugin reload must re-enable browser operations and forget the launch
+        # failures recorded by the previous load.
+        WebAnalyzer.reset_browser_session()
         self.analyzer = WebAnalyzer(
             max_content_length=self.max_content_length,
             timeout=self.request_timeout_s,
@@ -104,6 +105,8 @@ class WebAnalyzerPlugin(Star):
             hide_ip=self.hide_ip,
             fetch_mode=self.fetch_mode,
             sandbox_mode=self.sandbox_mode,
+            max_browser_instances=self.max_browser_instances,
+            screenshot_retry_count=self.screenshot_retry_count,
         )
 
         # 初始化结果格式化器
@@ -960,7 +963,16 @@ class WebAnalyzerPlugin(Star):
             if status["install_dir_exists"]:
                 status_text += f"- 旧版 Playwright 残留文件: {status['install_dir_size_mb']} MB（可用 uninstall 清理）\n"
 
-            status_text += f"- 浏览器实例池: {status['browser_pool_size']} 个实例\n"
+            status_text += (
+                f"- 浏览器实例: {status['browser_instances']} 个"
+                f"（上限 {status['max_browser_instances']}，空闲池 {status['browser_pool_size']} 个）\n"
+            )
+
+            if status.get("skipped_browsers"):
+                status_text += (
+                    f"- ⚠️ {status['skipped_browsers']} 个浏览器启动失败被暂时跳过，"
+                    "约 10 分钟后自动重试\n"
+                )
 
             status_text += (
                 "\n插件直接使用系统已安装的 Chrome / Edge / Chromium，无需额外下载"

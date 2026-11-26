@@ -69,6 +69,7 @@ class ConfigLoader:
         },
         "浏览器设置": {
             "sandbox_mode": "sandbox_mode",
+            "max_browser_instances": "max_browser_instances",
         },
         "分析设置": {
             "analysis_mode": "analysis_mode",
@@ -103,6 +104,7 @@ class ConfigLoader:
             "screenshot_quality": "screenshot_quality",
             "screenshot_full_page": "screenshot_full_page",
             "screenshot_wait_ms": "screenshot_wait_ms",
+            "screenshot_retry_count": "screenshot_retry_count",
             "screenshot_format": "screenshot_format",
             "enable_crop": "enable_crop",
             "crop_area": "crop_area",
@@ -665,6 +667,14 @@ class ConfigLoader:
                 f"无效的沙箱模式: {config_dict['sandbox_mode']}，将使用默认值 'auto'"
             )
             config_dict["sandbox_mode"] = "auto"
+        config_dict["max_browser_instances"] = ConfigLoader._safe_int(
+            ConfigLoader._get_nested_value(
+                config, "基础设置", "浏览器设置", "max_browser_instances", 3
+            ),
+            3,
+            min_val=1,
+            max_val=10,
+        )
 
         return config_dict
 
@@ -784,6 +794,14 @@ class ConfigLoader:
         )
         config_dict["screenshot_wait_ms"] = ConfigLoader._get_nested_value(
             config, "展示设置", "网页截图", "screenshot_wait_ms", 2000
+        )
+        config_dict["screenshot_retry_count"] = ConfigLoader._safe_int(
+            ConfigLoader._get_nested_value(
+                config, "展示设置", "网页截图", "screenshot_retry_count", 1
+            ),
+            1,
+            min_val=0,
+            max_val=3,
         )
         config_dict["screenshot_wait_strategy"] = ConfigLoader._get_nested_value(
             config, "展示设置", "网页截图", "screenshot_wait_strategy", "fixed"

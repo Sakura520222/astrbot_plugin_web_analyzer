@@ -9,7 +9,12 @@ import unittest
 from pathlib import Path
 
 from PIL import Image
-from test_browser import BrowserInstance, WebAnalyzer, browser_module
+from test_browser import (
+    BrowserInstance,
+    WebAnalyzer,
+    browser_module,
+    reset_browser_state,
+)
 
 
 @unittest.skipUnless(
@@ -23,12 +28,7 @@ class BrowserRuntimeTests(unittest.IsolatedAsyncioTestCase):
         )
         if not found:
             self.skipTest("No system browser installed")
-        WebAnalyzer._shutting_down = False
-        WebAnalyzer._browser_lock = asyncio.Lock()
-        WebAnalyzer._browser_pool = []
-        WebAnalyzer._browser_instances = set()
-        WebAnalyzer._browser_last_used = {}
-        WebAnalyzer._browser_blacklist = set()
+        reset_browser_state()
 
     async def asyncTearDown(self):
         instances = set(WebAnalyzer._browser_instances) | set(WebAnalyzer._browser_pool)
@@ -37,6 +37,14 @@ class BrowserRuntimeTests(unittest.IsolatedAsyncioTestCase):
         WebAnalyzer._browser_instances.clear()
         WebAnalyzer._browser_pool.clear()
         WebAnalyzer._browser_last_used.clear()
+
+    @staticmethod
+    def local_page(temp, body="<body>page"):
+        page_file = Path(temp) / "page.html"
+        page_file.write_text(
+            f"<!doctype html><meta charset='utf-8'>{body}", encoding="utf-8"
+        )
+        return page_file.as_uri()
 
     async def test_render_capture_reuse_concurrency_and_cleanup(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -84,7 +92,11 @@ class BrowserRuntimeTests(unittest.IsolatedAsyncioTestCase):
                 self.assertEqual(sizes, [(800, 600), (900, 600), (1000, 600)])
                 pool = WebAnalyzer._browser_pool
                 self.assertEqual(len(pool), len(set(pool)))
-                self.assertLessEqual(len(pool), WebAnalyzer._max_browser_instances)
+                self.assertLessEqual(len(pool), WebAnalyzer._max_idle_browsers)
+                self.assertLessEqual(
+                    len(WebAnalyzer._browser_instances),
+                    WebAnalyzer._max_browser_instances,
+                )
                 self.assertTrue(all(instance.page_count == 0 for instance in pool))
             self.assertIsNone(analyzer.client)
             instances = list(WebAnalyzer._browser_instances)
@@ -94,6 +106,66 @@ class BrowserRuntimeTests(unittest.IsolatedAsyncioTestCase):
                 self.assertFalse(instance.is_connected())
                 self.assertIsNotNone(instance._process.poll())
             self.assertTrue(all(not Path(profile).exists() for profile in profiles))
+
+    async def test_concurrent_captures_never_exceed_the_instance_cap(self):
+        with tempfile.TemporaryDirectory() as temp:
+            url = self.local_page(temp)
+            analyzer = WebAnalyzer(enable_memory_monitor=False, max_browser_instances=2)
+            started = []
+            start = analyzer._start_browser
+
+            async def tracked(instance):
+                started.append(await start(instance))
+                return started[-1]
+
+            analyzer._start_browser = tracked
+            sizes = await asyncio.wait_for(
+                asyncio.gather(
+                    *(
+                        analyzer.capture_screenshot(
+                            url, width=width, height=600, wait_time=300
+                        )
+                        for width in (800, 900, 1000, 1100)
+                    )
+                ),
+                90,
+            )
+            self.assertEqual(
+                [Image.open(io.BytesIO(data)).size for data in sizes],
+                [(800, 600), (900, 600), (1000, 600), (1100, 600)],
+            )
+            # Two browser processes were started; the other requests reused them.
+            self.assertEqual(len(started), 2)
+            self.assertLessEqual(len(WebAnalyzer._browser_instances), 2)
+
+    async def test_instance_failure_is_retried_on_another_browser(self):
+        with tempfile.TemporaryDirectory() as temp:
+            url = self.local_page(temp)
+            analyzer = WebAnalyzer(enable_memory_monitor=False)
+            perform = analyzer._perform_screenshot
+            used = []
+
+            async def flaky(browser, **kwargs):
+                used.append(browser)
+                if len(used) == 1:
+                    # What a lost DevTools connection looks like to the caller.
+                    await browser.close()
+                    raise browser_module.BrowserError(
+                        "Browser DevTools connection disconnected"
+                    )
+                return await perform(browser=browser, **kwargs)
+
+            analyzer._perform_screenshot = flaky
+            screenshot = await asyncio.wait_for(
+                analyzer.capture_screenshot(url, width=800, height=600, wait_time=100),
+                90,
+            )
+            self.assertEqual(Image.open(io.BytesIO(screenshot)).size, (800, 600))
+            self.assertEqual(len(used), 2)
+            self.assertIsNot(used[0], used[1])
+            # The failed instance is gone and only the healthy one stays pooled.
+            self.assertFalse(used[0].is_connected())
+            self.assertEqual(WebAnalyzer._browser_pool, [used[1]])
 
     async def test_tabs_have_isolated_cookies(self):
         browser = BrowserInstance(self.path)

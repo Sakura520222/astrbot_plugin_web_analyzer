@@ -578,7 +578,8 @@ function renderBrowserStatus(data) {
     { label: t("browser.path", "浏览器路径"), value: data.install_path || "—" },
     { label: t("browser.version", "浏览器版本"), value: data.browser_version || "—" },
     { label: t("browser.dirSize", "旧版 Playwright 残留"), value: data.install_dir_exists ? `${data.install_dir_size_mb} MB` : "—" },
-    { label: t("browser.poolSize", "实例池"), value: `${data.browser_pool_size} 个实例` },
+    { label: t("browser.poolSize", "实例池"), value: `${data.browser_pool_size} 个空闲 / 共 ${data.browser_instances} 个（上限 ${data.max_browser_instances}）` },
+    ...(data.skipped_browsers ? [{ label: t("browser.skipped", "暂时跳过的浏览器"), value: `${data.skipped_browsers} 个`, state: false }] : []),
   ];
   el.innerHTML = rows
     .map(
