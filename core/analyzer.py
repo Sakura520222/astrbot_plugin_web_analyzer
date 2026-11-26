@@ -1273,13 +1273,18 @@ class WebAnalyzer:
                     )
                 finally:
                     owned, browser = browser, None
-                    if success:
-                        await self._recycle_browser(owned)
-                    else:
-                        try:
-                            await owned.close()
-                        finally:
-                            WebAnalyzer._browser_instances.discard(owned)
+                    try:
+                        if success:
+                            await self._recycle_browser(owned)
+                        else:
+                            try:
+                                await owned.close()
+                            finally:
+                                WebAnalyzer._browser_instances.discard(owned)
+                    except Exception as exc:
+                        # 清理失败不能吞掉已生成的截图或原始错误，只释放占用的名额
+                        logger.warning(f"Browser cleanup failed: {exc}")
+                        WebAnalyzer._browser_instances.discard(owned)
         except Exception as e:
             logger.error(f"Screenshot capture failed: {url}: {e}")
             raise ScreenshotError(f"捕获网页截图失败: {url}, 错误: {e}") from e
@@ -1545,16 +1550,17 @@ class WebAnalyzer:
         launch_args = self._build_browser_launch_args()
         while True:
             browser_path = await self._ensure_browser_detected()
+            # Cleanup is filesystem-only and verifies profile ownership.
+            # 在登记实例名额之前执行，避免占位后出现可被取消的间隙
+            if time.time() - WebAnalyzer._last_profile_sweep > 3600:
+                WebAnalyzer._last_profile_sweep = time.time()
+                await sweep_stale_browser_artifacts()
             browser, instance = await self._claim_browser_capacity(
                 browser_path, launch_args
             )
             if browser:
                 return browser, True
             logger.debug("创建新的浏览器实例")
-            # Cleanup is filesystem-only and verifies profile ownership.
-            if time.time() - WebAnalyzer._last_profile_sweep > 3600:
-                WebAnalyzer._last_profile_sweep = time.time()
-                await sweep_stale_browser_artifacts()
             try:
                 return await self._start_browser(instance), False
             except BrowserExecutableError as exc:
@@ -1590,12 +1596,20 @@ class WebAnalyzer:
                 if WebAnalyzer._shutting_down:
                     raise RuntimeError("插件正在关闭，拒绝创建新的浏览器实例")
                 browser, dead = self._take_from_pool()
-                instance = None
-                if not browser and (
+            # 关闭失效实例放在登记新实例之前：此处被取消不会留下已占用的名额
+            await self._close_browsers(dead)
+            if browser:
+                return browser, None
+            if dead:
+                # 关闭失效实例空出了名额，立即重试
+                continue
+            async with WebAnalyzer._browser_lock:
+                if (
                     len(WebAnalyzer._browser_instances)
                     < WebAnalyzer._max_browser_instances
                 ):
-                    # 登记新实例与上限检查在同一临界区内完成，并发请求不会超出上限
+                    # 登记新实例与上限检查在同一临界区内完成，并发请求不会超出上限；
+                    # 临界区内没有 await，登记之后不会在此被取消
                     instance = BrowserInstance(
                         executable_path=browser_path,
                         extra_args=launch_args,
@@ -1604,12 +1618,7 @@ class WebAnalyzer:
                     instance.pool_key = self._browser_pool_key()
                     instance.on_closed = released.set
                     WebAnalyzer._browser_instances.add(instance)
-            await self._close_browsers(dead)
-            if browser or instance:
-                return browser, instance
-            if dead:
-                # 关闭失效实例后可能空出了名额
-                continue
+                    return None, instance
             remaining = deadline - time.monotonic()
             if remaining <= 0:
                 raise ScreenshotError(

@@ -572,6 +572,30 @@ class ScreenshotRecoveryTests(unittest.IsolatedAsyncioTestCase):
         await self.analyzer.apply_runtime_config({"screenshot_retry_count": 0})
         self.assertEqual(self.analyzer.screenshot_retry_count, 0)
 
+    async def test_screenshot_survives_a_cleanup_failure(self):
+        browser = self.browser()
+        with (
+            patch.object(self.analyzer, "_ensure_browser_detected", new=AsyncMock()),
+            patch.object(self.analyzer, "_cleanup_browser_pool", new=AsyncMock()),
+            patch.object(
+                self.analyzer,
+                "_get_or_create_browser",
+                new=AsyncMock(return_value=(browser, True)),
+            ),
+            patch.object(
+                self.analyzer,
+                "_perform_screenshot",
+                new=AsyncMock(return_value=b"image"),
+            ),
+            patch.object(
+                self.analyzer,
+                "_recycle_browser",
+                new=AsyncMock(side_effect=RuntimeError("close exploded")),
+            ),
+        ):
+            result = await self.analyzer.capture_screenshot("https://example.test")
+        self.assertEqual(result, b"image")
+
     async def test_cancelled_screenshot_closes_browser(self):
         browser = self.browser()
         entered = asyncio.Event()
@@ -775,6 +799,60 @@ class FakeBrowserTests(unittest.IsolatedAsyncioTestCase):
         WebAnalyzer.reset_browser_session()
         self.assertFalse(WebAnalyzer._shutting_down)
         self.assertEqual(WebAnalyzer._browser_blacklist, {})
+
+    async def test_cancel_before_registration_leaves_no_slot_leak(self):
+        sweep_started = asyncio.Event()
+        release_sweep = asyncio.Event()
+
+        async def slow_sweep():
+            sweep_started.set()
+            await release_sweep.wait()
+
+        # 每小时一次的残留清理是登记名额前的最后一个可取消点
+        WebAnalyzer._last_profile_sweep = 0
+        with patch.object(
+            analyzer_module, "sweep_stale_browser_artifacts", new=slow_sweep
+        ):
+            task = asyncio.create_task(self.acquire())
+            await sweep_started.wait()
+            task.cancel()
+            with self.assertRaises(asyncio.CancelledError):
+                await task
+        self.assertEqual(FakeBrowser.created, [])
+        self.assertEqual(WebAnalyzer._browser_instances, set())
+
+        # 名额未被占用，后续请求正常启动实例
+        release_sweep.set()
+        WebAnalyzer._last_profile_sweep = time.time()
+        instance, pooled = await asyncio.wait_for(self.acquire(), 5)
+        self.assertFalse(pooled)
+        self.assertEqual(len(FakeBrowser.created), 1)
+
+    async def test_cancel_while_closing_dead_instances_registers_nothing(self):
+        dead = FakeBrowser(self.executable)
+        dead.closed = True  # 断开连接，被视为失效实例
+        closing = asyncio.Event()
+
+        async def hang_close():
+            closing.set()
+            await asyncio.Event().wait()
+
+        dead.close = hang_close
+        WebAnalyzer._browser_pool.append(dead)
+        WebAnalyzer._browser_last_used[id(dead)] = time.time()
+        task = asyncio.create_task(self.acquire())
+        await closing.wait()
+        task.cancel()
+        with self.assertRaises(asyncio.CancelledError):
+            await task
+        self.assertEqual(len(FakeBrowser.created), 1)
+        self.assertEqual(WebAnalyzer._browser_instances, set())
+
+        # 关闭被中断的失效实例不阻塞后续请求
+        dead.close = AsyncMock()
+        instance, _ = await asyncio.wait_for(self.acquire(), 5)
+        self.assertEqual(len(FakeBrowser.created), 2)
+        self.assertIsNot(instance, dead)
 
     async def test_requests_at_the_cap_wait_and_reuse_returned_instances(self):
         self.analyzer = WebAnalyzer(
