@@ -35,6 +35,11 @@ from .browser import (
 )
 from .utils import WebAnalyzerUtils
 
+_DEFAULT_HTTP_USER_AGENT = (
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+    "(KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
+)
+
 # 启用"隐藏IP"时注入的 WebRTC 屏蔽脚本，防止真实IP通过WebRTC泄漏
 _WEBRTC_BLOCK_JS = """\
 // 屏蔽WebRTC以防止IP泄漏
@@ -162,10 +167,7 @@ class WebAnalyzer:
         self.max_content_length = max_content_length
         self.timeout = timeout
         self.screenshot_retry_count = screenshot_retry_count
-        self.user_agent = (
-            user_agent
-            or "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
-        )
+        self.user_agent = user_agent
         self.proxy = proxy
         self.hide_ip = hide_ip
         if self.hide_ip and not self.proxy:
@@ -607,7 +609,7 @@ class WebAnalyzer:
         return {
             "timeout": self.timeout,
             "proxy": self.proxy,
-            "user_agent": self.user_agent,
+            "user_agent": self.user_agent or _DEFAULT_HTTP_USER_AGENT,
             "retry_count": self.retry_count,
             "retry_delay": self.retry_delay,
         }

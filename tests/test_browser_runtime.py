@@ -46,6 +46,93 @@ class BrowserRuntimeTests(unittest.IsolatedAsyncioTestCase):
         )
         return page_file.as_uri()
 
+    async def test_screenshot_follows_redirect_before_dom_is_ready(self):
+        arrived = asyncio.Event()
+        user_agents = []
+
+        async def serve(reader, writer):
+            try:
+                headers = await reader.readuntil(b"\r\n\r\n")
+                path = headers.split(b" ", 2)[1]
+                if path == b"/start":
+                    user_agents.extend(
+                        line.split(b":", 1)[1].strip()
+                        for line in headers.split(b"\r\n")
+                        if line.lower().startswith(b"user-agent:")
+                    )
+                    body = b"<html><script>location.replace('/final')</script>"
+                    # Leave the original document incomplete while JS redirects.
+                    writer.write(
+                        b"HTTP/1.1 200 OK\r\nContent-Type: text/html\r\n"
+                        b"Content-Length: 50000\r\n\r\n" + body
+                    )
+                    await writer.drain()
+                    await asyncio.wait_for(arrived.wait(), 5)
+                elif path == b"/final":
+                    arrived.set()
+                    writer.write(
+                        b"HTTP/1.1 200 OK\r\nContent-Type: text/html\r\n"
+                        b"Connection: close\r\n\r\n<body style='background:#00ff00'>"
+                    )
+                    await writer.drain()
+            except (OSError, TimeoutError, asyncio.IncompleteReadError):
+                pass
+            finally:
+                writer.close()
+                await writer.wait_closed()
+
+        server = await asyncio.start_server(serve, "127.0.0.1", 0)
+        async with server:
+            port = server.sockets[0].getsockname()[1]
+            analyzer = WebAnalyzer(enable_memory_monitor=False, timeout=3)
+            overrides = (
+                "",
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+                "WebAnalyzer-Test/1.0",
+            )
+            for override in overrides:
+                arrived.clear()
+                await analyzer.apply_runtime_config({"user_agent": override})
+                data = await analyzer.capture_screenshot(
+                    f"http://127.0.0.1:{port}/start", format="png", wait_time=0
+                )
+                with Image.open(io.BytesIO(data)) as image:
+                    self.assertEqual(
+                        image.convert("RGB").getpixel((80, 80)), (0, 255, 0)
+                    )
+        self.assertIn(b"Chrome/", user_agents[0])
+        self.assertEqual(user_agents[1:], [ua.encode() for ua in overrides[1:]])
+
+    async def test_interrupted_document_reports_network_error(self):
+        async def serve(reader, writer):
+            try:
+                await reader.readuntil(b"\r\n\r\n")
+                writer.write(
+                    b"HTTP/1.1 200 OK\r\nContent-Type: text/html\r\n"
+                    b"Content-Length: 50000\r\n\r\n<html><body>partial"
+                )
+                await writer.drain()
+            except (OSError, asyncio.IncompleteReadError):
+                pass
+            finally:
+                writer.close()
+                await writer.wait_closed()
+
+        server = await asyncio.start_server(serve, "127.0.0.1", 0)
+        browser = BrowserInstance(self.path)
+        async with server:
+            port = server.sockets[0].getsockname()[1]
+            try:
+                await browser.start()
+                page = await browser.new_page()
+                with self.assertRaisesRegex(
+                    browser_module.CdpNavigationError,
+                    "net::ERR_CONTENT_LENGTH_MISMATCH",
+                ):
+                    await page.goto(f"http://127.0.0.1:{port}/truncated", timeout=3000)
+            finally:
+                await browser.close()
+
     async def test_render_capture_reuse_concurrency_and_cleanup(self):
         with tempfile.TemporaryDirectory() as temp:
             page_file = Path(temp) / "动态 页面.html"

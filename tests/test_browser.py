@@ -132,12 +132,78 @@ class NavigationTests(unittest.IsolatedAsyncioTestCase):
         page._send = AsyncMock(return_value={"frameId": "main"})
         await page.goto("https://example.test/#anchor", timeout=20)
 
+    async def test_navigation_follows_new_main_document_but_ignores_iframe(self):
+        page = CDPPage(SimpleNamespace(is_connected=lambda: True), "tab", "session")
+        navigating = asyncio.Event()
+
+        async def navigate(*args, **kwargs):
+            for frame, loader in (("main", "initial"), ("main", "redirected")):
+                page._on_event(
+                    "Page.frameNavigated", {"frame": {"id": frame, "loaderId": loader}}
+                )
+            page._on_event(
+                "Page.lifecycleEvent",
+                {"frameId": "iframe", "loaderId": "iframe-loader", "name": "load"},
+            )
+            page._on_event(
+                "Page.lifecycleEvent",
+                {"frameId": "main", "loaderId": "initial", "name": "load"},
+            )
+            navigating.set()
+            return {"frameId": "main", "loaderId": "initial"}
+
+        page._send = AsyncMock(side_effect=navigate)
+        task = asyncio.create_task(
+            page.goto("https://example.test", wait_until="load", timeout=1000)
+        )
+        await navigating.wait()
+        self.assertFalse(task.done())
+        page._on_event(
+            "Page.lifecycleEvent",
+            {"frameId": "main", "loaderId": "redirected", "name": "load"},
+        )
+        await task
+
+    async def test_navigation_reports_failure_of_redirected_document_before_commit(
+        self,
+    ):
+        page = CDPPage(SimpleNamespace(is_connected=lambda: True), "tab", "session")
+
+        async def navigate(*args, **kwargs):
+            for loader in ("initial", "redirected"):
+                page._on_event(
+                    "Network.requestWillBeSent",
+                    {
+                        "frameId": "main",
+                        "loaderId": loader,
+                        "requestId": f"request-{loader}",
+                        "type": "Document",
+                    },
+                )
+            page._on_event(
+                "Network.loadingFailed",
+                {
+                    "requestId": "request-redirected",
+                    "type": "Document",
+                    "errorText": "net::ERR_CONNECTION_RESET",
+                },
+            )
+            return {"frameId": "main", "loaderId": "initial"}
+
+        page._send = AsyncMock(side_effect=navigate)
+        with self.assertRaisesRegex(
+            CdpNavigationError, "Navigation failed: net::ERR_CONNECTION_RESET"
+        ) as caught:
+            await page.goto("https://example.test", timeout=1000)
+        self.assertFalse(caught.exception.instance_failure)
+
     async def test_slow_page_is_not_an_instance_failure(self):
         page = CDPPage(SimpleNamespace(is_connected=lambda: True), "tab", "session")
         page._send = AsyncMock(return_value={"frameId": "main", "loaderId": "target"})
         with self.assertRaises(CdpNavigationError) as caught:
             await page.goto("https://example.test", timeout=20)
         self.assertIn("Page navigation timed out", str(caught.exception))
+        self.assertIn("waiting for DOMContentLoaded", str(caught.exception))
         self.assertFalse(caught.exception.instance_failure)
 
     async def test_unanswered_navigation_command_is_an_instance_failure(self):
@@ -149,6 +215,7 @@ class NavigationTests(unittest.IsolatedAsyncioTestCase):
         page._send = AsyncMock(side_effect=never_answers)
         with self.assertRaises(CdpTimeoutError) as caught:
             await page.goto("https://example.test", timeout=20)
+        self.assertIn("waiting for Page.navigate response", str(caught.exception))
         self.assertTrue(caught.exception.instance_failure)
 
     async def test_only_proxy_challenges_receive_proxy_credentials(self):

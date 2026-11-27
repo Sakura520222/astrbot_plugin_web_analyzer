@@ -276,6 +276,8 @@ class CDPPage:
         self._last_network_change = time.monotonic()
         self._lifecycle_events: set[tuple[str, str, str]] = set()
         self._lifecycle_changed = asyncio.Event()
+        self._document_loaders: dict[str, dict[str, str | None]] = {}
+        self._document_requests: dict[str, tuple[str, str]] = {}
         self._event_tasks: set[asyncio.Task] = set()
         self._auth_attempts: set[str] = set()
 
@@ -291,7 +293,27 @@ class CDPPage:
                 )
             )
             self._lifecycle_changed.set()
+        elif method == "Page.frameNavigated":
+            frame = params["frame"]
+            # Record commits without a network request, such as file navigation.
+            # Failed network navigations may also commit a Chromium error page.
+            if not frame.get("parentId") and not frame.get("unreachableUrl"):
+                loaders = self._document_loaders.setdefault(frame["id"], {})
+                loaders.setdefault(frame["loaderId"], None)
+                self._lifecycle_changed.set()
         elif method == "Network.requestWillBeSent":
+            frame_id = params.get("frameId")
+            loader_id = params.get("loaderId")
+            if (
+                request_id
+                and frame_id
+                and loader_id
+                and params.get("type") == "Document"
+            ):
+                self._document_requests[request_id] = (frame_id, loader_id)
+                loaders = self._document_loaders.setdefault(frame_id, {})
+                loaders.setdefault(loader_id, None)
+                self._lifecycle_changed.set()
             if request_id and params.get("type") not in ("WebSocket", "EventSource"):
                 self._inflight_requests.add(request_id)
                 self._last_network_change = time.monotonic()
@@ -299,6 +321,15 @@ class CDPPage:
             if request_id in self._inflight_requests:
                 self._inflight_requests.discard(request_id)
                 self._last_network_change = time.monotonic()
+            document = self._document_requests.pop(request_id, None)
+            if (
+                document
+                and method == "Network.loadingFailed"
+                and not params.get("canceled")
+            ):
+                frame_id, loader_id = document
+                self._document_loaders[frame_id][loader_id] = params["errorText"]
+                self._lifecycle_changed.set()
         elif method in ("Fetch.requestPaused", "Fetch.authRequired"):
             task = asyncio.create_task(self._handle_fetch_event(method, params))
             self._event_tasks.add(task)
@@ -365,7 +396,7 @@ class CDPPage:
     async def goto(
         self, url: str, wait_until: str = "domcontentloaded", timeout: int = 30000
     ):
-        """Navigate and wait for this navigation's frame/loader lifecycle event.
+        """Navigate and wait for the current main document's lifecycle event.
 
         Args:
             url: Destination URL.
@@ -381,6 +412,8 @@ class CDPPage:
         if name is None:
             raise ValueError(f"Unsupported navigation wait strategy: {wait_until}")
         self._lifecycle_events.clear()
+        self._document_loaders.clear()
+        self._document_requests.clear()
         result = None
         try:
             async with asyncio.timeout(timeout / 1000):
@@ -392,19 +425,43 @@ class CDPPage:
                         f"Navigation failed: {result['errorText']}"
                     )
                 # Same-document navigations have no new loader or lifecycle event.
-                if not result.get("loaderId"):
+                initial_loader = result.get("loaderId")
+                if not initial_loader:
                     return
-                expected = (result["frameId"], result["loaderId"], name)
-                while expected not in self._lifecycle_events:
+                frame_id = result["frameId"]
+                loaders = self._document_loaders.setdefault(frame_id, {})
+                while True:
+                    # Ignore pre-navigation events until the initial loader has
+                    # been seen. Later loads in this frame supersede that document.
+                    loader_id = (
+                        next(reversed(loaders))
+                        if initial_loader in loaders
+                        else initial_loader
+                    )
+                    if error_text := loaders.get(loader_id):
+                        raise CdpNavigationError(f"Navigation failed: {error_text}")
+                    if (frame_id, loader_id, name) in self._lifecycle_events:
+                        return
                     if not self._browser.is_connected():
                         raise BrowserError("Browser disconnected during navigation")
                     self._lifecycle_changed.clear()
                     await self._lifecycle_changed.wait()
-        except TimeoutError:
-            # An unanswered command means a stuck browser, which another
-            # instance may survive. A slow page does not.
-            error = CdpTimeoutError if result is None else CdpNavigationError
-            raise error(f"Page navigation timed out after {timeout}ms") from None
+        except (TimeoutError, CdpTimeoutError):
+            message = f"Page navigation timed out after {timeout}ms"
+            if result is None:
+                raise CdpTimeoutError(
+                    f"{message} (waiting for Page.navigate response)"
+                ) from None
+            events = sorted(
+                event
+                for frame, loader, event in self._lifecycle_events
+                if (frame, loader) == (frame_id, loader_id)
+            )
+            redirect = " after redirect" if loader_id != initial_loader else ""
+            raise CdpNavigationError(
+                f"{message} (waiting for {name}{redirect}; "
+                f"document lifecycle: {', '.join(events) or 'none'})"
+            ) from None
 
     async def wait_for_load_state(
         self, state: str = "networkidle", timeout: int = 30000

@@ -277,7 +277,7 @@ class DashboardConfigTests(unittest.IsolatedAsyncioTestCase):
         encoded = json.dumps(semantics, sort_keys=True, ensure_ascii=False).encode()
         self.assertEqual(
             hashlib.sha256(encoded).hexdigest(),
-            "4c04b91bf6495c2fc442540c3c014316f099dd99b0f3bf89c3ac37dd2a049b7f",
+            "838b89c11435bdd30c7d5a8b2c33ef62afd0eacdbab065bc207b431ee1398bd5",
         )
 
 

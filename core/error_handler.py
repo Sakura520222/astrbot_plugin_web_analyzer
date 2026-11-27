@@ -69,7 +69,8 @@ class ErrorHandler:
             ErrorSeverity.ERROR: logger.error,
             ErrorSeverity.CRITICAL: logger.critical,
         }
-        log_levels[severity](log_message, exc_info=True)
+        exc_info = original_error if original_error.__traceback__ else None
+        log_levels[severity](log_message, exc_info=exc_info)
 
     @staticmethod
     def _build_user_message(

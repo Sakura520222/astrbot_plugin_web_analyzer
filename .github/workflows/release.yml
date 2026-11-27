@@ -100,6 +100,7 @@ jobs:
             LICENSE \
             CHANGELOG.md \
             core/ \
+            pages/ \
             wiki/
           
           echo "打包完成，文件大小: $(du -h $ZIP_FILE | cut -f1)"

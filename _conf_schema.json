@@ -329,8 +329,8 @@
           },
           "user_agent": {
             "description": "User-Agent", "type": "string",
-            "hint": "网页请求使用的 User-Agent 请求头。",
-            "default": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+            "hint": "留空时使用浏览器或 HTTP 抓取的默认 User-Agent。",
+            "default": ""
           },
           "proxy": {
             "description": "HTTP 代理", "type": "string", "default": "", "secret": true,

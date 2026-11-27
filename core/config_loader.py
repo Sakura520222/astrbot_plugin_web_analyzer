@@ -220,7 +220,7 @@ class ConfigLoader:
         network_settings["request_timeout_s"] = old_network.get("request_timeout", 30)
         network_settings["retry_count"] = old_network.get("retry_count", 3)
         network_settings["retry_delay_s"] = old_network.get("retry_delay", 2)
-        network_settings["user_agent"] = old_network.get("user_agent", "Mozilla/5.0")
+        network_settings["user_agent"] = old_network.get("user_agent", "")
         network_settings["proxy"] = old_network.get("proxy", "")
         network_settings["hide_ip"] = old_network.get("hide_ip", False)
         network_settings["max_concurrency"] = old_network.get("max_concurrency", 5)
@@ -572,7 +572,7 @@ class ConfigLoader:
             max_val=10,
         )
         config_dict["user_agent"] = ConfigLoader._get_nested_value(
-            config, "基础设置", "网络设置", "user_agent", "Mozilla/5.0"
+            config, "基础设置", "网络设置", "user_agent", ""
         )
         proxy = ConfigLoader._get_nested_value(
             config, "基础设置", "网络设置", "proxy", ""
