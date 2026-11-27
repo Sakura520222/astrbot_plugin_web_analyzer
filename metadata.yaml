@@ -8,3 +8,8 @@ repo: https://github.com/Sakura520222/astrbot_plugin_web_analyzer
 support_platforms:
   - aiocqhttp
   - telegram
+
+views:
+  - name: dashboard
+    target: plugin_page
+    title: 网页分析插件
