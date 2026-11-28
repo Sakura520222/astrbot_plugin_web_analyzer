@@ -19,8 +19,9 @@ jobs:
         id: get_current_version
         run: |
           # 使用 awk 提取版本号，支持 version: 后的任意空格
+          # grep -m 1 只取首个匹配：metadata.yaml 的 views 声明里也有缩进的 version 键
           # 使用 tr 去除换行符和回车符
-          VERSION=$(grep -E '^\s*version:' metadata.yaml | awk '{print $2}' | tr -d '\r\n')
+          VERSION=$(grep -m 1 -E '^\s*version:' metadata.yaml | awk '{print $2}' | tr -d '\r\n')
           echo "当前版本: '$VERSION'"
           echo "版本长度: ${#VERSION}"
           echo "VERSION=v$VERSION" >> $GITHUB_OUTPUT
