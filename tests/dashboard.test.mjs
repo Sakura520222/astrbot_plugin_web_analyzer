@@ -3,130 +3,271 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 import vm from "node:vm";
 
-const app = await readFile(new URL("../pages/dashboard/app.js", import.meta.url), "utf8");
+const app = await readFile(
+  new URL("../views/dashboard/app.js", import.meta.url),
+  "utf8",
+);
 
-function field(path, value, type = "text", secret = false) {
-  const classes = new Set();
-  const clear = { checked: false, disabled: true };
-  const hint = { textContent: "" };
-  const wrapper = {
-    classList: {
-      add: (name) => classes.add(name),
-      remove: (name) => classes.delete(name),
-      toggle(name, enabled) { enabled ? classes.add(name) : classes.delete(name); },
-      contains: (name) => classes.has(name),
-    },
-    querySelector: (selector) => selector === ".secret-hint" ? hint : null,
-  };
-  const input = {
-    type, tagName: type === "select" ? "SELECT" : "INPUT",
-    value: String(value), checked: value === true,
-    dataset: { path, original: String(value), ...(secret ? { secret: "true", hasValue: "false" } : {}) },
-    closest: () => wrapper,
-    checkValidity: () => true,
-    reportValidity() {},
-  };
-  return { input, wrapper, clear, hint, classes };
-}
-
-function harness(fields, post = async (_endpoint, { updates }) => ({ applied_paths: Object.keys(updates), errors: [], message: "saved" })) {
-  const section = {
+function makeElement(extra = {}) {
+  const listeners = {};
+  const element = {
+    textContent: "",
+    innerHTML: "",
+    value: "",
+    hidden: true,
     dataset: {},
-    querySelectorAll: (selector) => selector.includes(".btn-save-section") ? [] : fields.map(({ input }) => input),
-    querySelector(selector) {
-      const path = selector.match(/data-(?:path|clear-secret)="([^"]+)"/)?.[1];
-      const item = fields.find(({ input }) => input.dataset.path === path);
-      return selector.includes("data-clear-secret") ? item?.clear : item?.input;
+    listeners,
+    focus() {},
+    classList: {
+      add() {},
+      remove() {},
+      toggle(name, enabled) {},
     },
+    setAttribute() {},
+    removeAttribute() {},
+    addEventListener(name, handler) {
+      listeners[name] = handler;
+    },
+    removeEventListener(name, handler) {
+      if (listeners[name] === handler) delete listeners[name];
+    },
+    querySelector: () => null,
+    querySelectorAll: () => [],
+    appendChild() {},
+    ...extra,
   };
-  const document = {
-    querySelector: () => fields.find(({ classes }) => classes.has("modified"))?.wrapper,
-    createElement: () => ({ set textContent(value) { this.innerHTML = String(value).replaceAll("&", "&amp;").replaceAll("<", "&lt;"); }, innerHTML: "" }),
-  };
-  const context = vm.createContext({
-    window: { AstrBotPluginView: { apiPost: post } },
-    document, CSS: { escape: (value) => value }, console, setTimeout,
-  });
-  vm.runInContext(app.replace(/\binit\(\);\s*$/, ""), context);
-  vm.runInContext("showToast = () => {};", context);
-  return { section, context, collect: () => context.collectSectionChanges(section), save: () => context.saveConfigSection(section) };
+  return { element, listeners };
 }
 
-test("number fields submit actual JSON numbers, switches remain booleans", () => {
-  const number = field("summary", 2000, "number");
-  number.input.value = "2500";
-  const toggle = field("enabled", false, "checkbox");
-  toggle.input.checked = true;
-  const { collect } = harness([number, toggle]);
-  const updates = collect();
-  assert.equal(updates.summary, 2500);
-  assert.equal(typeof updates.summary, "number");
-  assert.equal(updates.enabled, true);
-  assert.match(app, /data-field-path=/);
-  assert.doesNotMatch(app, /class="config-field" data-path=/);
+function buildHarness({ overviewData, cacheData, browserData, rulesData }) {
+  const apiCalls = [];
+  const elements = new Map();
+  const byId = (id, extra) => {
+    if (!elements.has(id)) elements.set(id, makeElement(extra));
+    return elements.get(id).element;
+  };
+
+  const bridge = {
+    t: (key, fallback) => fallback,
+    async ready() {},
+    getContext: () => ({ isDark: false, locale: "zh-CN" }),
+    onContext: () => () => {},
+    async apiGet(endpoint, params) {
+      apiCalls.push({ endpoint, params });
+      if (endpoint.endsWith("overview")) return overviewData;
+      if (endpoint.endsWith("cache")) return cacheData;
+      if (endpoint.endsWith("browser")) return browserData;
+      if (endpoint.endsWith("rules")) return rulesData;
+      return {};
+    },
+    async apiPost(endpoint, body) {
+      apiCalls.push({ endpoint, body });
+      return { message: "ok", success: true };
+    },
+  };
+
+  const toastContainer = makeElement();
+  const context = {
+    window: {
+      addEventListener() {},
+      confirm: () => true,
+    },
+    document: {
+      documentElement: { dataset: {}, lang: "" },
+      getElementById: (id) =>
+        id === "toast-container" ? toastContainer.element : byId(id),
+      querySelector: () => null,
+      querySelectorAll: () => [],
+      createElement: () => makeElement().element,
+    },
+    console,
+    setTimeout: (fn) => 0,
+    clearTimeout: () => {},
+    confirm: () => true,
+    window_AstrBotPluginView: bridge,
+    AstrBotPluginView: bridge,
+    AstrBotPluginPage: undefined,
+  };
+  context.globalThis = context;
+  vm.createContext(context);
+  vm.runInContext(
+    "const window = AstrBotPluginView ? { AstrBotPluginView, addEventListener() {}, removeEventListener() {}, confirm() { return true; } } : null;\n" +
+      app,
+    context,
+  );
+  return { context, apiCalls, byId, elements };
+}
+
+const OVERVIEW = {
+  cache_stats: { total: 3, valid: 2, expired: 1 },
+  auto_capture: true,
+  handoff_to_model: false,
+  max_concurrency: 4,
+  screenshot: {
+    width: 1280,
+    height: 720,
+    full_page: false,
+    format: "jpeg",
+    quality: 80,
+    wait_strategy: "fixed",
+    wait_ms: 2000,
+    crop_enabled: false,
+  },
+};
+const BROWSER = {
+  installed: true,
+  install_path: "C:/chrome.exe",
+  browser_type: "Google Chrome",
+  browser_version: "130",
+  browser_pool_size: 1,
+  browser_instances: 0,
+  max_browser_instances: 3,
+  skipped_browsers: {},
+  legacy_dir_exists: false,
+  legacy_dir_size_mb: 0,
+};
+const CACHE = {
+  stats: { total: 1, valid: 1, expired: 0 },
+  items: [
+    {
+      id: "abc123",
+      url: "https://example.com/<script>",
+      title: 'Tit"le',
+      timestamp: 1730000000,
+      expired: false,
+      has_screenshot: true,
+      legacy: false,
+    },
+  ],
+};
+const RULES = {
+  allowed_domains: ["a.com"],
+  blocked_domains: [],
+  enable_unified_domain: false,
+  group_blacklist: ["1"],
+  auto_capture: true,
+};
+
+test("init loads overview and browser summary", async () => {
+  const { apiCalls, byId } = buildHarness({
+    overviewData: OVERVIEW,
+    browserData: BROWSER,
+    cacheData: CACHE,
+    rulesData: RULES,
+  });
+  await new Promise((resolve) => setTimeout(resolve, 10));
+  assert.ok(apiCalls.some((c) => c.endpoint.endsWith("overview")));
+  assert.ok(apiCalls.some((c) => c.endpoint.endsWith("browser")));
+  assert.equal(byId("stat-cache-total").textContent, 3);
+  assert.equal(byId("stat-cache-valid").textContent, 2);
+  assert.equal(byId("stat-cache-expired").textContent, 1);
 });
 
-test("invalid or empty numbers are not saved", async () => {
-  const number = field("summary", 2000, "number");
-  number.input.value = "";
-  let calls = 0;
-  const { save } = harness([number], async () => { calls += 1; });
-  await save();
-  assert.equal(calls, 0);
+test("cache table escapes html in url and title", async () => {
+  const { context, byId } = buildHarness({
+    overviewData: OVERVIEW,
+    browserData: BROWSER,
+    cacheData: CACHE,
+    rulesData: RULES,
+  });
+  await new Promise((resolve) => setTimeout(resolve, 10));
+  await context.loadPageData("cache");
+  const html = byId("cache-table-body").innerHTML;
+  assert.ok(html.includes("&lt;script&gt;"), "script tag must be escaped");
+  assert.ok(html.includes("&quot;"), "quotes must be escaped");
+  assert.ok(html.includes("btn-preview"), "preview button rendered");
+  assert.ok(html.includes("btn-delete-cache"), "delete button rendered");
 });
 
-test("save acknowledgements preserve edits made while the request was in flight", async () => {
-  const item = field("summary", 2000, "number");
-  item.input.value = "2500";
-  let resolve;
-  const pending = new Promise((done) => { resolve = done; });
-  const { save } = harness([item], () => pending);
-  const saving = save();
-  item.input.value = "2700";
-  resolve({ applied_paths: ["summary"], errors: [], message: "saved" });
-  await saving;
-  assert.equal(item.input.dataset.original, "2500");
-  assert.equal(item.input.value, "2700");
-  assert.equal(item.classes.has("modified"), true);
+test("formatTime renders a sortable timestamp", async () => {
+  const { context } = buildHarness({
+    overviewData: OVERVIEW,
+    browserData: BROWSER,
+    cacheData: CACHE,
+    rulesData: RULES,
+  });
+  const formatted = context.formatTime(1730000000);
+  assert.match(formatted, /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/);
+  assert.equal(context.formatTime(0), "—");
 });
 
-test("rejected updates keep the saved baseline and pending edits", async () => {
-  const item = field("summary", 2000, "number");
-  item.input.value = "2500";
-  const { save } = harness([item], async () => { throw new Error("save failed"); });
-  await save();
-  assert.equal(item.input.dataset.original, "2000");
-  assert.equal(item.classes.has("modified"), true);
+test("escapeHtml neutralizes markup", async () => {
+  const { context } = buildHarness({
+    overviewData: OVERVIEW,
+    browserData: BROWSER,
+    cacheData: CACHE,
+    rulesData: RULES,
+  });
+  assert.equal(
+    context.escapeHtml('<img src=x onerror="a(\'b\')">'),
+    "&lt;img src=x onerror=&quot;a(&#39;b&#39;)&quot;&gt;",
+  );
 });
 
-test("secret fields preserve unchanged values and can be replaced then cleared", async () => {
-  const secret = field("proxy", "", "password", true);
-  const { collect, save } = harness([secret]);
-  assert.deepEqual(Object.keys(collect()), []);
-  secret.input.value = "http://user:password@localhost:8080";
-  await save();
-  assert.equal(secret.input.value, "");
-  assert.equal(secret.input.dataset.hasValue, "true");
-  assert.equal(secret.clear.disabled, false);
-  assert.equal(secret.classes.has("modified"), false);
-  secret.clear.checked = true;
-  assert.equal(collect().proxy, "");
-  await save();
-  assert.equal(secret.input.dataset.hasValue, "false");
-  assert.equal(secret.clear.checked, false);
-  assert.equal(secret.clear.disabled, true);
+test("truncate caps long strings with an ellipsis", async () => {
+  const { context } = buildHarness({
+    overviewData: OVERVIEW,
+    browserData: BROWSER,
+    cacheData: CACHE,
+    rulesData: RULES,
+  });
+  assert.equal(context.truncate("abcdef", 4), "abc…");
+  assert.equal(context.truncate("ab", 4), "ab");
 });
 
-test("schema enum labels and all full field paths survive rendering", () => {
-  const { context } = harness([]);
-  const html = context.buildFieldInput({ path: "分析设置.analysis_mode", value: "auto", type: "string", options: ["auto", "manual"], labels: ["自动分析", "手动命令"] });
-  assert.match(html, /value="auto" selected>自动分析<\/option>/);
-  assert.match(html, /data-path="分析设置.analysis_mode"/);
+test("browser status renders skipped entries with a pre-line value", async () => {
+  const { context, byId } = buildHarness({
+    overviewData: OVERVIEW,
+    browserData: {
+      ...BROWSER,
+      skipped_browsers: {
+        "/usr/bin/chrome": { reason: "cannot execute", expires_in_min: 9 },
+      },
+    },
+    cacheData: CACHE,
+    rulesData: RULES,
+  });
+  await new Promise((resolve) => setTimeout(resolve, 10));
+  await context.loadPageData("diagnostics");
+  const html = byId("browser-status").innerHTML;
+  assert.ok(html.includes("chrome"));
+  assert.ok(html.includes("cannot execute"));
 });
 
-test("navigation, refresh and browser unload guard pending edits", () => {
-  assert.match(app, /window\.addEventListener\("beforeunload"/);
-  assert.match(app, /if \(!hasUnsavedConfig\(\)\) return/);
-  assert.match(app, /配置有未保存的修改，确定离开此页面吗？/);
-  assert.match(app, /配置有未保存的修改，确定重新加载吗？/);
+test("rules page renders tag lists", async () => {
+  const { context, byId } = buildHarness({
+    overviewData: OVERVIEW,
+    browserData: BROWSER,
+    cacheData: CACHE,
+    rulesData: RULES,
+  });
+  await new Promise((resolve) => setTimeout(resolve, 10));
+  await context.loadPageData("rules");
+  assert.ok(byId("allowed-domains-list").innerHTML.includes("a.com"));
+  assert.ok(byId("group-blacklist-list").innerHTML.includes("1"));
+});
+
+test("confirmDialog resolves via buttons and hides the overlay", async () => {
+  const { context, byId } = buildHarness({
+    overviewData: OVERVIEW,
+    browserData: BROWSER,
+    cacheData: CACHE,
+    rulesData: RULES,
+  });
+  await new Promise((resolve) => setTimeout(resolve, 10));
+
+  const pending = context.confirmDialog("确认清空？");
+  const overlay = byId("confirm-overlay");
+  assert.equal(overlay.hidden, false, "overlay should be visible");
+  assert.equal(byId("confirm-message").textContent, "确认清空？");
+
+  byId("btn-confirm-cancel").listeners.click();
+  const cancelled = await pending;
+  assert.equal(cancelled, false);
+  assert.equal(overlay.hidden, true, "overlay should hide after cancel");
+
+  const pendingOk = context.confirmDialog("再次确认");
+  byId("btn-confirm-ok").listeners.click();
+  assert.equal(await pendingOk, true);
+  assert.equal(overlay.hidden, true);
 });

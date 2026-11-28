@@ -1,0 +1,102 @@
+{
+  "metadata": {
+    "display_name": "Web Screenshot",
+    "short_desc": "Auto-captures webpage links in chat; assistants can also read page content on demand.",
+    "desc": "Auto-detects webpage links in chat and captures screenshots via commands and assistant tools. Supports full page, viewport, crop and load-wait options. Assistants can also read readable page content on demand."
+  },
+  "views": {
+    "dashboard": {
+      "nav": {
+        "title": "Web Screenshot",
+        "overview": "Overview",
+        "cache": "Cache",
+        "rules": "Access Rules",
+        "diagnostics": "Browser Diagnostics"
+      },
+      "overview": {
+        "cacheTotal": "Cached",
+        "cacheValid": "Valid",
+        "cacheExpired": "Expired",
+        "browser": "System browser",
+        "browserMissing": "Not found",
+        "autoStatus": "Auto capture",
+        "autoCapture": "Auto link detection",
+        "handoff": "Hand off to chat model",
+        "concurrency": "Batch concurrency",
+        "captureParams": "Capture settings"
+      },
+      "capture": {
+        "viewport": "Viewport",
+        "fullPage": "Full page",
+        "format": "Format",
+        "wait": "Load wait",
+        "crop": "Crop"
+      },
+      "cache": {
+        "total": "Cached",
+        "valid": "Valid",
+        "expired": "Expired",
+        "clearAll": "Clear all",
+        "cacheList": "Cache list",
+        "searchPlaceholder": "Search URL...",
+        "tableUrl": "URL",
+        "tableTitle": "Title",
+        "tableStatus": "Status",
+        "tableTime": "Cached at",
+        "tableAction": "Actions",
+        "loading": "Loading...",
+        "empty": "No cached entries",
+        "legacy": "legacy",
+        "validLabel": "Valid",
+        "expiredLabel": "Expired",
+        "preview": "Preview",
+        "delete": "Delete",
+        "confirmDelete": "Delete this cache entry?",
+        "confirmClear": "Clear all cached screenshots? This cannot be undone",
+        "cleared": "Cleared",
+        "deleted": "Entry deleted",
+        "previewFailed": "Preview failed: "
+      },
+      "rules": {
+        "allowed": "Allowed domains",
+        "blocked": "Blocked domains",
+        "groups": "Group blacklist",
+        "nativeEntry": "Editing rules",
+        "nativeHint": "Access rules live in the plugin configuration: WebUI → Plugin Management → Web Screenshot → Configuration, then edit the \"Access Rules\" group.",
+        "empty": "No entries"
+      },
+      "diagnostics": {
+        "title": "System browser status",
+        "refresh": "Refresh",
+        "recheck": "Re-detect",
+        "browserType": "Browser",
+        "browserVersion": "Version",
+        "browserPath": "Path",
+        "pool": "Instance pool",
+        "idle": "idle",
+        "active": "active+starting",
+        "limit": "limit",
+        "detected": "Detection",
+        "notFound": "No system browser found. Install Chrome, Edge or Chromium.",
+        "skipped": "Temporarily skipped",
+        "legacy": "Legacy files",
+        "legacyFound": "Legacy leftovers found",
+        "legacyNone": "None",
+        "cleanup": "Clean up legacy files",
+        "cleanupHint": "Removes browser files downloaded by old versions via Playwright; the current version uses the system-installed browser only.",
+        "confirmCleanup": "Clean up legacy browser files?"
+      },
+      "error": {
+        "loadFailed": "Load failed: ",
+        "actionFailed": "Action failed: "
+      },
+      "confirm": {
+        "cancel": "Cancel",
+        "ok": "Confirm"
+      }
+    },
+    "screenshot_card": {
+      "title": "Screenshot results"
+    }
+  }
+}

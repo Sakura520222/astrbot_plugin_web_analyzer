@@ -1,29 +1,45 @@
 """
-核心模块初始化文件
+网页截图插件核心模块
 """
 
-from .analyzer import WebAnalyzer
-from .cache import CacheManager
+from .cache import ScreenshotCache, build_cache_key
+from .capture_pipeline import CaptureOutcome, CapturePipeline, CaptureSettings
 from .config_loader import ConfigLoader
-from .constants import *
-from .error_handler import ERROR_MESSAGES, ErrorSeverity, ErrorType
-from .llm_analyzer import LLMAnalyzer
-from .message_handler import MessageHandler
-from .plugin_helpers import MessageHelpers, PluginHelpers
-from .result_formatter import ResultFormatter
-from .utils import WebAnalyzerUtils
+from .constants import ERROR_MESSAGES, ErrorSeverity, ErrorType
+from .content_fetcher import ContentFetcher, ContentResult, FetchError
+from .error_handler import ErrorHandler
+from .messaging import MessageHelpers
+from .screenshot import ScreenshotError, ScreenshotService
+from .urls import (
+    extract_urls,
+    is_domain_allowed,
+    is_valid_url,
+    normalize_url,
+    parse_domain_list,
+    parse_group_list,
+)
 
 __all__ = [
-    "WebAnalyzer",
-    "CacheManager",
+    "CaptureOutcome",
+    "CapturePipeline",
+    "CaptureSettings",
+    "ContentFetcher",
+    "ContentResult",
     "ConfigLoader",
+    "ErrorHandler",
     "ErrorType",
     "ErrorSeverity",
     "ERROR_MESSAGES",
-    "LLMAnalyzer",
-    "MessageHandler",
-    "PluginHelpers",
+    "FetchError",
     "MessageHelpers",
-    "ResultFormatter",
-    "WebAnalyzerUtils",
+    "ScreenshotCache",
+    "ScreenshotError",
+    "ScreenshotService",
+    "build_cache_key",
+    "extract_urls",
+    "is_domain_allowed",
+    "is_valid_url",
+    "normalize_url",
+    "parse_domain_list",
+    "parse_group_list",
 ]

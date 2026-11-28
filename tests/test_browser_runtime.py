@@ -11,7 +11,7 @@ from pathlib import Path
 from PIL import Image
 from test_browser import (
     BrowserInstance,
-    WebAnalyzer,
+    ScreenshotService,
     browser_module,
     reset_browser_state,
 )
@@ -31,12 +31,14 @@ class BrowserRuntimeTests(unittest.IsolatedAsyncioTestCase):
         reset_browser_state()
 
     async def asyncTearDown(self):
-        instances = set(WebAnalyzer._browser_instances) | set(WebAnalyzer._browser_pool)
+        instances = set(ScreenshotService._browser_instances) | set(
+            ScreenshotService._browser_pool
+        )
         for instance in instances:
             await instance.close()
-        WebAnalyzer._browser_instances.clear()
-        WebAnalyzer._browser_pool.clear()
-        WebAnalyzer._browser_last_used.clear()
+        ScreenshotService._browser_instances.clear()
+        ScreenshotService._browser_pool.clear()
+        ScreenshotService._browser_last_used.clear()
 
     @staticmethod
     def local_page(temp, body="<body>page"):
@@ -84,7 +86,7 @@ class BrowserRuntimeTests(unittest.IsolatedAsyncioTestCase):
         server = await asyncio.start_server(serve, "127.0.0.1", 0)
         async with server:
             port = server.sockets[0].getsockname()[1]
-            analyzer = WebAnalyzer(enable_memory_monitor=False, timeout=3)
+            analyzer = ScreenshotService(enable_memory_monitor=False, timeout=3)
             overrides = (
                 "",
                 "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
@@ -93,7 +95,7 @@ class BrowserRuntimeTests(unittest.IsolatedAsyncioTestCase):
             for override in overrides:
                 arrived.clear()
                 await analyzer.apply_runtime_config({"user_agent": override})
-                data = await analyzer.capture_screenshot(
+                data, _t, _f = await analyzer.capture(
                     f"http://127.0.0.1:{port}/start", format="png", wait_time=0
                 )
                 with Image.open(io.BytesIO(data)) as image:
@@ -143,18 +145,18 @@ class BrowserRuntimeTests(unittest.IsolatedAsyncioTestCase):
                 encoding="utf-8",
             )
             url = page_file.as_uri()
-            analyzer = WebAnalyzer(fetch_mode="playwright", enable_memory_monitor=False)
-            async with analyzer:
-                html = await analyzer.fetch_webpage(url)
+            analyzer = ScreenshotService(enable_memory_monitor=False)
+            if True:
+                _final_url, html = await analyzer.render_html(url)
                 self.assertIn("rendered-1023", html)
-                first = list(WebAnalyzer._browser_pool)
+                first = list(ScreenshotService._browser_pool)
                 self.assertEqual(len(first), 1)
-                screenshot = await analyzer.capture_screenshot(
+                screenshot, _t, _f = await analyzer.capture(
                     url, width=1024, height=768, wait_time=200
                 )
                 self.assertEqual(Image.open(io.BytesIO(screenshot)).size, (1024, 768))
-                self.assertIs(WebAnalyzer._browser_pool[0], first[0])
-                full = await analyzer.capture_screenshot(
+                self.assertIs(ScreenshotService._browser_pool[0], first[0])
+                full, _t, _f = await analyzer.capture(
                     url,
                     width=1024,
                     height=768,
@@ -167,26 +169,24 @@ class BrowserRuntimeTests(unittest.IsolatedAsyncioTestCase):
                 self.assertGreaterEqual(image.height, 2500)
 
                 async def concurrent_capture(width):
-                    async with analyzer:
-                        data = await analyzer.capture_screenshot(
-                            url, width=width, height=600, wait_time=100
-                        )
-                        return Image.open(io.BytesIO(data)).size
+                    data, _t, _f = await analyzer.capture(
+                        url, width=width, height=600, wait_time=100
+                    )
+                    return Image.open(io.BytesIO(data)).size
 
                 sizes = await asyncio.gather(
                     *(concurrent_capture(w) for w in (800, 900, 1000))
                 )
                 self.assertEqual(sizes, [(800, 600), (900, 600), (1000, 600)])
-                pool = WebAnalyzer._browser_pool
+                pool = ScreenshotService._browser_pool
                 self.assertEqual(len(pool), len(set(pool)))
-                self.assertLessEqual(len(pool), WebAnalyzer._max_idle_browsers)
+                self.assertLessEqual(len(pool), ScreenshotService._max_idle_browsers)
                 self.assertLessEqual(
-                    len(WebAnalyzer._browser_instances),
-                    WebAnalyzer._max_browser_instances,
+                    len(ScreenshotService._browser_instances),
+                    ScreenshotService._max_browser_instances,
                 )
                 self.assertTrue(all(instance.page_count == 0 for instance in pool))
-            self.assertIsNone(analyzer.client)
-            instances = list(WebAnalyzer._browser_instances)
+            instances = list(ScreenshotService._browser_instances)
             profiles = [instance.profile_dir for instance in instances]
             for instance in instances:
                 await instance.close()
@@ -197,7 +197,9 @@ class BrowserRuntimeTests(unittest.IsolatedAsyncioTestCase):
     async def test_concurrent_captures_never_exceed_the_instance_cap(self):
         with tempfile.TemporaryDirectory() as temp:
             url = self.local_page(temp)
-            analyzer = WebAnalyzer(enable_memory_monitor=False, max_browser_instances=2)
+            analyzer = ScreenshotService(
+                enable_memory_monitor=False, max_browser_instances=2
+            )
             started = []
             start = analyzer._start_browser
 
@@ -209,26 +211,24 @@ class BrowserRuntimeTests(unittest.IsolatedAsyncioTestCase):
             sizes = await asyncio.wait_for(
                 asyncio.gather(
                     *(
-                        analyzer.capture_screenshot(
-                            url, width=width, height=600, wait_time=300
-                        )
+                        analyzer.capture(url, width=width, height=600, wait_time=300)
                         for width in (800, 900, 1000, 1100)
                     )
                 ),
                 90,
             )
             self.assertEqual(
-                [Image.open(io.BytesIO(data)).size for data in sizes],
+                [Image.open(io.BytesIO(data[0])).size for data in sizes],
                 [(800, 600), (900, 600), (1000, 600), (1100, 600)],
             )
             # Two browser processes were started; the other requests reused them.
             self.assertEqual(len(started), 2)
-            self.assertLessEqual(len(WebAnalyzer._browser_instances), 2)
+            self.assertLessEqual(len(ScreenshotService._browser_instances), 2)
 
     async def test_instance_failure_is_retried_on_another_browser(self):
         with tempfile.TemporaryDirectory() as temp:
             url = self.local_page(temp)
-            analyzer = WebAnalyzer(enable_memory_monitor=False)
+            analyzer = ScreenshotService(enable_memory_monitor=False)
             perform = analyzer._perform_screenshot
             used = []
 
@@ -243,8 +243,8 @@ class BrowserRuntimeTests(unittest.IsolatedAsyncioTestCase):
                 return await perform(browser=browser, **kwargs)
 
             analyzer._perform_screenshot = flaky
-            screenshot = await asyncio.wait_for(
-                analyzer.capture_screenshot(url, width=800, height=600, wait_time=100),
+            screenshot, _t, _f = await asyncio.wait_for(
+                analyzer.capture(url, width=800, height=600, wait_time=100),
                 90,
             )
             self.assertEqual(Image.open(io.BytesIO(screenshot)).size, (800, 600))
@@ -252,7 +252,7 @@ class BrowserRuntimeTests(unittest.IsolatedAsyncioTestCase):
             self.assertIsNot(used[0], used[1])
             # The failed instance is gone and only the healthy one stays pooled.
             self.assertFalse(used[0].is_connected())
-            self.assertEqual(WebAnalyzer._browser_pool, [used[1]])
+            self.assertEqual(ScreenshotService._browser_pool, [used[1]])
 
     async def test_tabs_have_isolated_cookies(self):
         browser = BrowserInstance(self.path)
@@ -315,7 +315,7 @@ class BrowserRuntimeTests(unittest.IsolatedAsyncioTestCase):
 
         server = await asyncio.start_server(proxy, "127.0.0.1", 0)
         port = server.sockets[0].getsockname()[1]
-        analyzer = WebAnalyzer(
+        analyzer = ScreenshotService(
             hide_ip=True, proxy=f"http://test-user:test-password@127.0.0.1:{port}"
         )
         args = analyzer._build_browser_launch_args()

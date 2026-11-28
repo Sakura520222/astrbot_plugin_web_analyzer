@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="color-scheme" content="light dark" />
+  <title>截图结果</title>
+  <style>
+    * { box-sizing: border-box; }
+    :root {
+      color-scheme: light dark;
+      --surface: #fff;
+      --surface-soft: #f1f3f6;
+      --ink: #20242a;
+      --muted: #626b78;
+      --line: #e2e5e9;
+      --primary: #315f9f;
+      --danger: #a63232;
+      --danger-soft: #f9e8e7;
+    }
+    :root[data-theme="dark"] {
+      --surface: #202328;
+      --surface-soft: #292d33;
+      --ink: #e8eaed;
+      --muted: #a8afb9;
+      --line: #393e46;
+      --primary: #a9c7f5;
+      --danger: #ffb4ab;
+      --danger-soft: #4b2929;
+    }
+    body {
+      margin: 0;
+      color: var(--ink);
+      background: transparent;
+      font: 13px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Noto Sans SC", sans-serif;
+    }
+    #card { display: grid; gap: 10px; }
+    .item {
+      display: grid;
+      grid-template-columns: 120px 1fr;
+      gap: 12px;
+      padding: 10px;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      background: var(--surface);
+    }
+    .thumb {
+      width: 120px;
+      height: 68px;
+      object-fit: cover;
+      border-radius: 6px;
+      background: var(--surface-soft);
+    }
+    .thumb-missing {
+      display: grid;
+      width: 120px;
+      height: 68px;
+      place-items: center;
+      border-radius: 6px;
+      background: var(--surface-soft);
+      color: var(--muted);
+      font-size: 11px;
+    }
+    .meta { min-width: 0; display: grid; align-content: start; gap: 3px; }
+    .title { font-weight: 600; overflow-wrap: anywhere; }
+    .link { color: var(--primary); font-size: 12px; overflow-wrap: anywhere; }
+    .error {
+      padding: 8px 10px;
+      border: 1px solid var(--line);
+      border-left: 3px solid var(--danger);
+      border-radius: 8px;
+      background: var(--surface);
+      overflow-wrap: anywhere;
+      white-space: pre-line;
+    }
+    .error-label { color: var(--danger); font-weight: 600; margin-right: 6px; }
+    .note { color: var(--muted); font-size: 12px; }
+    :focus-visible { outline: 3px solid color-mix(in srgb, var(--primary) 70%, transparent); outline-offset: 2px; }
+  </style>
+</head>
+<body>
+  <div id="card" role="list"></div>
+  <script type="module" src="./app.js"></script>
+</body>
+</html>

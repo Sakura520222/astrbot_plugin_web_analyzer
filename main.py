@@ -1,2305 +1,639 @@
 """
-AstrBot 网页分析插件 - 重构版本
+AstrBot 网页截图插件
 
-自动识别网页链接，智能抓取解析内容，集成大语言模型进行深度分析和总结，
-支持网页截图、缓存机制和多种管理命令。
+自动识别聊天中的网页链接并截图，支持 /网页截图 命令和两个助手工具：
+- capture_webpage(urls)：截图并转发原图，向模型返回逐条结果；
+- get_webpage_content(url)：按需读取网页正文（标题 + 可读文本）。
 
-本版本使用核心模块重构，遵循 PEP 8 规范。
+截图复用系统 Chrome / Edge / Chromium 的 CDP 连接，按 URL 与截图参数
+命中缓存。网页分析功能已移除，/网页分析 保留为截图兼容别名。
 """
 
 import asyncio
-import copy
-import json
-import math
-import os
-import re
-import time
-from pathlib import Path
-from typing import Any
-from urllib.parse import urlparse
+import base64
 
 from astrbot.api import AstrBotConfig, logger
 from astrbot.api.event import AstrMessageEvent, filter
-from astrbot.api.message_components import File, Node, Nodes, Plain
+from astrbot.api.message_components import Image
 from astrbot.api.star import Context, Star, register
 
-from .core.analyzer import WebAnalyzer
-from .core.cache import CacheManager
-
-# 导入核心模块
+from .core.cache import ScreenshotCache
+from .core.capture_pipeline import (
+    CaptureOutcome,
+    CapturePipeline,
+    CaptureSettings,
+)
 from .core.config_loader import ConfigLoader
-from .core.llm_analyzer import LLMAnalyzer
-from .core.message_handler import MessageHandler
-from .core.plugin_helpers import MessageHelpers, PluginHelpers
-from .core.result_formatter import ResultFormatter
-from .core.utils import WebAnalyzerUtils
+from .core.content_fetcher import ContentFetcher, FetchError
+from .core.messaging import MessageHelpers
+from .core.screenshot import ScreenshotService
+from .core.urls import extract_urls, is_domain_allowed, is_valid_url
+
+PLUGIN_NAME = "astrbot_plugin_web_analyzer"
+
+# 助手工具单次调用的链接数量上限
+MAX_TOOL_URLS = 10
+# 交互视图卡片最多携带的缩略图数量
+MAX_CARD_THUMBNAILS = 5
+
+USAGE_TEXT = (
+    "【网页截图插件】\n"
+    "用法：/网页截图 <链接1> [链接2] ...\n"
+    "自动识别聊天中的网页链接并截图；也可让助手使用截图工具。\n"
+    "管理员命令：/网页缓存 [clear]、/网页浏览器 [status|reload|cleanup]"
+)
 
 
 @register(
     "astrbot_plugin_web_analyzer",
     "Sakura520222",
-    "自动识别网页链接，智能抓取解析内容，集成大语言模型进行深度分析和总结，支持网页截图、缓存机制和多种管理命令",
-    "1.7.3",
+    "自动识别聊天中的网页链接，支持命令和助手工具截图。可设置整页、视口、裁剪和加载等待方式。助手也可按需读取网页正文。",
+    "2.0.0",
     "https://github.com/Sakura520222/astrbot_plugin_web_analyzer",
 )
-class WebAnalyzerPlugin(Star):
-    """网页分析插件主类，负责管理和调度所有功能模块"""
+class WebScreenshotPlugin(Star):
+    """网页截图插件主类"""
 
     def __init__(self, context: Context, config: AstrBotConfig):
-        """插件初始化方法，负责加载、验证和初始化所有配置项"""
+        """初始化插件：加载配置、迁移旧配置并装配各组件。"""
         super().__init__(context)
         self.config = config
-        self._cached_schema = None  # schema 缓存，避免重复磁盘读取
-        self._config_update_lock = asyncio.Lock()
+        ScreenshotService.reset_browser_session()
 
-        # 使用配置加载器加载所有配置
-        config_dict = ConfigLoader.load_all_config(config, context)
+        settings = ConfigLoader.load(config)
+        self._settings = settings
+        self._apply_settings(settings)
 
-        # 将配置项设置为实例属性
-        for key, value in config_dict.items():
-            setattr(self, key, value)
+        self.recall_tasks: list = []
+        self._web_api_registered = False
+        self._register_web_api(context)
 
-        # URL处理标志集合：用于避免重复处理同一URL
-        self.processing_urls = set()
+        logger.info("网页截图插件初始化完成")
 
-        # 初始化核心组件
-        self._init_components(context, config_dict)
-
-        # 撤回任务列表：用于管理所有撤回任务
-        self.recall_tasks = []
-
-        # 注册 Dashboard Web API
-        self._register_dashboard_api(context)
-
-        # 记录配置初始化完成
-        logger.info("插件配置初始化完成")
-
-    def _init_components(self, context: Context, config_dict: dict):
-        """初始化所有核心组件
-
-        Args:
-            context: AstrBot 上下文对象
-            config_dict: 配置字典
-        """
-        # 初始化缓存管理器
-        self.cache_manager = CacheManager(
-            max_size=self.max_cache_size,
-            expire_time=self.cache_expire_time_min * 60,
-            preload_enabled=self.cache_preload_enabled,
-            preload_count=self.cache_preload_count,
+    def _apply_settings(self, settings: dict) -> None:
+        """按配置装配各组件（插件加载时执行一次）。"""
+        self.screenshot_service = ScreenshotService(
+            timeout=settings["request_timeout_s"],
+            user_agent=settings["user_agent"],
+            proxy=settings["proxy"],
+            hide_ip=settings["hide_ip"],
+            sandbox_mode=settings["sandbox_mode"],
+            max_browser_instances=settings["max_browser_instances"],
+            screenshot_retry_count=settings["screenshot_retry_count"],
+            enable_memory_monitor=settings["enable_memory_monitor"],
+            memory_threshold_percent=settings["memory_threshold_percent"],
+        )
+        self.cache = ScreenshotCache(
+            max_size=settings["max_cache_size"],
+            expire_minutes=settings["cache_expire_time_min"],
+            enabled=settings["enable_cache"],
+        )
+        self.pipeline = CapturePipeline(
+            self.screenshot_service,
+            self.cache,
+            max_concurrency=settings["max_concurrency"],
+        )
+        self.content_fetcher = ContentFetcher(
+            timeout=settings["request_timeout_s"],
+            user_agent=settings["user_agent"],
+            proxy=settings["proxy"],
+            retry_count=settings["retry_count"],
+            retry_delay_s=settings["retry_delay_s"],
+            max_content_length=settings["max_content_length"],
+            fetch_mode=settings["fetch_mode"],
+            screenshot_service=self.screenshot_service,
+            allow_local=settings["allow_local_addresses"],
         )
 
-        # A plugin reload must re-enable browser operations and forget the launch
-        # failures recorded by the previous load.
-        WebAnalyzer.reset_browser_session()
-        self.analyzer = WebAnalyzer(
-            max_content_length=self.max_content_length,
-            timeout=self.request_timeout_s,
-            user_agent=self.user_agent,
-            proxy=self.proxy,
-            retry_count=self.retry_count,
-            retry_delay=self.retry_delay_s,
-            enable_memory_monitor=self.enable_memory_monitor,
-            memory_threshold=self.memory_threshold_percent,
-            enable_unified_domain=self.enable_unified_domain,
-            hide_ip=self.hide_ip,
-            fetch_mode=self.fetch_mode,
-            sandbox_mode=self.sandbox_mode,
-            max_browser_instances=self.max_browser_instances,
-            screenshot_retry_count=self.screenshot_retry_count,
+    def capture_settings(self) -> CaptureSettings:
+        """从当前配置构造截图参数。"""
+        s = self._settings
+        return CaptureSettings(
+            width=s["screenshot_width"],
+            height=s["screenshot_height"],
+            full_page=s["screenshot_full_page"],
+            format=s["screenshot_format"],
+            quality=s["screenshot_quality"],
+            wait_strategy=s["screenshot_wait_strategy"],
+            wait_time=s["screenshot_wait_ms"],
+            enable_crop=s["enable_crop"],
+            crop_area=s["crop_area"],
         )
 
-        # 初始化结果格式化器
-        self.result_formatter = ResultFormatter(
-            enable_emoji=self.enable_emoji,
-            enable_statistics=self.enable_statistics,
-        )
+    # ==================== 命令 ====================
 
-        # 初始化 LLM 分析器
-        self.llm_analyzer = LLMAnalyzer(
-            context=context,
-            llm_provider=self.llm_provider,
-            custom_prompt=self.custom_prompt,
-            max_summary_length=self.max_summary_length,
-            enable_emoji=self.enable_emoji,
-            llm_enabled=self.llm_enabled,
-        )
-
-        # 初始化消息处理器
-        self.message_handler = MessageHandler(
-            analyzer=self.analyzer,
-            cache_manager=self.cache_manager,
-            enable_cache=self.enable_cache,
-            enable_screenshot=self.enable_screenshot,
-            send_content_type=self.send_content_type,
-            screenshot_format=self.screenshot_format,
-            screenshot_quality=self.screenshot_quality,
-            screenshot_width=self.screenshot_width,
-            screenshot_height=self.screenshot_height,
-            screenshot_full_page=self.screenshot_full_page,
-            screenshot_wait_ms=self.screenshot_wait_ms,
-            screenshot_wait_strategy=self.screenshot_wait_strategy,
-            enable_crop=self.enable_crop,
-            crop_area=self.crop_area,
-            merge_forward_group=self.merge_forward_group,
-            merge_forward_private=self.merge_forward_private,
-            merge_forward_include_screenshot=self.merge_forward_include_screenshot,
-            send_retry_count=getattr(self, "send_retry_count", 3),
-            send_retry_delay_s=getattr(self, "send_retry_delay_s", 2),
-            max_concurrency=self.max_concurrency,
-        )
-        self.message_handler.apply_runtime_config(config_dict)
-
-    @filter.command("网页分析", alias={"分析", "总结", "web", "analyze"})
-    async def analyze_webpage(self, event: AstrMessageEvent):
-        """手动触发网页分析命令"""
-        message_text = event.message_str
-
-        # 从消息中提取所有URL
-        urls = self.analyzer.extract_urls(
-            message_text, self.enable_no_protocol_url, self.default_protocol
-        )
+    @filter.command("网页截图", alias={"网页分析"})
+    async def screenshot_command(self, event: AstrMessageEvent):
+        """手动截取网页：/网页截图 <链接...>（/网页分析 为兼容别名）"""
+        urls = self._collect_urls(event.message_str)
         if not urls:
-            yield event.plain_result(
-                "请提供要分析的网页链接，例如：/网页分析 https://example.com"
+            yield event.plain_result(USAGE_TEXT)
+            return
+
+        blocked = self._is_group_blocked(event)
+        if blocked:
+            logger.info(f"群组 {blocked} 在黑名单中，跳过处理")
+            return
+
+        async for result in self._run_and_deliver(event, urls):
+            yield result
+
+    @filter.permission_type(filter.PermissionType.ADMIN)
+    @filter.command("网页缓存", alias={"web_cache", "清理缓存"})
+    async def manage_cache(self, event: AstrMessageEvent):
+        """管理截图缓存：/网页缓存 status | clear"""
+        parts = event.message_str.strip().split()
+        action = parts[1].lower() if len(parts) > 1 else ""
+
+        if action == "clear":
+            self.cache.clear()
+            stats = self.cache.get_stats()
+            await event.send(
+                event.plain_result(
+                    f"✅ 已清空所有截图缓存（当前缓存 {stats['total']} 条）"
+                )
             )
             return
 
-        # 验证URL格式是否正确，并规范化URL
-        valid_urls = list(
-            {
-                self.analyzer.normalize_url(url)
-                for url in urls
-                if self.analyzer.is_valid_url(url)
-            }
+        s = self._settings
+        stats = self.cache.get_stats()
+        await event.send(
+            event.plain_result(
+                "当前截图缓存\n"
+                f"- 总数: {stats['total']} 条，有效 {stats['valid']} 条，过期 {stats['expired']} 条\n"
+                f"- 有效期: {s['cache_expire_time_min']} 分钟\n"
+                f"- 条数上限: {s['max_cache_size']} 条\n"
+                f"- 缓存功能: {'✅ 已启用' if s['enable_cache'] else '❌ 已禁用'}\n"
+                "使用 /网页缓存 clear 清空所有缓存"
+            )
         )
-        if not valid_urls:
-            yield event.plain_result("无效的URL链接，请检查格式是否正确")
-            return
 
-        # 过滤掉不允许访问的域名
-        allowed_urls = [
-            url
-            for url in valid_urls
-            if PluginHelpers.is_domain_allowed(
-                url, self.allowed_domains, self.blocked_domains
+    @filter.permission_type(filter.PermissionType.ADMIN)
+    @filter.command("网页浏览器", alias={"web_browser", "浏览器管理"})
+    async def manage_browser(self, event: AstrMessageEvent):
+        """浏览器诊断：/网页浏览器 status | reload | cleanup"""
+        parts = event.message_str.strip().split()
+        action = parts[1].lower() if len(parts) > 1 else ""
+
+        if action == "reload":
+            self.screenshot_service._reset_browser_detection()
+            await event.send(
+                event.plain_result("✅ 已重置浏览器检测缓存，下次截图将重新检测")
             )
-        ]
-        if not allowed_urls:
-            yield event.plain_result("所有域名都不在允许访问的列表中，或已被禁止访问")
+            return
+        if action == "cleanup":
+            result = await self.screenshot_service.uninstall_legacy_artifacts()
+            await event.send(event.plain_result(result["message"]))
             return
 
-        # 检查群组黑名单
-        group_id = PluginHelpers.get_group_id(event)
-        if PluginHelpers.is_group_blacklisted(
-            str(group_id) if group_id else "", self.group_blacklist
-        ):
-            logger.info(f"群组 {group_id} 在黑名单中，跳过处理")
-            return
-
-        # 发送处理提示消息
-        if len(allowed_urls) == 1:
-            message = f"正在分析网页: {allowed_urls[0]}"
+        status = await self.screenshot_service.get_browser_status()
+        if status["installed"]:
+            text = (
+                f"✅ 系统浏览器可用：{status['browser_type'] or '未知'}\n"
+                f"版本: {status['browser_version'] or '未知'}\n"
+                f"路径: {status['install_path']}\n"
+                f"实例: 空闲 {status['browser_pool_size']} / "
+                f"在用+启动中 {status['browser_instances']} / "
+                f"上限 {status['max_browser_instances']}"
+            )
         else:
-            message = f"正在分析{len(allowed_urls)}个网页链接..."
-
-        processing_message_id, bot = await MessageHelpers.send_processing_message(
-            event,
-            message,
-            self.enable_processing_message,
-            self.enable_recall,
-            self.recall_type,
-            self.recall_time_s,
-            self.smart_recall_enabled,
-            self.recall_tasks,
-        )
-
-        # 批量处理所有允许访问的URL
-        async for result in self._batch_process_urls(
-            event, allowed_urls, processing_message_id, bot
-        ):
-            yield result
-
-    @filter.llm_tool(name="analyze_webpage")
-    async def analyze_webpage_tool(self, event: AstrMessageEvent, url: str) -> Any:
-        """智能网页分析工具
-
-        Args:
-            url(string): 要分析的网页URL地址，支持http和https协议
-        """
-        # 检查是否启用了LLMTOOL模式，未启用则不执行
-        if self.analysis_mode != "LLMTOOL":
-            logger.info(f"当前未启用LLMTOOL模式，拒绝analyze_webpage_tool调用: {url}")
-            yield event.plain_result("当前未启用网页分析工具模式")
-            return
-
-        logger.info(f"收到analyze_webpage_tool调用，原始URL: {url}")
-
-        # 预处理URL：去除可能的反引号、空格等
-        processed_url = url.strip().strip("`")
-        logger.info(f"预处理后的URL: {processed_url}")
-
-        # 补全URL协议头（如果需要）
-        if not processed_url.startswith(("http://", "https://")):
-            processed_url = f"{self.default_protocol}://{processed_url}"
-            logger.info(f"补全协议头后的URL: {processed_url}")
-
-        # 规范化URL
-        normalized_url = self.analyzer.normalize_url(processed_url)
-        logger.info(f"规范化后的URL: {normalized_url}")
-
-        if not self.analyzer.is_valid_url(normalized_url):
-            error_msg = f"无效的URL链接，请检查格式是否正确: {normalized_url}"
-            logger.warning(error_msg)
-            yield event.plain_result(error_msg)
-            return
-
-        # 检查域名是否允许访问
-        if not PluginHelpers.is_domain_allowed(
-            normalized_url, self.allowed_domains, self.blocked_domains
-        ):
-            error_msg = f"该域名不在允许访问的列表中: {normalized_url}"
-            logger.warning(error_msg)
-            yield event.plain_result(error_msg)
-            return
-
-        # 发送处理提示消息，告知用户正在分析
-        message = f"正在分析网页: {normalized_url}"
-        processing_message_id, bot = await MessageHelpers.send_processing_message(
-            event,
-            message,
-            self.enable_processing_message,
-            self.enable_recall,
-            self.recall_type,
-            self.recall_time_s,
-            self.smart_recall_enabled,
-            self.recall_tasks,
-        )
-
-        # 处理单个URL
-        async for result in self._batch_process_urls(
-            event, [normalized_url], processing_message_id, bot
-        ):
-            yield result
-
-    @filter.llm_tool(name="analyze_webpage_with_decision")
-    async def analyze_webpage_with_decision_tool(
-        self, event: AstrMessageEvent, url: str, return_type: str = "both"
-    ) -> Any:
-        """智能网页分析工具（带自主决策）
-
-        Args:
-            url(string): 要分析的网页URL地址，支持http和https协议
-            return_type(string): 返回结果类型，可选值：analysis_only（仅分析结果）、screenshot_only（仅截图）、both（两者都返回），默认为both
-        """
-        # 检查是否启用了LLMTOOL模式，未启用则不执行
-        if self.analysis_mode != "LLMTOOL":
-            logger.info(
-                f"当前未启用LLMTOOL模式，拒绝analyze_webpage_with_decision_tool调用: {url}"
+            text = "❌ 未检测到系统浏览器，请安装 Chrome / Edge / Chromium"
+        if status["skipped_browsers"]:
+            skips = "\n".join(
+                f"- {path}: {info['reason']}（约 {info['expires_in_min']} 分钟后重试）"
+                for path, info in status["skipped_browsers"].items()
             )
-            yield event.plain_result("当前未启用网页分析工具模式")
-            return
+            text += f"\n暂时跳过的浏览器:\n{skips}"
+        await event.send(event.plain_result(text))
 
-        # 检查是否启用了LLM自主决策功能
-        if not self.enable_llm_decision:
-            logger.info(
-                f"当前未启用LLM自主决策功能，拒绝analyze_webpage_with_decision_tool调用: {url}"
-            )
-            yield event.plain_result("当前未启用LLM自主决策功能")
-            return
-
-        logger.info(
-            f"收到analyze_webpage_with_decision_tool调用，原始URL: {url}，返回类型: {return_type}"
-        )
-
-        # 验证返回类型
-        valid_return_types = ["analysis_only", "screenshot_only", "both"]
-        if return_type not in valid_return_types:
-            logger.warning(f"无效的返回类型: {return_type}，使用默认值: both")
-            return_type = "both"
-
-        # 预处理URL：去除可能的反引号、空格等
-        processed_url = url.strip().strip("`")
-        logger.info(f"预处理后的URL: {processed_url}")
-
-        # 补全URL协议头（如果需要）
-        if not processed_url.startswith(("http://", "https://")):
-            processed_url = f"{self.default_protocol}://{processed_url}"
-            logger.info(f"补全协议头后的URL: {processed_url}")
-
-        # 规范化URL
-        normalized_url = self.analyzer.normalize_url(processed_url)
-        logger.info(f"规范化后的URL: {normalized_url}")
-
-        if not self.analyzer.is_valid_url(normalized_url):
-            error_msg = f"无效的URL链接，请检查格式是否正确: {normalized_url}"
-            logger.warning(error_msg)
-            yield event.plain_result(error_msg)
-            return
-
-        # 检查域名是否允许访问
-        if not PluginHelpers.is_domain_allowed(
-            normalized_url, self.allowed_domains, self.blocked_domains
-        ):
-            error_msg = f"该域名不在允许访问的列表中: {normalized_url}"
-            logger.warning(error_msg)
-            yield event.plain_result(error_msg)
-            return
-
-        # 发送处理提示消息，告知用户正在分析
-        message = f"正在分析网页: {normalized_url}"
-        processing_message_id, bot = await MessageHelpers.send_processing_message(
-            event,
-            message,
-            self.enable_processing_message,
-            self.enable_recall,
-            self.recall_type,
-            self.recall_time_s,
-            self.smart_recall_enabled,
-            self.recall_tasks,
-        )
-
-        # 保存原始send_content_type配置
-
-        try:
-            # 根据LLM的决策设置send_content_type
-            self.message_handler.send_content_type = return_type
-            logger.info(f"临时设置send_content_type为: {return_type}")
-
-            # 处理单个URL
-            async for result in self._batch_process_urls(
-                event, [normalized_url], processing_message_id, bot
-            ):
-                yield result
-        finally:
-            # 恢复原始send_content_type配置
-            self.message_handler.send_content_type = self.send_content_type
-            logger.debug("Restored the current configured response type")
-
-    @filter.llm_tool(name="analyze_batch_urls")
-    async def analyze_batch_urls_tool(
-        self, event: AstrMessageEvent, urls: str, return_type: str = "both"
-    ) -> Any:
-        """批量网页分析工具，一次分析多个URL
-
-        Args:
-            urls(string): 要分析的网页URL列表，多个URL用逗号或空格分隔
-            return_type(string): 返回结果类型，可选值：analysis_only（仅分析结果）、screenshot_only（仅截图）、both（两者都返回），默认为both
-        """
-        # 仅在LLMTOOL模式下启用
-        if self.analysis_mode != "LLMTOOL":
-            logger.info(
-                f"当前未启用LLMTOOL模式，拒绝analyze_batch_urls_tool调用: {urls}"
-            )
-            yield event.plain_result("当前未启用网页分析工具模式")
-            return
-
-        logger.info(
-            f"收到analyze_batch_urls_tool调用，原始URL: {urls}，返回类型: {return_type}"
-        )
-
-        # 验证返回类型
-        valid_return_types = ["analysis_only", "screenshot_only", "both"]
-        if return_type not in valid_return_types:
-            logger.warning(f"无效的返回类型: {return_type}，使用默认值: both")
-            return_type = "both"
-
-        # 解析URL列表（支持逗号、中文逗号、空格分隔）
-        raw_urls = [
-            u.strip().strip("`")
-            for u in re.split(r"[,，\s]+", urls)
-            if u.strip().strip("`")
-        ]
-
-        if not raw_urls:
-            yield event.plain_result("未提供有效的URL")
-            return
-
-        # 验证和规范化每个URL
-        valid_urls = []
-        for url in raw_urls:
-            if not url.startswith(("http://", "https://")):
-                url = f"{self.default_protocol}://{url}"
-            normalized = self.analyzer.normalize_url(url)
-            if self.analyzer.is_valid_url(
-                normalized
-            ) and PluginHelpers.is_domain_allowed(
-                normalized, self.allowed_domains, self.blocked_domains
-            ):
-                valid_urls.append(normalized)
-            else:
-                logger.warning(f"批量分析中跳过无效或不允许的URL: {url}")
-
-        if not valid_urls:
-            yield event.plain_result("所有URL均无效或不在允许的域名列表中")
-            return
-
-        # 发送处理提示
-        message = f"正在批量分析{len(valid_urls)}个网页链接..."
-        processing_message_id, bot = await MessageHelpers.send_processing_message(
-            event,
-            message,
-            self.enable_processing_message,
-            self.enable_recall,
-            self.recall_type,
-            self.recall_time_s,
-            self.smart_recall_enabled,
-            self.recall_tasks,
-        )
-
-        # 保存原始配置
-        try:
-            self.message_handler.send_content_type = return_type
-            logger.info(f"临时设置send_content_type为: {return_type}")
-
-            async for result in self._batch_process_urls(
-                event, valid_urls, processing_message_id, bot
-            ):
-                yield result
-        finally:
-            self.message_handler.send_content_type = self.send_content_type
-            logger.debug("Restored the current configured response type")
+    # ==================== 自动识别 ====================
 
     @filter.event_message_type(filter.EventMessageType.ALL)
-    async def auto_detect_urls(self, event: AstrMessageEvent):
-        """自动检测消息中的URL链接并进行分析"""
-        # 检查分析模式，manual模式下不进行自动分析
-        if self.analysis_mode == "manual":
+    async def auto_capture(self, event: AstrMessageEvent):
+        """自动识别聊天中的网页链接并截图"""
+        if not self._settings["auto_capture"]:
             return
-
-        # 检查是否启用自动分析功能（兼容旧配置）
-        if not self.auto_analyze:
-            return
-
-        # 检查是否为指令调用，避免重复处理
         message_text = event.message_str.strip()
-
-        # 跳过以/开头的指令消息
-        if message_text.startswith("/"):
-            logger.info("检测到指令调用，跳过自动分析")
+        if not message_text or message_text.startswith("/"):
+            return
+        if getattr(event, "command", None):
             return
 
-        # 检查事件是否有command属性（指令调用时会有）
-        if hasattr(event, "command"):
-            logger.info("检测到command属性，跳过自动分析")
+        group_id = self._get_group_id(event)
+        if group_id and group_id in self._settings["group_blacklist"]:
             return
 
-        # 检查群聊是否在黑名单中（仅群聊消息）
-        group_id = PluginHelpers.get_group_id(event)
-        if PluginHelpers.is_group_blacklisted(
-            str(group_id) if group_id else "", self.group_blacklist
-        ):
-            return
-
-        # 从消息中提取所有URL
-        urls = self.analyzer.extract_urls(
-            message_text, self.enable_no_protocol_url, self.default_protocol
-        )
+        urls = self._collect_urls(message_text)
         if not urls:
             return
 
-        # 验证URL格式是否正确，并规范化URL
-        valid_urls = list(
-            {
-                self.analyzer.normalize_url(url)
-                for url in urls
-                if self.analyzer.is_valid_url(url)
-            }
-        )
-        if not valid_urls:
-            return
-
-        # 过滤掉不允许访问的域名
-        allowed_urls = [
-            url
-            for url in valid_urls
-            if PluginHelpers.is_domain_allowed(
-                url, self.allowed_domains, self.blocked_domains
-            )
-        ]
-        if not allowed_urls:
-            return
-
-        # 根据analysis_mode配置决定是否使用旧版直接分析方式
-        if self.analysis_mode == "LLMTOOL":
-            strategy = self.llmtool_url_strategy
-            valid_strategies = ["auto_analyze", "llm_hint", "batch_tool"]
-            if strategy not in valid_strategies:
-                logger.warning(
-                    f"无效的 llmtool_url_strategy: {strategy}, 使用默认值: auto_analyze"
-                )
-                strategy = "auto_analyze"
-
-            if strategy == "auto_analyze":
-                # 自动分析所有URL，通过send_message发送结果（不阻塞事件传播给LLM）
-                logger.info(
-                    f"LLMTOOL自动分析策略，处理 {len(allowed_urls)} 个URL: {allowed_urls}"
-                )
-                if len(allowed_urls) == 1:
-                    message = f"检测到网页链接，正在分析: {allowed_urls[0]}"
-                else:
-                    message = f"检测到{len(allowed_urls)}个网页链接，正在分析..."
-                (
-                    processing_message_id,
-                    bot,
-                ) = await MessageHelpers.send_processing_message(
-                    event,
-                    message,
-                    self.enable_processing_message,
-                    self.enable_recall,
-                    self.recall_type,
-                    self.recall_time_s,
-                    self.smart_recall_enabled,
-                    self.recall_tasks,
-                )
-                async for result in self._batch_process_urls(
-                    event, allowed_urls, processing_message_id, bot
-                ):
-                    await self.context.send_message(event.unified_msg_origin, result)
-                return
-
-            elif strategy == "llm_hint":
-                # 通过event注入提示，引导LLM分析所有URL
-                logger.info(
-                    f"LLMTOOL提示策略，检测到 {len(allowed_urls)} 个URL: {allowed_urls}"
-                )
-                url_list = "\n".join(
-                    f"  {i + 1}. {url}" for i, url in enumerate(allowed_urls)
-                )
-                hint = f"\n\n[系统提示：检测到以下网页链接：\n{url_list}\n请使用 analyze_webpage 或 analyze_webpage_with_decision 工具逐一分析这些链接。]"
-                event.message_str = event.message_str + hint
-                return
-
-            elif strategy == "batch_tool":
-                # 仅记录日志，LLM通过批量工具自行决定
-                logger.info(f"LLMTOOL批量工具策略，检测到URL: {allowed_urls}")
-                return
+        if self._settings["handoff_to_model"]:
+            # 不 yield 结果，事件继续传播给会话模型；结果直接发送
+            async for _ in self._run_and_deliver(event, urls, send_directly=True):
+                pass
         else:
-            # 未启用LLM函数工具模式，使用旧版直接分析方式
-            # 发送处理提示消息，告知用户正在分析
-            if len(allowed_urls) == 1:
-                message = f"检测到网页链接，正在分析: {allowed_urls[0]}"
-            else:
-                message = f"检测到{len(allowed_urls)}个网页链接，正在分析..."
-
-            # 直接调用发送方法，不使用yield，获取message_id和bot实例
-            processing_message_id, bot = await MessageHelpers.send_processing_message(
-                event,
-                message,
-                self.enable_processing_message,
-                self.enable_recall,
-                self.recall_type,
-                self.recall_time_s,
-                self.smart_recall_enabled,
-                self.recall_tasks,
-            )
-
-            # 批量处理所有允许访问的URL
-            if self.allow_llm_propagation:
-                # 允许事件传播：使用 send_message 直接发送，不 yield
-                # 这样不会设置 event result，事件继续传播到 LLM
-                async for result in self._batch_process_urls(
-                    event, allowed_urls, processing_message_id, bot
-                ):
-                    await self._send_with_retry(
-                        event, self.context.send_message, event.unified_msg_origin, result
-                    )
-            else:
-                # 默认行为：yield 结果，阻止事件传播到 LLM
-                async for result in self._batch_process_urls(
-                    event, allowed_urls, processing_message_id, bot
-                ):
-                    yield result
-
-    @filter.command("web_help", alias={"网页分析帮助", "网页分析命令"})
-    async def show_help(self, event: AstrMessageEvent):
-        """显示插件的所有可用命令和帮助信息"""
-        help_text = """【网页分析插件命令帮助】
-
-📋 核心分析命令
-🔍 /网页分析 <URL1> <URL2>... - 手动分析指定网页链接
-   别名：/分析, /总结, /web, /analyze
-   示例：/网页分析 https://example.com
-
-📋 配置管理命令
-🛠️ /web_config - 查看当前插件配置
-   别名：/网页分析配置, /网页分析设置
-   示例：/web_config
-
-📋 缓存管理命令
-🗑️ /web_cache [clear] - 管理分析结果缓存
-   别名：/网页缓存, /清理缓存
-   选项：
-     - clear: 清空所有缓存
-   示例：/web_cache clear
-
-📋 群聊管理命令
-👥 /group_blacklist [add/remove/clear] <群号> - 管理群聊黑名单
-   别名：/群黑名单, /黑名单
-   选项：
-     - (空): 查看当前黑名单
-     - add <群号>: 添加群聊到黑名单
-     - remove <群号>: 从黑名单移除群聊
-     - clear: 清空黑名单
-   示例：/群黑名单 add 123456789
-
-📋 导出功能命令
-📤 /web_export - 导出分析结果
-   别名：/导出分析结果, /网页导出
-   示例：/web_export
-
-📋 浏览器管理命令
-🌐 /web_browser [uninstall] - 管理系统浏览器
-   别名：/浏览器管理, /网页浏览器
-   选项：
-     - (空): 查看浏览器状态
-     - uninstall: 清理旧版 Playwright 浏览器残留文件
-   示例：/web_browser uninstall
-
-📋 测试功能命令
-📋 /test_merge - 测试合并转发功能
-   别名：/测试合并转发, /测试转发
-   示例：/test_merge
-
-📋 帮助命令
-❓ /web_help - 显示本帮助信息
-   别名：/网页分析帮助, /网页分析命令
-   示例：/web_help
-
-💡 使用提示：
-- 所有命令支持Tab补全（如果客户端支持）
-- 命令参数支持提示功能
-- 可以自定义命令别名
-
-🔧 配置提示：
-- 在AstrBot管理面板中可以配置插件的各项功能
-- 支持自定义命令别名
-- 可以调整分析结果模板和显示方式
-- 启用「允许LLM传播」后，自动分析URL不会阻止LLM回复原始消息
-"""
-
-        yield event.plain_result(help_text)
-        logger.info("显示命令帮助信息")
-
-    @filter.command("web_config", alias={"网页分析配置", "网页分析设置"})
-    async def show_config(self, event: AstrMessageEvent):
-        """显示当前插件的详细配置信息"""
-        config_info = f"""**网页分析插件配置信息**
-
-**基本设置**
-- 最大内容长度: {self.max_content_length} 字符
-- 请求超时时间: {self.request_timeout_s} 秒
-- LLM智能分析: {"✅ 已启用" if self.llm_enabled else "❌ 已禁用"}
-- 分析模式: {self.analysis_mode}
-- 自动分析链接: {"✅ 已启用" if self.auto_analyze else "❌ 已禁用"}
-
-**并发处理设置**
-- 最大并发数: {self.max_concurrency}
-- LLM自主决策: {"✅ 已启用" if self.enable_llm_decision else "❌ 已禁用"}
-
-**域名控制**
-- 允许域名: {len(self.allowed_domains)} 个
-- 禁止域名: {len(self.blocked_domains)} 个
-
-**群聊控制**
-- 群聊黑名单: {len(self.group_blacklist)} 个群聊
-
-**分析设置**
-- 启用emoji: {"✅ 已启用" if self.enable_emoji else "❌ 已禁用"}
-- 显示统计: {"✅ 已启用" if self.enable_statistics else "❌ 已禁用"}
-- 最大摘要长度: {self.max_summary_length} 字符
-- 发送内容类型: {self.send_content_type}
-- 启用截图: {"✅ 已启用" if self.enable_screenshot else "❌ 已禁用"}
-- 截图质量: {self.screenshot_quality}
-- 截图宽度: {self.screenshot_width}px
-- 截图高度: {self.screenshot_height}px
-- 截图格式: {self.screenshot_format}
-
-**缓存设置**
-- 启用结果缓存: {"✅ 已启用" if self.enable_cache else "❌ 已禁用"}
-- 缓存过期时间: {self.cache_expire_time_min} 分钟
-- 最大缓存数量: {self.max_cache_size} 个
-
-*提示: 如需修改配置，请在AstrBot管理面板中编辑插件配置*"""
-
-        yield event.plain_result(config_info)
-
-    @filter.command("test_merge", alias={"测试合并转发", "测试转发"})
-    async def test_merge_forward(self, event: AstrMessageEvent):
-        """测试合并转发功能"""
-        # 检查是否为群聊消息，合并转发仅支持群聊
-        group_id = PluginHelpers.get_group_id(event)
-
-        if group_id:
-            # 创建测试用的合并转发节点
-            nodes = []
-
-            # 标题节点
-            title_node = Node(
-                uin=event.get_sender_id(),
-                name="测试合并转发",
-                content=[Plain("这是合并转发测试消息")],
-            )
-            nodes.append(title_node)
-
-            # 内容节点1
-            content_node1 = Node(
-                uin=event.get_sender_id(),
-                name="测试节点1",
-                content=[Plain("这是第一个测试节点内容")],
-            )
-            nodes.append(content_node1)
-
-            # 内容节点2
-            content_node2 = Node(
-                uin=event.get_sender_id(),
-                name="测试节点2",
-                content=[Plain("这是第二个测试节点内容")],
-            )
-            nodes.append(content_node2)
-
-            # 使用Nodes包装所有节点，合并成一个合并转发消息
-            merge_forward_message = Nodes(nodes)
-            yield event.chain_result([merge_forward_message])
-            logger.info(f"测试合并转发功能，群聊 {group_id}")
-        else:
-            yield event.plain_result("合并转发功能仅支持群聊消息测试")
-            logger.info("私聊消息无法测试合并转发功能")
-
-    @filter.command("group_blacklist", alias={"群黑名单", "黑名单"})
-    async def manage_group_blacklist(self, event: AstrMessageEvent):
-        """管理群聊黑名单"""
-        # 解析命令参数
-        message_parts = event.message_str.strip().split()
-
-        # 如果没有参数，显示当前黑名单列表
-        if len(message_parts) <= 1:
-            if not self.group_blacklist:
-                yield event.plain_result("当前群聊黑名单为空")
-                return
-
-            blacklist_info = "**当前群聊黑名单**\n\n"
-            for i, group_id in enumerate(self.group_blacklist, 1):
-                blacklist_info += f"{i}. {group_id}\n"
-
-            blacklist_info += "\n使用 `/group_blacklist add <群号>` 添加群聊到黑名单"
-            blacklist_info += "\n使用 `/group_blacklist remove <群号>` 从黑名单移除群聊"
-            blacklist_info += "\n使用 `/group_blacklist clear` 清空黑名单"
-
-            yield event.plain_result(blacklist_info)
-            return
-
-        # 解析操作类型和参数
-        action = message_parts[1].lower() if len(message_parts) > 1 else ""
-        group_id = message_parts[2] if len(message_parts) > 2 else ""
-
-        # 添加群聊到黑名单
-        if action == "add" and group_id:
-            if group_id in self.group_blacklist:
-                yield event.plain_result(f"群聊 {group_id} 已在黑名单中")
-                return
-
-            self.group_blacklist.append(group_id)
-            self._save_group_blacklist()
-            yield event.plain_result(f"✅ 已添加群聊 {group_id} 到黑名单")
-
-        # 从黑名单移除群聊
-        elif action == "remove" and group_id:
-            if group_id not in self.group_blacklist:
-                yield event.plain_result(f"群聊 {group_id} 不在黑名单中")
-                return
-
-            self.group_blacklist.remove(group_id)
-            self._save_group_blacklist()
-            yield event.plain_result(f"✅ 已从黑名单移除群聊 {group_id}")
-
-        # 清空黑名单
-        elif action == "clear":
-            if not self.group_blacklist:
-                yield event.plain_result("黑名单已为空")
-                return
-
-            self.group_blacklist.clear()
-            self._save_group_blacklist()
-            yield event.plain_result("✅ 已清空群聊黑名单")
-
-        # 无效操作
-        else:
-            yield event.plain_result(
-                "无效的操作，请使用: add <群号>, remove <群号>, clear"
-            )
-
-    def _save_group_blacklist(self):
-        """保存群聊黑名单到配置文件"""
-        try:
-            # 将群聊列表转换为文本格式，每行一个群聊ID
-            group_text = "\n".join(self.group_blacklist)
-            # 保存到新配置格式路径：消息管理 > 群聊设置 > group_blacklist
-            msg_mgmt = self.config.setdefault("消息管理", {})
-            group_settings = msg_mgmt.setdefault("群聊设置", {})
-            group_settings["group_blacklist"] = group_text
-            # 同时更新旧格式路径以保持兼容性
-            old_group_settings = self.config.get("group_settings", {})
-            old_group_settings["group_blacklist"] = group_text
-            self.config["group_settings"] = old_group_settings
-            self.config.save_config()
-        except Exception as e:
-            logger.error(f"保存群聊黑名单失败: {e}")
-
-    @filter.permission_type(filter.PermissionType.ADMIN)
-    @filter.command("web_cache", alias={"网页缓存", "清理缓存"})
-    async def manage_cache(self, event: AstrMessageEvent):
-        """管理插件的网页分析结果缓存"""
-        # 解析命令参数
-        message_parts = event.message_str.strip().split()
-
-        # 如果没有参数，显示当前缓存状态
-        if len(message_parts) <= 1:
-            cache_stats = self.cache_manager.get_stats()
-            cache_info = "**当前缓存状态**\n\n"
-            cache_info += f"- 缓存总数: {cache_stats['total']} 个\n"
-            cache_info += f"- 有效缓存: {cache_stats['valid']} 个\n"
-            cache_info += f"- 过期缓存: {cache_stats['expired']} 个\n"
-            cache_info += f"- 缓存过期时间: {self.cache_expire_time_min} 分钟\n"
-            cache_info += f"- 最大缓存数量: {self.max_cache_size} 个\n"
-            cache_info += (
-                f"- 缓存功能: {'✅ 已启用' if self.enable_cache else '❌ 已禁用'}\n"
-            )
-
-            cache_info += "\n使用 `/web_cache clear` 清空所有缓存"
-
-            yield event.plain_result(cache_info)
-            return
-
-        # 解析操作类型
-        action = message_parts[1].lower()
-
-        # 清空缓存操作
-        if action == "clear":
-            # 清空所有缓存
-            self.cache_manager.clear()
-            cache_stats = self.cache_manager.get_stats()
-            yield event.plain_result(
-                f"✅ 已清空所有缓存，当前缓存数量: {cache_stats['total']} 个"
-            )
-
-        # 无效操作
-        else:
-            yield event.plain_result("无效的操作，请使用: clear")
-
-    @filter.permission_type(filter.PermissionType.ADMIN)
-    @filter.command("web_mode", alias={"分析模式", "网页分析模式"})
-    async def manage_analysis_mode(self, event: AstrMessageEvent):
-        """管理插件的网页分析模式"""
-        # 解析命令参数
-        message_parts = event.message_str.strip().split()
-
-        # 如果没有参数，显示当前模式
-        if len(message_parts) <= 1:
-            mode_names = {
-                "auto": "自动分析",
-                "manual": "手动分析",
-                "hybrid": "混合模式",
-            }
-            mode_info = "**当前分析模式**\n\n"
-            mode_info += f"- 模式: {mode_names.get(self.analysis_mode, self.analysis_mode)} ({self.analysis_mode})\n"
-            mode_info += (
-                f"- 自动分析: {'✅ 已启用' if self.auto_analyze else '❌ 已禁用'}\n\n"
-            )
-            mode_info += "使用 `/web_mode <模式>` 切换模式\n"
-            mode_info += "支持的模式: auto, manual, hybrid, LLMTOOL"
-
-            yield event.plain_result(mode_info)
-            return
-
-        # 解析模式参数
-        mode = message_parts[1].lower() if len(message_parts) > 1 else ""
-        valid_modes = ["auto", "manual", "hybrid", "LLMTOOL"]
-
-        # 验证模式是否有效
-        if mode not in valid_modes:
-            yield event.plain_result(f"无效的模式，请使用: {', '.join(valid_modes)}")
-            return
-
-        # 更新分析模式
-        self.analysis_mode = mode
-        self.auto_analyze = mode in ("auto", "hybrid", "LLMTOOL")
-
-        # 保存配置
-        try:
-            analysis_settings = self.config.get("analysis_settings", {})
-            analysis_settings["analysis_mode"] = mode
-            self.config["analysis_settings"] = analysis_settings
-            self.config.save_config()
-            logger.info(f"已保存分析模式配置: {mode}")
-        except Exception as e:
-            logger.error(f"保存分析模式配置失败: {e}")
-
-        yield event.plain_result(f"✅ 已切换到 {mode} 模式")
-
-    @filter.permission_type(filter.PermissionType.ADMIN)
-    @filter.command("web_browser", alias={"浏览器管理", "网页浏览器"})
-    async def manage_browser(self, event: AstrMessageEvent):
-        """管理系统浏览器
-
-        支持查看浏览器状态、清理旧版 Playwright 浏览器残留文件等操作。
-        """
-        # 解析命令参数
-        message_parts = event.message_str.strip().split()
-
-        # 如果没有参数，显示浏览器状态
-        if len(message_parts) <= 1:
-            status = await self.analyzer.get_browser_status()
-
-            status_text = "**浏览器状态信息**\n\n"
-            status_text += f"- 浏览器状态: {'✅ 已检测到' if status['installed'] else '❌ 未检测到'}\n"
-
-            if status["installed"]:
-                status_text += f"- 浏览器路径: {status['install_path']}\n"
-                status_text += f"- 浏览器类型: {status['browser_type']}\n"
-                if status.get("browser_version"):
-                    status_text += f"- 浏览器版本: {status['browser_version']}\n"
-
-            if status["install_dir_exists"]:
-                status_text += f"- 旧版 Playwright 残留文件: {status['install_dir_size_mb']} MB（可用 uninstall 清理）\n"
-
-            status_text += (
-                f"- 浏览器实例: {status['browser_instances']} 个"
-                f"（上限 {status['max_browser_instances']}，空闲池 {status['browser_pool_size']} 个）\n"
-            )
-
-            if status.get("skipped_browsers"):
-                status_text += (
-                    f"- ⚠️ {status['skipped_browsers']} 个浏览器启动失败被暂时跳过，"
-                    "约 10 分钟后自动重试\n"
-                )
-
-            status_text += (
-                "\n插件直接使用系统已安装的 Chrome / Edge / Chromium，无需额外下载"
-            )
-            status_text += (
-                "\n使用 `/web_browser uninstall` 清理旧版 Playwright 浏览器残留文件"
-            )
-
-            yield event.plain_result(status_text)
-            return
-
-        # 解析操作类型
-        action = message_parts[1].lower()
-
-        if action == "uninstall":
-            # 确认清理（需要用户在命令中明确指定 uninstall）
-            result = await self.analyzer.uninstall_browser()
-
-            if result["success"]:
-                msg = result["message"]
-                if result["detail"]:
-                    msg += f"\n{result['detail']}"
-                yield event.plain_result(msg)
-            else:
-                yield event.plain_result(f"❌ {result['message']}")
-            return
-
-        # 无效操作
-        yield event.plain_result(
-            "无效的操作，请使用: uninstall\n示例: /web_browser uninstall"
-        )
-
-    @filter.command("web_export", alias={"导出分析结果", "网页导出"})
-    async def export_analysis_result(self, event: AstrMessageEvent):
-        """导出网页分析结果"""
-
-        # 解析命令参数
-        message_parts = event.message_str.strip().split()
-
-        # 检查参数是否足够
-        if len(message_parts) < 2:
-            yield event.plain_result(
-                "请提供要导出的URL链接和格式，例如：/web_export https://example.com md 或 /web_export all json"
-            )
-            return
-
-        # 获取导出范围和格式
-        url_or_all = message_parts[1]
-        format_type = message_parts[2] if len(message_parts) > 2 else "md"
-
-        # 验证格式类型是否支持
-        supported_formats = ["md", "markdown", "json", "txt"]
-        if format_type.lower() not in supported_formats:
-            yield event.plain_result(
-                f"不支持的格式类型，请使用：{', '.join(supported_formats)}"
-            )
-            return
-
-        # 准备导出数据
-        export_results = []
-
-        if url_or_all.lower() == "all":
-            # 导出所有缓存的分析结果
-            if not self.cache_manager.memory_cache:
-                yield event.plain_result("当前没有缓存的分析结果")
-                return
-
-            for url, cache_data in self.cache_manager.memory_cache.items():
-                export_results.append({"url": url, "result": cache_data["result"]})
-        else:
-            # 导出指定URL的分析结果
-            url = url_or_all
-
-            # 检查URL格式是否有效
-            if not self.analyzer.is_valid_url(url):
-                yield event.plain_result("无效的URL链接")
-                return
-
-            # 检查缓存中是否已有该URL的分析结果
-            cached_result = self.message_handler.check_cache(url)
-            if cached_result:
-                export_results.append({"url": url, "result": cached_result})
-            else:
-                # 如果缓存中没有，先进行分析
-                yield event.plain_result("缓存中没有该URL的分析结果，正在进行分析...")
-
-                # 抓取并分析网页
-                async with self.analyzer as analyzer:
-                    html = await analyzer.fetch_webpage(url)
-                    if not html:
-                        yield event.plain_result(f"无法抓取网页内容: {url}")
-                        return
-
-                    content_data = analyzer.extract_content(html, url)
-                    if not content_data:
-                        yield event.plain_result(f"无法解析网页内容: {url}")
-                        return
-
-                    # 调用LLM进行分析
-                    if self.enable_translation:
-                        translated_content = await self._translate_content(
-                            event, content_data["content"]
-                        )
-                        translated_content_data = content_data.copy()
-                        translated_content_data["content"] = translated_content
-                        analysis_result = await self.llm_analyzer.analyze_with_llm(
-                            event, translated_content_data
-                        )
-                    else:
-                        analysis_result = await self.llm_analyzer.analyze_with_llm(
-                            event, content_data
-                        )
-
-                    # 提取特定内容（如果启用）
-                    if self.enable_specific_extraction:
-                        specific_content = analyzer.extract_specific_content(
-                            html, url, self.extract_types
-                        )
-                        if specific_content:
-                            # 在分析结果中添加特定内容
-                            analysis_result = self._add_specific_content_to_result(
-                                analysis_result, specific_content
-                            )
-
-                    # 准备导出数据
-                    export_results.append(
-                        {
-                            "url": url,
-                            "result": {
-                                "url": url,
-                                "result": analysis_result,
-                                "screenshot": None,
-                            },
-                        }
-                    )
-
-        # 执行导出操作
-        try:
-            # 使用 AstrBot 标准数据路径下的 plugin_data/astrbot_plugin_web_analyzer/exports
-            try:
-                from astrbot.core.utils.astrbot_path import get_astrbot_plugin_data_path
-                plugin_data_path = get_astrbot_plugin_data_path()
-            except ImportError:
-                # 兼容旧版本
-                from astrbot.core.utils.astrbot_path import get_astrbot_data_path
-                plugin_data_path = os.path.join(get_astrbot_data_path(), "plugin_data")
-            data_dir = os.path.join(plugin_data_path, "astrbot_plugin_web_analyzer", "exports")
-            os.makedirs(data_dir, exist_ok=True)
-
-            # 生成文件名
-            timestamp = int(time.time())
-            if len(export_results) == 1:
-                # 单个URL导出，使用域名作为文件名的一部分
-                url_obj = export_results[0]["url"]
-
-                parsed = urlparse(url_obj)
-                domain = parsed.netloc.replace(".", "_")
-                filename = f"web_analysis_{domain}_{timestamp}"
-            else:
-                # 多个URL导出
-                filename = f"web_analysis_all_{timestamp}"
-
-            # 确定文件扩展名
-            file_extension = format_type.lower()
-            if file_extension == "markdown":
-                file_extension = "md"
-
-            file_path = os.path.join(data_dir, f"{filename}.{file_extension}")
-
-            if format_type.lower() in ["md", "markdown"]:
-                # 生成Markdown格式内容
-                md_content = "# 网页分析结果导出\n\n"
-                md_content += f"导出时间: {time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(timestamp))}\n\n"
-                md_content += f"共 {len(export_results)} 个分析结果\n\n"
-                md_content += "---\n\n"
-
-                for i, export_item in enumerate(export_results, 1):
-                    url = export_item["url"]
-                    result_data = export_item["result"]
-
-                    md_content += f"## {i}. {url}\n\n"
-                    md_content += result_data["result"]
-                    md_content += "\n\n"
-                    md_content += "---\n\n"
-
-                # 写入文件
-                with open(file_path, "w", encoding="utf-8") as f:
-                    f.write(md_content)
-
-            elif format_type.lower() == "json":
-                # 生成JSON格式内容
-                json_data = {
-                    "export_time": timestamp,
-                    "export_time_str": time.strftime(
-                        "%Y-%m-%d %H:%M:%S", time.localtime(timestamp)
-                    ),
-                    "total_results": len(export_results),
-                    "results": [],
-                }
-
-                for export_item in export_results:
-                    url = export_item["url"]
-                    result_data = export_item["result"]
-
-                    json_data["results"].append(
-                        {
-                            "url": url,
-                            "analysis_result": result_data["result"],
-                            "has_screenshot": result_data["screenshot"] is not None,
-                        }
-                    )
-
-                # 写入文件
-                with open(file_path, "w", encoding="utf-8") as f:
-                    json.dump(json_data, f, ensure_ascii=False, indent=2)
-
-            elif format_type.lower() == "txt":
-                # 生成纯文本格式内容
-                txt_content = "网页分析结果导出\n"
-                txt_content += f"导出时间: {time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(timestamp))}\n"
-                txt_content += f"共 {len(export_results)} 个分析结果\n"
-                txt_content += "=" * 50 + "\n\n"
-
-                for i, export_item in enumerate(export_results, 1):
-                    url = export_item["url"]
-                    result_data = export_item["result"]
-
-                    txt_content += f"{i}. {url}\n"
-                    txt_content += "-" * 30 + "\n"
-                    txt_content += result_data["result"]
-                    txt_content += "\n\n"
-                    txt_content += "=" * 50 + "\n\n"
-
-                # 写入文件
-                with open(file_path, "w", encoding="utf-8") as f:
-                    f.write(txt_content)
-
-            # 发送导出成功消息，并附带导出文件
-            # 构建消息链
-            message_chain = [
-                Plain("✅ 分析结果导出成功！\n\n"),
-                Plain(f"导出格式: {format_type}\n"),
-                Plain(f"导出数量: {len(export_results)}\n\n"),
-                Plain("📁 导出文件：\n"),
-                File(file=file_path, name=os.path.basename(file_path)),
-            ]
-
-            yield event.chain_result(message_chain)
-
-            logger.info(
-                f"成功导出 {len(export_results)} 个分析结果到 {file_path}，并发送给用户"
-            )
-
-        except Exception as e:
-            logger.error(f"导出分析结果失败: {e}")
-            yield event.plain_result(f"❌ 导出分析结果失败: {str(e)}")
-
-    async def _translate_content(self, event: AstrMessageEvent, content: str) -> str:
-        """翻译网页内容
-
-        Args:
-            event: 消息事件对象
-            content: 要翻译的内容
-
-        Returns:
-            翻译后的内容
-        """
-        if not self.enable_translation:
-            return content
-
-        try:
-            # 检查LLM是否可用
-            if not hasattr(self.context, "llm_generate"):
-                logger.error("LLM不可用，无法进行翻译")
-                return content
-
-            # 优先使用配置的LLM提供商，如果没有配置则使用当前会话的模型
-            provider_id = self.translation_provider
-            if not provider_id or provider_id == "llm":
-                provider_id = self.llm_provider
-            if not provider_id:
-                umo = event.unified_msg_origin
-                provider_id = await self.context.get_current_chat_provider_id(umo=umo)
-
-            if not provider_id:
-                logger.error("无法获取LLM提供商ID，无法进行翻译")
-                return content
-
-            # 使用自定义翻译提示词或默认提示词
-            if self.custom_translation_prompt:
-                # 替换自定义提示词中的变量
-                # 对用户可控内容进行花括号转义，防止 format() 异常
-                safe_content = WebAnalyzerUtils.escape_format_braces(content)
-                prompt = self.custom_translation_prompt.format(
-                    content=safe_content, target_language=self.target_language
-                )
-            else:
-                # 默认翻译提示词
-                prompt = (
-                    f"请将以下内容翻译成{self.target_language}语言，"
-                    f"保持原文意思不变，语言流畅自然：\n\n{content}"
-                )
-
-            # 调用LLM进行翻译
-            llm_resp = await self.context.llm_generate(
-                chat_provider_id=provider_id, prompt=prompt
-            )
-
-            if llm_resp and llm_resp.completion_text:
-                return llm_resp.completion_text.strip()
-            else:
-                logger.error("LLM翻译返回为空")
-                return content
-        except Exception as e:
-            logger.error(f"翻译内容失败: {e}")
-            return content
-
-    def _add_specific_content_to_result(
-        self, analysis_result: str, specific_content: dict
-    ) -> str:
-        """将特定内容添加到分析结果中
-
-        Args:
-            analysis_result: 当前的分析结果
-            specific_content: 特定内容字典
-
-        Returns:
-            更新后的分析结果
-        """
-        try:
-            # 在分析结果中添加特定内容
-            specific_content_str = "\n\n**特定内容提取**\n"
-
-            # 添加图片链接（如果有）
-            if "images" in specific_content and specific_content["images"]:
-                specific_content_str += (
-                    f"\n📷 图片链接 ({len(specific_content['images'])}):\n"
-                )
-                for img in specific_content["images"]:
-                    img_url = img.get("url", "")
-                    alt_text = img.get("alt", "")
-                    if alt_text:
-                        specific_content_str += f"- {img_url} (alt: {alt_text})\n"
-                    else:
-                        specific_content_str += f"- {img_url}\n"
-
-            # 添加相关链接（如果有）
-            if "links" in specific_content and specific_content["links"]:
-                specific_content_str += (
-                    f"\n🔗 相关链接 ({len(specific_content['links'])}):\n"
-                )
-                for link in specific_content["links"][:5]:
-                    specific_content_str += f"- [{link['text']}]({link['url']})\n"
-
-            # 添加视频链接（如果有）
-            if "videos" in specific_content and specific_content["videos"]:
-                specific_content_str += (
-                    f"\n🎬 视频链接 ({len(specific_content['videos'])}):\n"
-                )
-                for video in specific_content["videos"]:
-                    video_url = video.get("url", "")
-                    video_type = video.get("type", "video")
-                    specific_content_str += f"- {video_url} (type: {video_type})\n"
-
-            # 添加音频链接（如果有）
-            if "audios" in specific_content and specific_content["audios"]:
-                specific_content_str += (
-                    f"\n🎵 音频链接 ({len(specific_content['audios'])}):\n"
-                )
-                for audio in specific_content["audios"]:
-                    specific_content_str += f"- {audio}\n"
-
-            # 添加引用块（如果有）
-            if "quotes" in specific_content and specific_content["quotes"]:
-                specific_content_str += (
-                    f"\n💬 引用块 ({len(specific_content['quotes'])}):\n"
-                )
-                for quote in specific_content["quotes"][:3]:
-                    quote_text = quote.get("text", "")
-                    author = quote.get("author", "")
-                    if author:
-                        specific_content_str += f"> {quote_text} — {author}\n\n"
-                    else:
-                        specific_content_str += f"> {quote_text}\n\n"
-
-            # 添加标题列表（如果有）
-            if "headings" in specific_content and specific_content["headings"]:
-                specific_content_str += (
-                    f"\n📑 标题列表 ({len(specific_content['headings'])}):\n"
-                )
-                for heading in specific_content["headings"]:
-                    level = heading.get("level", 1)
-                    text = heading.get("text", "")
-                    heading_id = heading.get("id", "")
-                    indent = "  " * (level - 1)
-                    if heading_id:
-                        specific_content_str += (
-                            f"{indent}#{level} {text} (id: {heading_id})\n"
-                        )
-                    else:
-                        specific_content_str += f"{indent}#{level} {text}\n"
-
-            # 添加代码块（如果有）
-            if "code_blocks" in specific_content and specific_content["code_blocks"]:
-                specific_content_str += (
-                    f"\n💻 代码块 ({len(specific_content['code_blocks'])}):\n"
-                )
-                for code_block in specific_content["code_blocks"][:2]:
-                    code = code_block.get("code", "")
-                    language = code_block.get("language", "")
-                    specific_content_str += f"``` {language}\n{code}\n```\n"
-
-            # 添加表格（如果有）
-            if "tables" in specific_content and specific_content["tables"]:
-                specific_content_str += (
-                    f"\n📊 表格 ({len(specific_content['tables'])}):\n"
-                )
-                for table in specific_content["tables"][:2]:
-                    headers = table.get("headers", [])
-                    rows = table.get("rows", [])
-                    specific_content_str += "\n表格:\n"
-                    if headers:
-                        specific_content_str += (
-                            f"| {' | '.join(headers)} |\n"
-                            f"| {' | '.join(['---' for _ in headers])} |\n"
-                        )
-                    for row in rows:
-                        specific_content_str += f"| {' | '.join(row)} |\n"
-
-            # 添加列表（如果有）
-            if "lists" in specific_content and specific_content["lists"]:
-                specific_content_str += (
-                    f"\n📋 列表 ({len(specific_content['lists'])}):\n"
-                )
-                for list_item in specific_content["lists"][:2]:
-                    list_type = list_item.get("type", "ul")
-                    items = list_item.get("items", [])
-                    specific_content_str += f"\n列表 ({list_type}):\n"
-                    for item in items:
-                        if list_type == "ol":
-                            specific_content_str += f"1. {item}\n"
-                        else:
-                            specific_content_str += f"- {item}\n"
-
-            # 添加元信息（如果有）
-            if "meta" in specific_content and specific_content["meta"]:
-                meta_info = specific_content["meta"]
-                specific_content_str += "\n📋 元信息:\n"
-                for key, value in meta_info.items():
-                    if value:
-                        specific_content_str += f"- {key}: {value}\n"
-
-            # 将特定内容添加到分析结果中
-            return analysis_result + specific_content_str
-        except Exception as e:
-            logger.warning(f"添加特定内容失败: {e}")
-            return analysis_result
-
-    async def _batch_process_urls(
-        self,
-        event: AstrMessageEvent,
-        urls: list,
-        processing_message_id: int,
-        bot: Any,
-    ):
-        """批量处理多个URL"""
-        results = []
-
-        for url in urls:
-            try:
-                # 标记URL正在处理中
-                self.processing_urls.add(url)
-
-                # 使用消息处理器处理单个URL
-                result = await self.message_handler.process_single_url(
-                    event=event,
-                    url=url,
-                    analyzer=self.analyzer,
-                    llm_analyzer=self.llm_analyzer if self.llm_enabled else None,
-                    enable_translation=self.enable_translation,
-                    enable_specific_extraction=self.enable_specific_extraction,
-                    extract_types=self.extract_types,
-                    result_formatter=self.result_formatter,
-                    translate_content=self._translate_content,
-                )
-                results.append(result)
-
-            except Exception as e:
-                error_type = PluginHelpers.get_error_type(e)
-                error_msg = PluginHelpers.handle_error(error_type, e, url)
-                results.append(
-                    {
-                        "url": url,
-                        "result": error_msg,
-                        "screenshot": None,
-                        "has_screenshot": False,
-                    }
-                )
-            finally:
-                # 确保在任何情况下都从处理中集合移除URL
-                self.processing_urls.discard(url)
-
-        # 发送所有分析结果
-        if results:
-            async for result in self.message_handler.send_analysis_result(
-                event, results
-            ):
+            async for result in self._run_and_deliver(event, urls):
                 yield result
 
-        # 撤回处理消息
-        if self.enable_recall and processing_message_id and bot:
-            await MessageHelpers.recall_processing_message(
-                event,
-                processing_message_id,
-                bot,
-                self.recall_time_s,
-                self.recall_type,
-                self.smart_recall_enabled,
-            )
+    # ==================== 助手工具 ====================
 
-    async def _send_with_retry(self, event: AstrMessageEvent, send_func, *args, **kwargs):
-        """使用重试机制发送消息（仅用于 context.send_message 等直接发送 API）
+    @filter.llm_tool(name="capture_webpage")
+    async def capture_webpage_tool(self, event: AstrMessageEvent, urls):
+        """截取一个或多个网页，把截图原图发送到当前会话，并返回每个链接的结果。
 
         Args:
-            event: 消息事件对象
-            send_func: 发送函数（如 self.context.send_message）
-            *args: 发送函数的位置参数
-            **kwargs: 发送函数的关键字参数
-
-        Returns:
-            发送结果
-
-        Raises:
-            最后一次重试的异常
+            urls(array[string]): 要截图的网页URL列表。
         """
-        last_exception = None
-        for attempt in range(self.send_retry_count + 1):
+        if not isinstance(urls, list):
+            urls = [urls]
+        urls = [str(u).strip().strip("`") for u in urls if str(u).strip()]
+        urls = list(dict.fromkeys(urls))[:MAX_TOOL_URLS]
+        if not urls:
+            return "没有提供有效的网页链接。"
+
+        # 与自动识别和命令共用同一套校验：格式、SSRF 防护与访问规则
+        s = self._settings
+        checked = []
+        rejected = []
+        for url in urls:
+            if is_valid_url(url, s["allow_local_addresses"]) and is_domain_allowed(
+                url, s["allowed_domains"], s["blocked_domains"]
+            ):
+                checked.append(url)
+            else:
+                rejected.append(url)
+
+        outcomes = []
+        if checked:
+            outcomes = await self.pipeline.capture_batch(
+                checked, self.capture_settings()
+            )
+        async for _ in self._deliver(event, outcomes, send_directly=True):
+            pass
+
+        lines = []
+        for index, outcome in enumerate(outcomes, 1):
+            if outcome.ok:
+                title = f"（{outcome.title}）" if outcome.title else ""
+                lines.append(f"{index}. {outcome.url} — 截图已发送{title}")
+            else:
+                reason = outcome.error.splitlines()[0] if outcome.error else "未知错误"
+                lines.append(f"{index}. {outcome.url} — 失败：{reason}")
+        for url in rejected:
+            lines.append(f"- {url} — 已拒绝：格式无效或不在允许访问的域名内")
+        return "\n".join(lines) if lines else "没有可处理的网页链接。"
+
+    @filter.llm_tool(name="get_webpage_content")
+    async def get_webpage_content_tool(self, event: AstrMessageEvent, url: str) -> str:
+        """读取网页的最终地址、标题和可读正文。适用于需要了解网页文字内容的场景。
+
+        Args:
+            url(string): 要读取的网页URL地址，支持http和https协议。
+        """
+        url = str(url).strip().strip("`")
+        try:
+            result = await self.content_fetcher.fetch(url)
+        except FetchError as e:
+            logger.info(f"正文抓取失败: {url}: {e}")
+            return f"读取失败：{e}"
+        except Exception as e:
+            logger.warning(f"正文抓取异常: {url}: {e}")
+            return f"读取失败：{e}"
+        return ContentFetcher.format_tool_result(
+            result, max_chars=self._settings["max_content_length"]
+        )
+
+    # ==================== 截图与交付 ====================
+
+    def _collect_urls(self, message_text: str) -> list[str]:
+        """从文本提取并按访问规则过滤 URL。"""
+        s = self._settings
+        raw_urls = extract_urls(
+            message_text, s["enable_no_protocol_url"], s["default_protocol"]
+        )
+        if not raw_urls:
+            return []
+        return self.pipeline.filter_urls(
+            raw_urls,
+            s["allowed_domains"],
+            s["blocked_domains"],
+            s["enable_unified_domain"],
+            s["allow_local_addresses"],
+        )
+
+    def _get_group_id(self, event: AstrMessageEvent) -> str | None:
+        """从事件读取群聊 ID（可能为 None）。"""
+        group_id = None
+        if hasattr(event, "get_group_id"):
             try:
-                return await send_func(*args, **kwargs)
-            except Exception as e:
-                last_exception = e
-                if attempt < self.send_retry_count:
-                    logger.warning(
-                        f"发送失败，将在 {self.send_retry_delay_s} 秒后重试 "
-                        f"({attempt + 1}/{self.send_retry_count + 1}): {e}"
-                    )
-                    await asyncio.sleep(self.send_retry_delay_s)
+                group_id = event.get_group_id() or None
+            except Exception:
+                group_id = None
+        return group_id
+
+    def _is_group_blocked(self, event: AstrMessageEvent) -> str | None:
+        """群聊在黑名单中时返回群 ID。"""
+        group_id = self._get_group_id(event)
+        if group_id and group_id in self._settings["group_blacklist"]:
+            return group_id
+        return None
+
+    async def _run_and_deliver(
+        self,
+        event: AstrMessageEvent,
+        urls: list[str],
+        send_directly: bool = False,
+    ):
+        """发送提示消息、批量截图并交付结果。
+
+        Args:
+            send_directly: True 时通过 context.send_message 直接发送
+               （自动识别且允许继续交给会话模型的场景），不产生 yield。
+
+        Yields:
+            需要通过 handler 返回的消息结果。
+        """
+        s = self._settings
+        if len(urls) == 1:
+            tip = f"正在截图: {urls[0]}"
+        else:
+            tip = f"正在截图 {len(urls)} 个网页链接..."
+        processing_id, bot = await MessageHelpers.send_processing_message(
+            event,
+            tip,
+            s["enable_processing_message"],
+            s["enable_recall"],
+            s["recall_type"],
+            s["recall_time_s"],
+            s["smart_recall_enabled"],
+            self.recall_tasks,
+        )
+
+        outcomes = await self.pipeline.capture_batch(urls, self.capture_settings())
+        if send_directly:
+            async for _ in self._deliver(event, outcomes, send_directly=True):
+                pass
+        else:
+            async for result in self._deliver(event, outcomes):
+                yield result
+        # smart 撤回模式在结果发出后撤回提示消息
+        if processing_id and bot and s["recall_type"] == "smart":
+            asyncio.create_task(
+                MessageHelpers.recall_processing_message(
+                    event,
+                    processing_id,
+                    bot,
+                    s["recall_type"],
+                    s["smart_recall_enabled"],
+                    s["recall_time_s"],
+                )
+            )
+
+    async def _deliver(
+        self,
+        event: AstrMessageEvent,
+        outcomes: list[CaptureOutcome],
+        send_directly: bool = False,
+    ):
+        """把截图结果发送到会话。
+
+        支持交互视图的平台发送结果卡片（来源链接 + 缩略图），
+        原图始终通过图片附件交付；其他平台发送常规图片消息。
+
+        Yields:
+            消息结果（send_directly 为 True 时不 yield）。
+        """
+        card_items = []
+        for outcome in outcomes:
+            if not outcome.ok:
+                message = event.plain_result(outcome.error or "截图失败，请稍后重试。")
+                if send_directly:
+                    await self.context.send_message(event.unified_msg_origin, message)
                 else:
-                    logger.error(
-                        f"发送失败，已重试 {self.send_retry_count} 次: {e}"
-                    )
-        raise last_exception
+                    yield message
+                continue
 
-    # ==================== Dashboard Web API ====================
+            image = event.chain_result([Image.fromBytes(outcome.screenshot)])
+            if send_directly:
+                await self.context.send_message(event.unified_msg_origin, image)
+            else:
+                yield image
 
-    PLUGIN_NAME = "astrbot_plugin_web_analyzer"
+            if outcome.thumbnail is not None and len(card_items) < MAX_CARD_THUMBNAILS:
+                card_items.append(
+                    {
+                        "url": outcome.url,
+                        "final_url": outcome.final_url or outcome.url,
+                        "title": outcome.title or outcome.url,
+                        "thumb": "data:image/jpeg;base64,"
+                        + base64.b64encode(outcome.thumbnail).decode(),
+                    }
+                )
 
-    # schema 键名到实例属性名的映射
-    _SCHEMA_KEY_TO_ATTR = {
-        "group": "merge_forward_group",
-        "private": "merge_forward_private",
-        "include_screenshot": "merge_forward_include_screenshot",
-    }
+        if card_items and self._supports_interactive_view(event):
+            view = self._build_view_result(event, card_items)
+            if view is not None:
+                if send_directly:
+                    await self._emit_view(event, view)
+                else:
+                    yield view
 
-    def _register_dashboard_api(self, context: Context):
-        """注册 Dashboard 管理面板的 Web API 路由"""
-        prefix = f"/{self.PLUGIN_NAME}/dashboard"
+    async def _emit_view(self, event: AstrMessageEvent, view):
+        """在直接发送路径上通过宿主 emit_view 发出交互卡片。
+
+        ViewResult 不是消息链，不能交给 context.send_message（平台适配器
+        只接受 MessageChain）；emit_view 是宿主管线发送卡片的同一通道。
+        失败时静默跳过卡片——原图已通过图片附件送达。
+        """
+        try:
+            from astrbot.core.chatui import emit_view
+
+            await emit_view(event, __name__, view)
+        except Exception as e:
+            logger.debug(f"发送截图结果卡片失败（原图已发送，跳过卡片）: {e}")
+
+    def _supports_interactive_view(self, event: AstrMessageEvent) -> bool:
+        """平台声明支持交互视图且宿主提供 view_result 时返回 True。"""
+        if not hasattr(event, "view_result"):
+            return False
+        meta = getattr(event, "platform_meta", None)
+        return bool(getattr(meta, "support_ui_interaction", False))
+
+    def _build_view_result(self, event: AstrMessageEvent, card_items: list):
+        """构造截图结果卡片；宿主不支持时返回 None。"""
+        try:
+            return event.view_result(
+                name="screenshot_card",
+                data={"items": card_items},
+                text="网页截图结果：" + "；".join(item["url"] for item in card_items),
+            )
+        except Exception as e:
+            logger.debug(f"构造截图结果卡片失败，回退为普通消息: {e}")
+            return None
+
+    # ==================== Web API（只读 + 缓存管理） ====================
+
+    def _register_web_api(self, context: Context):
+        """注册管理面板的 Web API 路由。"""
+        if self._web_api_registered:
+            return
+        self._web_api_registered = True
+        prefix = f"/{PLUGIN_NAME}/dashboard"
         routes = [
             (f"{prefix}/overview", self._api_overview, ["GET"]),
             (f"{prefix}/cache", self._api_cache, ["GET"]),
             (f"{prefix}/cache/clear", self._api_cache_clear, ["POST"]),
             (f"{prefix}/cache/delete", self._api_cache_delete, ["POST"]),
-            (f"{prefix}/domains", self._api_domains, ["GET"]),
-            (f"{prefix}/domains/add", self._api_domains_add, ["POST"]),
-            (f"{prefix}/domains/remove", self._api_domains_remove, ["POST"]),
-            (f"{prefix}/domains/toggle_unified", self._api_domains_toggle, ["POST"]),
-            (f"{prefix}/groups", self._api_groups, ["GET"]),
-            (f"{prefix}/groups/add", self._api_groups_add, ["POST"]),
-            (f"{prefix}/groups/remove", self._api_groups_remove, ["POST"]),
-            (f"{prefix}/config", self._api_config, ["GET"]),
-            (f"{prefix}/config/schema", self._api_config_schema, ["GET"]),
-            (f"{prefix}/config/update", self._api_config_update, ["POST"]),
+            (f"{prefix}/cache/preview", self._api_cache_preview, ["GET"]),
+            (f"{prefix}/rules", self._api_rules, ["GET"]),
             (f"{prefix}/browser", self._api_browser, ["GET"]),
-            (f"{prefix}/browser/uninstall", self._api_browser_uninstall, ["POST"]),
+            (f"{prefix}/browser/recheck", self._api_browser_recheck, ["POST"]),
+            (f"{prefix}/browser/cleanup", self._api_browser_cleanup, ["POST"]),
         ]
         for path, handler, methods in routes:
             context.register_web_api(
-                path, handler, methods, f"Dashboard: {path.split('/')[-1]}"
+                path, handler, methods, f"Dashboard: {path.rsplit('/', 1)[-1]}"
             )
 
     async def _api_overview(self):
-        """Dashboard 概览数据"""
-        from astrbot.api.web import json_response as jsonify
+        """管理面板概览：缓存统计、自动截图与浏览器状态摘要。"""
+        from astrbot.api.web import json_response
 
-        cache_stats = self.cache_manager.get_stats()
-        return jsonify(
+        s = self._settings
+        return json_response(
             {
-                "cache_stats": cache_stats,
-                "analysis_mode": self.analysis_mode,
-                "auto_analyze": self.auto_analyze,
-                "llm_enabled": self.llm_enabled,
-                "enable_screenshot": self.enable_screenshot,
-                "enable_cache": self.enable_cache,
-                "enable_translation": getattr(self, "enable_translation", False),
-                "enable_emoji": self.enable_emoji,
-                "enable_statistics": self.enable_statistics,
-                "enable_specific_extraction": getattr(
-                    self, "enable_specific_extraction", False
-                ),
-                "enable_llm_decision": getattr(self, "enable_llm_decision", False),
-                "enable_recall": self.enable_recall,
-                "enable_memory_monitor": self.enable_memory_monitor,
-                "fetch_mode": self.fetch_mode,
-                "max_concurrency": self.max_concurrency,
+                "cache_stats": self.cache.get_stats(),
+                "auto_capture": s["auto_capture"],
+                "handoff_to_model": s["handoff_to_model"],
+                "screenshot": {
+                    "width": s["screenshot_width"],
+                    "height": s["screenshot_height"],
+                    "full_page": s["screenshot_full_page"],
+                    "format": s["screenshot_format"],
+                    "quality": s["screenshot_quality"],
+                    "wait_strategy": s["screenshot_wait_strategy"],
+                    "wait_ms": s["screenshot_wait_ms"],
+                    "crop_enabled": s["enable_crop"],
+                },
+                "max_concurrency": s["max_concurrency"],
             }
         )
 
     async def _api_cache(self):
-        """Dashboard 缓存列表"""
-        import time as _time
+        """缓存列表，支持按 URL 搜索。"""
+        from astrbot.api.web import json_response, request
 
-        from astrbot.api.web import json_response as jsonify
-
-        stats = self.cache_manager.get_stats()
-        items = []
-        for url, cache_data in self.cache_manager.memory_cache.items():
-            result = cache_data.get("result", {})
-            has_screenshot = isinstance(result, dict) and result.get(
-                "has_screenshot", False
-            )
-            items.append(
-                {
-                    "url": url,
-                    "timestamp": cache_data.get("timestamp", 0),
-                    "expired": _time.time() - cache_data.get("timestamp", 0)
-                    >= self.cache_manager.expire_time,
-                    "has_screenshot": has_screenshot,
-                }
-            )
-        items.sort(key=lambda x: x.get("timestamp", 0), reverse=True)
-        return jsonify({"stats": stats, "items": items})
+        query = request.query.get("query", "").strip()
+        items = self.cache.list_entries(query)
+        return json_response({"stats": self.cache.get_stats(), "items": items})
 
     async def _api_cache_clear(self):
-        """清空所有缓存"""
-        from astrbot.api.web import json_response as jsonify
+        """清空全部缓存。"""
+        from astrbot.api.web import json_response
 
-        self.cache_manager.clear()
-        stats = self.cache_manager.get_stats()
-        return jsonify(
-            {
-                "message": f"已清空所有缓存，当前缓存数量: {stats['total']} 个",
-                "stats": stats,
-            }
+        self.cache.clear()
+        return json_response(
+            {"message": "已清空所有截图缓存", "stats": self.cache.get_stats()}
         )
 
     async def _api_cache_delete(self):
-        """删除指定 URL 的缓存"""
-        from astrbot.api.web import json_response as jsonify
-        from astrbot.api.web import request
-
-        data = await request.json(default={})
-        if not isinstance(data, dict):
-            return jsonify({"error": "请求必须为 JSON 对象"}, status_code=400)
-        url = data.get("url", "")
-        if not url:
-            return jsonify({"error": "缺少 url 参数"}, status_code=400)
-        self.cache_manager.delete(url)
-        return jsonify({"message": f"已删除缓存: {url}"})
-
-    async def _api_domains(self):
-        """获取域名管理配置"""
-        from astrbot.api.web import json_response as jsonify
-
-        return jsonify(
-            {
-                "enable_unified_domain": self.enable_unified_domain,
-                "allowed_domains": list(self.allowed_domains),
-                "blocked_domains": list(self.blocked_domains),
-            }
-        )
-
-    async def _api_domains_add(self):
-        """添加域名"""
-        from astrbot.api.web import json_response as jsonify
-        from astrbot.api.web import request
-
-        data = await request.json(default={})
-        if not isinstance(data, dict):
-            return jsonify({"error": "请求必须为 JSON 对象"}, status_code=400)
-        domain_type = data.get("type", "")
-        value = data.get("value", "")
-        if not isinstance(value, str):
-            return jsonify({"error": "域名必须为文本"}, status_code=400)
-        value = value.strip()
-        if not value or domain_type not in ("allowed", "blocked"):
-            return jsonify({"error": "参数无效"}, status_code=400)
-
-        path = "基础设置.域名管理." + (
-            "allowed_domains" if domain_type == "allowed" else "blocked_domains"
-        )
-        domains = list(
-            self.allowed_domains if domain_type == "allowed" else self.blocked_domains
-        )
-        if value not in domains:
-            domains.append(value)
-        payload, status = await self._update_dashboard_config(
-            {path: "\n".join(domains)}
-        )
-        return jsonify(payload, status_code=status)
-
-    async def _api_domains_remove(self):
-        """移除域名"""
-        from astrbot.api.web import json_response as jsonify
-        from astrbot.api.web import request
-
-        data = await request.json(default={})
-        if not isinstance(data, dict):
-            return jsonify({"error": "请求必须为 JSON 对象"}, status_code=400)
-        domain_type = data.get("type", "")
-        value = data.get("value", "")
-        if not isinstance(value, str):
-            return jsonify({"error": "域名必须为文本"}, status_code=400)
-        value = value.strip()
-        if not value or domain_type not in ("allowed", "blocked"):
-            return jsonify({"error": "参数无效"}, status_code=400)
-
-        path = "基础设置.域名管理." + (
-            "allowed_domains" if domain_type == "allowed" else "blocked_domains"
-        )
-        domains = list(
-            self.allowed_domains if domain_type == "allowed" else self.blocked_domains
-        )
-        if value in domains:
-            domains.remove(value)
-        payload, status = await self._update_dashboard_config(
-            {path: "\n".join(domains)}
-        )
-        return jsonify(payload, status_code=status)
-
-    async def _api_domains_toggle(self):
-        """切换域名统一处理"""
-        from astrbot.api.web import json_response as jsonify
-        from astrbot.api.web import request
-
-        data = await request.json(default={})
-        if not isinstance(data, dict):
-            return jsonify({"error": "请求必须为 JSON 对象"}, status_code=400)
-        enabled = data.get("enabled")
-        payload, status = await self._update_dashboard_config(
-            {"基础设置.域名管理.enable_unified_domain": enabled}
-        )
-        return jsonify(payload, status_code=status)
-
-    def _save_domain_config(self):
-        """保存域名配置到配置文件"""
-        try:
-            base = self.config.setdefault("基础设置", {})
-            domain_config = base.setdefault("域名管理", {})
-            domain_config["enable_unified_domain"] = self.enable_unified_domain
-            domain_config["allowed_domains"] = "\n".join(self.allowed_domains)
-            domain_config["blocked_domains"] = "\n".join(self.blocked_domains)
-            self.config.save_config()
-        except Exception as e:
-            logger.error(f"保存域名配置失败: {e}")
-
-    async def _api_groups(self):
-        """获取群聊黑名单"""
-        from astrbot.api.web import json_response as jsonify
-
-        return jsonify({"group_blacklist": list(self.group_blacklist)})
-
-    async def _api_groups_add(self):
-        """添加群聊到黑名单"""
-        from astrbot.api.web import json_response as jsonify
-        from astrbot.api.web import request
-
-        data = await request.json(default={})
-        if not isinstance(data, dict):
-            return jsonify({"error": "请求必须为 JSON 对象"}, status_code=400)
-        group_id = data.get("group_id", "")
-        if not isinstance(group_id, str):
-            return jsonify({"error": "群号必须为文本"}, status_code=400)
-        group_id = group_id.strip()
-        if not group_id:
-            return jsonify({"error": "缺少 group_id 参数"}, status_code=400)
-        if group_id in self.group_blacklist:
-            return jsonify({"message": f"群聊 {group_id} 已在黑名单中"})
-        groups = list(self.group_blacklist)
-        groups.append(group_id)
-        payload, status = await self._update_dashboard_config(
-            {"消息管理.群聊设置.group_blacklist": "\n".join(groups)}
-        )
-        return jsonify(payload, status_code=status)
-
-    async def _api_groups_remove(self):
-        """从黑名单移除群聊"""
-        from astrbot.api.web import json_response as jsonify
-        from astrbot.api.web import request
-
-        data = await request.json(default={})
-        if not isinstance(data, dict):
-            return jsonify({"error": "请求必须为 JSON 对象"}, status_code=400)
-        group_id = data.get("group_id", "")
-        if not isinstance(group_id, str):
-            return jsonify({"error": "群号必须为文本"}, status_code=400)
-        group_id = group_id.strip()
-        if not group_id:
-            return jsonify({"error": "缺少 group_id 参数"}, status_code=400)
-        if group_id not in self.group_blacklist:
-            return jsonify({"message": f"群聊 {group_id} 不在黑名单中"})
-        groups = list(self.group_blacklist)
-        groups.remove(group_id)
-        payload, status = await self._update_dashboard_config(
-            {"消息管理.群聊设置.group_blacklist": "\n".join(groups)}
-        )
-        return jsonify(payload, status_code=status)
-
-    async def _api_config(self):
-        """获取插件配置信息"""
-        from astrbot.api.web import json_response as jsonify
-
-        return jsonify(
-            {
-                "network": {
-                    "max_content_length": self.max_content_length,
-                    "request_timeout_s": self.request_timeout_s,
-                    "retry_count": self.retry_count,
-                    "retry_delay_s": self.retry_delay_s,
-                    "user_agent": self.user_agent,
-                    "proxy": "已配置" if self.proxy else "未配置",
-                    "hide_ip": self.hide_ip,
-                    "max_concurrency": self.max_concurrency,
-                    "fetch_mode": self.fetch_mode,
-                },
-                "analysis": {
-                    "analysis_mode": self.analysis_mode,
-                    "llmtool_url_strategy": getattr(
-                        self, "llmtool_url_strategy", "auto_analyze"
-                    ),
-                    "max_summary_length": self.max_summary_length,
-                    "enable_emoji": self.enable_emoji,
-                    "enable_statistics": self.enable_statistics,
-                    "enable_specific_extraction": getattr(
-                        self, "enable_specific_extraction", False
-                    ),
-                },
-                "display": {
-                    "send_content_type": self.send_content_type,
-                    "result_template": getattr(self, "result_template", "default"),
-                    "enable_screenshot": self.enable_screenshot,
-                    "screenshot_quality": self.screenshot_quality,
-                    "screenshot_width": self.screenshot_width,
-                    "screenshot_height": self.screenshot_height,
-                    "screenshot_format": self.screenshot_format,
-                    "screenshot_full_page": self.screenshot_full_page,
-                    "screenshot_wait_ms": self.screenshot_wait_ms,
-                    "screenshot_wait_strategy": self.screenshot_wait_strategy,
-                    "enable_crop": self.enable_crop,
-                },
-                "llm": {
-                    "llm_enabled": self.llm_enabled,
-                    "enable_llm_decision": getattr(self, "enable_llm_decision", False),
-                    "enable_translation": getattr(self, "enable_translation", False),
-                    "target_language": getattr(self, "target_language", "zh"),
-                },
-                "message": {
-                    "merge_forward_group": self.merge_forward_group,
-                    "merge_forward_private": self.merge_forward_private,
-                    "enable_recall": self.enable_recall,
-                    "recall_type": self.recall_type,
-                    "recall_time_s": self.recall_time_s,
-                    "allow_llm_propagation": self.allow_llm_propagation,
-                },
-                "cache": {
-                    "enable_cache": self.enable_cache,
-                    "cache_expire_time_min": self.cache_expire_time_min,
-                    "max_cache_size": self.max_cache_size,
-                    "cache_preload_enabled": self.cache_preload_enabled,
-                },
-            }
-        )
-
-    def _load_schema(self) -> dict:
-        """Read the bundled configuration schema once per plugin instance.
-
-        Returns:
-            The cached AstrBot schema definition.
-        """
-        if self._cached_schema is None:
-            schema_path = Path(__file__).with_name("_conf_schema.json")
-            self._cached_schema = json.loads(schema_path.read_text(encoding="utf-8"))
-        return self._cached_schema
-
-    async def _api_config_schema(self):
-        """获取配置 schema 及当前值，用于编辑表单"""
-
-        from astrbot.api.web import json_response
-
-        schema = self._load_schema()
-
-        groups = []
-        for group_name, group_data in schema.items():
-            if group_data.get("type") != "object":
-                continue
-            group = {
-                "name": group_name,
-                "description": group_data.get("description", ""),
-                "hint": group_data.get("hint", ""),
-                "sections": [],
-            }
-
-            items = group_data.get("items", {})
-            direct_fields = []
-
-            for item_name, item_data in items.items():
-                if item_data.get("type") == "object":
-                    section = {
-                        "name": item_name,
-                        "description": item_data.get("description", ""),
-                        "hint": item_data.get("hint", ""),
-                        "fields": [],
-                    }
-                    self._collect_schema_fields(
-                        section["fields"],
-                        item_data.get("items", {}),
-                        [group_name, item_name],
-                    )
-                    group["sections"].append(section)
-                else:
-                    field = self._build_config_field(item_name, item_data, [group_name])
-                    if field:
-                        direct_fields.append(field)
-
-            if direct_fields:
-                group["sections"].insert(
-                    0,
-                    {
-                        "name": group_name,
-                        "description": group_data.get("description", ""),
-                        "fields": direct_fields,
-                    },
-                )
-
-            groups.append(group)
-
-        return json_response({"groups": groups})
-
-    def _collect_schema_fields(self, fields_list, items, path):
-        """递归收集 schema 中的配置字段"""
-        for item_name, item_data in items.items():
-            if item_data.get("type") == "object":
-                self._collect_schema_fields(
-                    fields_list,
-                    item_data.get("items", {}),
-                    path + [item_name],
-                )
-            else:
-                field = self._build_config_field(item_name, item_data, path)
-                if field:
-                    fields_list.append(field)
-
-    def _schema_value(self, path_parts, schema_item):
-        """Read a saved schema field, falling back to its declared default.
-
-        Args:
-            path_parts: Configuration keys from the root to the field.
-            schema_item: Field definition from the plugin schema.
-
-        Returns:
-            The saved value or the field default.
-        """
-        value = ConfigLoader._apply_compatibility_mapping(self.config)
-        for part in path_parts:
-            if not isinstance(value, dict) or part not in value:
-                return schema_item.get("default", "")
-            value = value[part]
-        return value
-
-    def _build_config_field(self, name, schema_item, path):
-        """Build an editable field without exposing stored credentials.
-
-        Args:
-            name: Field key.
-            schema_item: AstrBot configuration field definition.
-            path: Parent configuration keys.
-
-        Returns:
-            A JSON-serializable field descriptor.
-        """
-        current_value = self._schema_value(path + [name], schema_item)
-        secret = bool(schema_item.get("secret"))
-        field = {
-            "key": name,
-            "path": ".".join(path + [name]),
-            "label": schema_item.get("description", name),
-            "hint": schema_item.get("hint", ""),
-            "type": schema_item.get("type", "string"),
-            "value": "" if secret else current_value,
-        }
-        if secret:
-            field["has_value"] = bool(current_value)
-        elif isinstance(current_value, list):
-            field["value"] = "\n".join(str(value) for value in current_value)
-        for key in (
-            "minimum",
-            "maximum",
-            "default",
-            "options",
-            "labels",
-            "subtitles",
-            "secret",
-            "slider",
-        ):
-            if key in schema_item:
-                field[key] = schema_item[key]
-        if "_special" in schema_item:
-            field["special"] = schema_item["_special"]
-        return field
-
-    async def _api_config_update(self):
-        """Save and immediately apply a validated dashboard configuration batch.
-
-        Returns:
-            A JSON response with saved paths or validation errors.
-        """
+        """删除一条缓存。"""
         from astrbot.api.web import json_response, request
 
         data = await request.json(default={})
-        if not isinstance(data, dict) or not isinstance(data.get("updates"), dict):
-            return json_response({"error": "请求必须包含配置更新对象"}, status_code=400)
-        result, status = await self._update_dashboard_config(data["updates"])
-        return json_response(result, status_code=status)
+        if not isinstance(data, dict):
+            return json_response({"error": "请求必须为 JSON 对象"}, status_code=400)
+        key = str(data.get("id", "")).strip()
+        if not key:
+            return json_response({"error": "缺少 id 参数"}, status_code=400)
+        self.cache.delete(key)
+        return json_response({"message": "已删除缓存"})
 
-    async def _update_dashboard_config(self, updates):
-        """Validate a batch and keep saved and live settings in sync.
+    async def _api_cache_preview(self):
+        """返回缓存截图的 data URL，供面板预览。"""
+        import base64
 
-        Args:
-            updates: Full schema paths mapped to their new values.
+        from astrbot.api.web import json_response, request
 
-        Returns:
-            A response payload and HTTP status code. Invalid batches are not saved.
-        """
-        if not updates:
-            return {"error": "没有需要更新的配置项"}, 400
-        async with self._config_update_lock:
-            fields = self._load_schema_field_map()
-            if not fields:
-                return {"error": "无法加载配置定义"}, 500
-            old_config = copy.deepcopy(dict(self.config))
-            candidate = ConfigLoader._apply_compatibility_mapping(
-                copy.deepcopy(old_config)
-            )
-            errors = []
-            values = {}
-            for path, value in updates.items():
-                if not isinstance(path, str) or path not in fields:
-                    errors.append({"path": str(path), "error": "未知配置路径"})
-                    continue
-                spec = fields[path]
-                try:
-                    field_type = spec["type"]
-                    if field_type == "bool":
-                        if type(value) is not bool:
-                            raise ValueError("必须为开关值")
-                    elif field_type == "int":
-                        if type(value) is not int:
-                            raise ValueError("必须为整数")
-                    elif field_type == "float":
-                        if type(value) not in (int, float) or not math.isfinite(value):
-                            raise ValueError("必须为有限数值")
-                        value = float(value)
-                    elif field_type in ("string", "text"):
-                        if not isinstance(value, str):
-                            raise ValueError("必须为文本")
-                    else:
-                        raise ValueError("不支持的配置类型")
-                    if self._validate_value_range(value, spec):
-                        raise ValueError("数值超出允许范围")
-                    if "options" in spec and value not in spec["options"]:
-                        raise ValueError("请选择列表中的选项")
-                    if path == "基础设置.网络设置.proxy" and value:
-                        value = value.strip()
-                        proxy = urlparse(value)
-                        if proxy.scheme not in ("http", "https") or not proxy.hostname:
-                            raise ValueError("请输入有效的 HTTP 或 HTTPS 代理地址")
-                        if proxy.port is not None and not 1 <= proxy.port <= 65535:
-                            raise ValueError("代理端口无效")
-                        if any(char.isspace() for char in value):
-                            raise ValueError("代理地址不能含空白字符")
-                    if path == "展示设置.网页截图.裁剪设置.crop_area":
-                        area = json.loads(value)
-                        if (
-                            not isinstance(area, list)
-                            or len(area) != 4
-                            or any(type(number) is not int for number in area)
-                            or min(area) < 0
-                            or area[2] <= area[0]
-                            or area[3] <= area[1]
-                        ):
-                            raise ValueError(
-                                "裁剪区域必须为有效的 [左, 上, 右, 下] 坐标"
-                            )
-                    node = candidate
-                    parts = path.split(".")
-                    for part in parts[:-1]:
-                        node = node.setdefault(part, {})
-                    node[parts[-1]] = value
-                    values[path] = value
-                except (TypeError, ValueError, OverflowError):
-                    # Do not echo a supplied value: it may contain credentials.
-                    errors.append(
-                        {"path": path, "error": "配置值的格式、类型或范围无效"}
-                    )
-            if errors:
-                return {
-                    "error": "配置未保存，请检查输入",
-                    "applied": 0,
-                    "errors": errors,
-                }, 400
-            try:
-                normalized = ConfigLoader.load_all_config(candidate, self.context)
-                previous = ConfigLoader.load_all_config(
-                    copy.deepcopy(old_config), self.context
-                )
-            except Exception:
-                return {"error": "无法读取配置，未保存修改"}, 400
-            self.config.clear()
-            self.config.update(candidate)
-            try:
-                self.config.save_config()
-            except Exception:
-                self.config.clear()
-                self.config.update(old_config)
-                return {"error": "保存配置文件失败，修改未生效"}, 500
-            try:
-                await self._apply_dashboard_runtime_config(normalized)
-            except (Exception, asyncio.CancelledError) as error:
-                self.config.clear()
-                self.config.update(old_config)
-                try:
-                    self.config.save_config()
-                    await asyncio.shield(self._apply_dashboard_runtime_config(previous))
-                except Exception:
-                    logger.error("Dashboard configuration rollback failed")
-                    if isinstance(error, asyncio.CancelledError):
-                        raise error
-                    return {
-                        "error": "配置应用失败且无法完整恢复，请检查日志并重载插件"
-                    }, 500
-                if isinstance(error, asyncio.CancelledError):
-                    raise error
-                logger.error(
-                    "Dashboard configuration update failed; previous settings restored"
-                )
-                return {"error": "配置未生效，已恢复原设置"}, 500
-            safe_values = {
-                path: value
-                for path, value in values.items()
-                if not fields[path].get("secret")
-            }
-            secret_fields = {
-                path: bool(value)
-                for path, value in values.items()
-                if fields[path].get("secret")
-            }
-            return {
-                "message": f"已保存并生效，共 {len(values)} 项",
-                "applied": len(values),
-                "applied_paths": list(values),
-                "values": safe_values,
-                "secret_fields": secret_fields,
-                "errors": [],
-            }, 200
-
-    async def _apply_dashboard_runtime_config(self, settings):
-        """Apply normalized settings to existing runtime components.
-
-        Args:
-            settings: Normalized values returned by ConfigLoader.
-        """
-        await self.analyzer.apply_runtime_config(settings)
-        self.message_handler.apply_runtime_config(settings)
-        self.cache_manager.apply_runtime_config(settings)
-        for name in (
-            "llm_enabled",
-            "llm_provider",
-            "custom_prompt",
-            "max_summary_length",
-            "enable_emoji",
-        ):
-            setattr(self.llm_analyzer, name, settings[name])
-        self.result_formatter.enable_emoji = settings["enable_emoji"]
-        self.result_formatter.enable_statistics = settings["enable_statistics"]
-        for name, value in settings.items():
-            setattr(self, name, value)
-
-    def _load_schema_field_map(self) -> dict:
-        """加载字段约束映射，用于范围和选项验证
-
-        Returns:
-            全路径到 schema 约束的字典 {path: {"minimum": ..., "maximum": ..., "options": [...]}}
-        """
+        key = request.query.get("id", "").strip()
+        if not key or not key.isalnum():
+            return json_response({"error": "无效的缓存 id"}, status_code=400)
+        path = self.cache.get_file_path(key)
+        if not path:
+            return json_response({"error": "截图不存在"}, status_code=404)
         try:
-            schema = self._load_schema()
-            field_map = {}
-            self._collect_schema_ranges(schema, field_map)
-            return field_map
-        except Exception as e:
-            logger.warning(f"加载 schema 字段映射失败: {e}")
-            return {}
+            with open(path, "rb") as f:
+                data = f.read()
+        except OSError:
+            return json_response({"error": "截图读取失败"}, status_code=500)
+        mime = "image/png" if data.startswith(b"\x89PNG") else "image/jpeg"
+        return json_response(
+            {"data_url": f"data:{mime};base64,{base64.b64encode(data).decode()}"}
+        )
 
-    def _collect_schema_ranges(
-        self, items: dict, field_map: dict, path: list | None = None
-    ):
-        """递归收集 schema 中的数值范围和选项约束，使用完整路径作为键"""
-        path = path or []
-        for key, item_data in items.items():
-            if not isinstance(item_data, dict):
-                continue
-            full_key = ".".join(path + [key])
-            if item_data.get("type") == "object":
-                self._collect_schema_ranges(
-                    item_data.get("items", {}), field_map, path + [key]
-                )
-            else:
-                field_map[full_key] = item_data
+    async def _api_rules(self):
+        """访问规则（生效配置，只读展示）。"""
+        from astrbot.api.web import json_response
 
-    @staticmethod
-    def _validate_value_range(value, schema_def: dict) -> str | None:
-        """验证数值是否在 schema 定义的范围内
-
-        Args:
-            value: 待验证的值
-            schema_def: schema 中的字段定义（包含 minimum/maximum）
-
-        Returns:
-            错误信息字符串，如果验证通过则返回 None
-        """
-        if schema_def is None or not isinstance(value, (int, float)):
-            return None
-
-        if "minimum" in schema_def and value < schema_def["minimum"]:
-            return f"配置值 {value} 低于最小值 {schema_def['minimum']}"
-        if "maximum" in schema_def and value > schema_def["maximum"]:
-            return f"配置值 {value} 超过最大值 {schema_def['maximum']}"
-
-        return None
-
-    def _set_nested_config(self, path_parts, value):
-        """在嵌套的 config 对象中设置值"""
-        obj = self.config
-        for part in path_parts[:-1]:
-            if part not in obj:
-                obj[part] = {}
-            obj = obj[part]
-        obj[path_parts[-1]] = value
+        s = self._settings
+        return json_response(
+            {
+                "allowed_domains": s["allowed_domains"],
+                "blocked_domains": s["blocked_domains"],
+                "enable_unified_domain": s["enable_unified_domain"],
+                "group_blacklist": s["group_blacklist"],
+                "auto_capture": s["auto_capture"],
+            }
+        )
 
     async def _api_browser(self):
-        """获取浏览器状态"""
-        from astrbot.api.web import json_response as jsonify
+        """浏览器诊断状态。"""
+        from astrbot.api.web import json_response
 
-        status = await self.analyzer.get_browser_status()
-        return jsonify(status)
+        return json_response(await self.screenshot_service.get_browser_status())
 
-    async def _api_browser_uninstall(self):
-        """卸载浏览器"""
-        from astrbot.api.web import json_response as jsonify
+    async def _api_browser_recheck(self):
+        """重置检测缓存并重新检测系统浏览器。"""
+        from astrbot.api.web import json_response
 
-        result = await self.analyzer.uninstall_browser()
-        if result["success"]:
-            return jsonify({"message": result["message"]})
-        return jsonify({"error": result["message"]}, status_code=500)
+        self.screenshot_service._reset_browser_detection()
+        return json_response(await self.screenshot_service.get_browser_status())
 
-    # ==================== End Dashboard Web API ====================
+    async def _api_browser_cleanup(self):
+        """清理旧版 Playwright 浏览器残留文件。"""
+        from astrbot.api.web import json_response
+
+        result = await self.screenshot_service.uninstall_legacy_artifacts()
+        result["status"] = await self.screenshot_service.get_browser_status()
+        return json_response(result)
+
+    # ==================== 卸载 ====================
 
     async def terminate(self):
-        """插件卸载时的清理工作"""
-        logger.info("网页分析插件正在卸载，执行资源清理...")
+        """插件卸载时的资源清理。"""
+        logger.info("网页截图插件正在卸载，执行资源清理...")
 
-        # 设置关闭标志，阻止新的浏览器操作
-        WebAnalyzer._shutting_down = True
+        ScreenshotService._shutting_down = True
 
-        # 取消所有撤回任务
         for task in self.recall_tasks:
             if not task.done():
                 task.cancel()
         self.recall_tasks.clear()
 
-        # 清空处理中的URL集合
-        self.processing_urls.clear()
-
-        # 关闭浏览器实例池（在锁保护下操作，避免与正在使用实例冲突）
         try:
-            lock = WebAnalyzer._browser_lock
+            lock = ScreenshotService._browser_lock
             if lock:
                 async with lock:
-                    await self._close_browser_pool()
+                    await ScreenshotService.close_all_browsers()
             else:
-                await self._close_browser_pool()
+                await ScreenshotService.close_all_browsers()
         except Exception as e:
-            logger.debug(f"清理浏览器池时出错（可忽略）: {e}")
+            logger.debug(f"清理浏览器实例时出错（可忽略）: {e}")
 
-        # Close every HTTP generation and the runtime memory monitor.
         try:
-            if hasattr(self, "analyzer"):
-                await self.analyzer.close()
+            if hasattr(self, "content_fetcher"):
+                await self.content_fetcher.close()
         except Exception:
-            logger.debug("Analyzer cleanup failed during shutdown")
+            logger.debug("关闭正文抓取客户端失败（可忽略）")
 
-        # 清理截图临时文件
-        try:
-            if hasattr(self, "message_handler"):
-                await self.message_handler.screenshot_temp_manager.shutdown()
-        except Exception as e:
-            logger.debug(f"清理截图临时文件时出错（可忽略）: {e}")
-
-        logger.info("网页分析插件已卸载")
-
-    async def _close_browser_pool(self):
-        """Close idle, checked-out and still-starting plugin browser instances."""
-        browsers = set(WebAnalyzer._browser_pool) | WebAnalyzer._browser_instances
-        WebAnalyzer._browser_pool.clear()
-        WebAnalyzer._browser_last_used.clear()
-        for browser in browsers:
-            try:
-                await browser.close()
-            except Exception as exc:
-                logger.warning(f"Failed to close a browser during shutdown: {exc}")
-        WebAnalyzer._browser_instances.clear()
-        logger.info("Browser resources have been closed")
+        logger.info("网页截图插件已卸载")

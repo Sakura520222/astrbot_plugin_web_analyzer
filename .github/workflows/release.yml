@@ -100,8 +100,9 @@ jobs:
             LICENSE \
             CHANGELOG.md \
             core/ \
-            pages/ \
-            wiki/
+            views/ \
+            wiki/ \
+            .astrbot-plugin/
           
           echo "打包完成，文件大小: $(du -h $ZIP_FILE | cut -f1)"
           echo "ZIP_FILE=$ZIP_FILE" >> $GITHUB_OUTPUT

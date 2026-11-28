@@ -3,7 +3,6 @@
 import asyncio
 import json
 import os
-import sys
 import tempfile
 import threading
 import time
@@ -13,10 +12,9 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock, patch
 
 import psutil
-from test_config_http import WebAnalyzer
+from test_support import ScreenshotService, browser_module, screenshot_module
 
-analyzer_module = sys.modules[WebAnalyzer.__module__]
-browser_module = sys.modules[WebAnalyzer.__module__.rsplit(".", 1)[0] + ".browser"]
+analyzer_module = screenshot_module
 BrowserInstance = browser_module.BrowserInstance
 CDPPage = browser_module.CDPPage
 BrowserError = browser_module.BrowserError
@@ -29,17 +27,17 @@ PageLimitError = browser_module.PageLimitError
 
 def reset_browser_state():
     """Give each test empty pools and primitives bound to its own event loop."""
-    WebAnalyzer._shutting_down = False
-    WebAnalyzer._browser_lock = asyncio.Lock()
-    WebAnalyzer._detect_lock = asyncio.Lock()
-    WebAnalyzer._browser_slot_released = asyncio.Event()
-    WebAnalyzer._browser_pool = []
-    WebAnalyzer._browser_instances = set()
-    WebAnalyzer._browser_last_used = {}
-    WebAnalyzer._browser_blacklist = {}
-    WebAnalyzer._detected_browser_path = ""
-    WebAnalyzer._detected_browser_name = ""
-    WebAnalyzer._detected_browser_version = ""
+    ScreenshotService._shutting_down = False
+    ScreenshotService._browser_lock = asyncio.Lock()
+    ScreenshotService._detect_lock = asyncio.Lock()
+    ScreenshotService._browser_slot_released = asyncio.Event()
+    ScreenshotService._browser_pool = []
+    ScreenshotService._browser_instances = set()
+    ScreenshotService._browser_last_used = {}
+    ScreenshotService._browser_blacklist = {}
+    ScreenshotService._detected_browser_path = ""
+    ScreenshotService._detected_browser_name = ""
+    ScreenshotService._detected_browser_version = ""
 
 
 async def eventually(condition, timeout=5):
@@ -246,7 +244,7 @@ class NavigationTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(page._send.await_count, 1)
 
     def test_proxy_credentials_removed_and_url_decoded(self):
-        analyzer = WebAnalyzer(
+        analyzer = ScreenshotService(
             hide_ip=True, proxy="http://user%40name:p%3Ass@[::1]:8080"
         )
         args = analyzer._build_browser_launch_args()
@@ -533,7 +531,7 @@ class BrowserDetectionTests(unittest.TestCase):
 class ScreenshotRecoveryTests(unittest.IsolatedAsyncioTestCase):
     def setUp(self):
         reset_browser_state()
-        self.analyzer = WebAnalyzer(enable_memory_monitor=False)
+        self.analyzer = ScreenshotService(enable_memory_monitor=False)
 
     @staticmethod
     def browser():
@@ -556,10 +554,10 @@ class ScreenshotRecoveryTests(unittest.IsolatedAsyncioTestCase):
             ),
         ):
             with self.assertRaises(analyzer_module.ScreenshotError):
-                await self.analyzer.capture_screenshot("https://example.test")
+                await self.analyzer.capture("https://example.test")
         first.close.assert_awaited_once()
         second.close.assert_awaited_once()
-        self.assertEqual(WebAnalyzer._browser_pool, [])
+        self.assertEqual(ScreenshotService._browser_pool, [])
 
     async def test_page_failures_are_not_retried_on_another_instance(self):
         errors = (
@@ -586,10 +584,10 @@ class ScreenshotRecoveryTests(unittest.IsolatedAsyncioTestCase):
                     ),
                 ):
                     with self.assertRaises(analyzer_module.ScreenshotError):
-                        await self.analyzer.capture_screenshot("https://example.test")
+                        await self.analyzer.capture("https://example.test")
                 acquire.assert_awaited_once()
                 browser.close.assert_awaited_once()
-                self.assertEqual(WebAnalyzer._browser_pool, [])
+                self.assertEqual(ScreenshotService._browser_pool, [])
 
     async def test_pooled_failure_retries_and_recycles_success(self):
         first, second = self.browser(), self.browser()
@@ -608,7 +606,7 @@ class ScreenshotRecoveryTests(unittest.IsolatedAsyncioTestCase):
             ),
             patch.object(self.analyzer, "_recycle_browser", new=AsyncMock()) as recycle,
         ):
-            result = await self.analyzer.capture_screenshot("https://example.test")
+            result = await self.analyzer.capture("https://example.test")
         self.assertEqual(result, b"image")
         first.close.assert_awaited_once()
         second.close.assert_not_awaited()
@@ -617,7 +615,7 @@ class ScreenshotRecoveryTests(unittest.IsolatedAsyncioTestCase):
     async def test_retry_count_is_configurable(self):
         for retries, expected in ((0, 1), (2, 3)):
             with self.subTest(retries=retries):
-                analyzer = WebAnalyzer(
+                analyzer = ScreenshotService(
                     enable_memory_monitor=False, screenshot_retry_count=retries
                 )
                 browser = self.browser()
@@ -633,7 +631,7 @@ class ScreenshotRecoveryTests(unittest.IsolatedAsyncioTestCase):
                     ),
                 ):
                     with self.assertRaises(analyzer_module.ScreenshotError):
-                        await analyzer.capture_screenshot("https://example.test")
+                        await analyzer.capture("https://example.test")
                 self.assertEqual(acquire.await_count, expected)
                 self.assertEqual(browser.close.await_count, expected)
         await self.analyzer.apply_runtime_config({"screenshot_retry_count": 0})
@@ -660,7 +658,7 @@ class ScreenshotRecoveryTests(unittest.IsolatedAsyncioTestCase):
                 new=AsyncMock(side_effect=RuntimeError("close exploded")),
             ),
         ):
-            result = await self.analyzer.capture_screenshot("https://example.test")
+            result = await self.analyzer.capture("https://example.test")
         self.assertEqual(result, b"image")
 
     async def test_cancelled_screenshot_closes_browser(self):
@@ -681,9 +679,7 @@ class ScreenshotRecoveryTests(unittest.IsolatedAsyncioTestCase):
             ),
             patch.object(self.analyzer, "_perform_screenshot", side_effect=screenshot),
         ):
-            task = asyncio.create_task(
-                self.analyzer.capture_screenshot("https://example.test")
-            )
+            task = asyncio.create_task(self.analyzer.capture("https://example.test"))
             await entered.wait()
             task.cancel()
             with self.assertRaises(asyncio.CancelledError):
@@ -702,6 +698,11 @@ class ScreenshotRecoveryTests(unittest.IsolatedAsyncioTestCase):
             goto=AsyncMock(),
             wait_for_timeout=AsyncMock(),
             content=AsyncMock(return_value="<html>ok</html>"),
+            _send=AsyncMock(
+                return_value={
+                    "result": {"value": {"url": "https://example.test/", "title": "ok"}}
+                }
+            ),
             close=page_close,
         )
         browser.new_page = AsyncMock(return_value=page)
@@ -715,14 +716,14 @@ class ScreenshotRecoveryTests(unittest.IsolatedAsyncioTestCase):
             ),
         ):
             task = asyncio.create_task(
-                self.analyzer._fetch_with_browser("https://example.test")
+                self.analyzer.render_html("https://example.test")
             )
             await closing.wait()
             task.cancel()
             with self.assertRaises(asyncio.CancelledError):
                 await task
         browser.close.assert_awaited_once()
-        self.assertEqual(WebAnalyzer._browser_pool, [])
+        self.assertEqual(ScreenshotService._browser_pool, [])
 
 
 class FakeBrowserTests(unittest.IsolatedAsyncioTestCase):
@@ -753,7 +754,7 @@ class FakeBrowserTests(unittest.IsolatedAsyncioTestCase):
                 analyzer_module, "sweep_stale_browser_artifacts", new=AsyncMock()
             )
         )
-        self.analyzer = WebAnalyzer(enable_memory_monitor=False)
+        self.analyzer = ScreenshotService(enable_memory_monitor=False)
 
     async def acquire(self):
         return await self.analyzer._get_or_create_browser()
@@ -792,9 +793,9 @@ class FakeBrowserTests(unittest.IsolatedAsyncioTestCase):
         )
         with self.assertRaises(BrowserLaunchError):
             await self.acquire()
-        self.assertEqual(WebAnalyzer._browser_blacklist, {})
-        self.assertEqual(WebAnalyzer._browser_instances, set())
-        self.assertEqual(WebAnalyzer._detected_browser_path, self.executable)
+        self.assertEqual(ScreenshotService._browser_blacklist, {})
+        self.assertEqual(ScreenshotService._browser_instances, set())
+        self.assertEqual(ScreenshotService._detected_browser_path, self.executable)
 
         # The next request simply tries the same executable again.
         FakeBrowser.launch_error = None
@@ -815,7 +816,7 @@ class FakeBrowserTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertIn("自动重试", message)
         self.assertEqual(self.detect.call_count, 2)
-        self.assertEqual(WebAnalyzer._browser_instances, set())
+        self.assertEqual(ScreenshotService._browser_instances, set())
         self.assertEqual(FakeBrowser.created[0].closed, True)
 
     async def test_skipped_browser_is_tried_again_after_the_cooldown(self):
@@ -836,8 +837,8 @@ class FakeBrowserTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(FakeBrowser.created), 1)
 
         # An expired entry is dropped, so the next request tries it again.
-        reason = WebAnalyzer._browser_blacklist[self.executable][1]
-        WebAnalyzer._browser_blacklist[self.executable] = (
+        reason = ScreenshotService._browser_blacklist[self.executable][1]
+        ScreenshotService._browser_blacklist[self.executable] = (
             time.monotonic() - 1,
             reason,
         )
@@ -845,27 +846,27 @@ class FakeBrowserTests(unittest.IsolatedAsyncioTestCase):
         instance, _ = await self.acquire()
         self.assertFalse(instance.closed)
         self.detect.assert_called_with(exclude_paths=set())
-        self.assertEqual(WebAnalyzer._browser_blacklist, {})
+        self.assertEqual(ScreenshotService._browser_blacklist, {})
 
     async def test_changing_launch_settings_forgets_launch_failures(self):
         FakeBrowser.launch_error = BrowserExecutableError("Browser exited with code 1")
         with self.assertRaises(analyzer_module.ScreenshotError):
             await self.acquire()
         await self.analyzer.apply_runtime_config({"max_content_length": 5000})
-        self.assertIn(self.executable, WebAnalyzer._browser_blacklist)
+        self.assertIn(self.executable, ScreenshotService._browser_blacklist)
 
         await self.analyzer.apply_runtime_config({"sandbox_mode": "always_disabled"})
-        self.assertEqual(WebAnalyzer._browser_blacklist, {})
-        self.assertEqual(WebAnalyzer._detected_browser_path, "")
+        self.assertEqual(ScreenshotService._browser_blacklist, {})
+        self.assertEqual(ScreenshotService._detected_browser_path, "")
 
     async def test_reload_resets_the_browser_session(self):
         FakeBrowser.launch_error = BrowserExecutableError("Browser exited with code 1")
         with self.assertRaises(analyzer_module.ScreenshotError):
             await self.acquire()
-        WebAnalyzer._shutting_down = True
-        WebAnalyzer.reset_browser_session()
-        self.assertFalse(WebAnalyzer._shutting_down)
-        self.assertEqual(WebAnalyzer._browser_blacklist, {})
+        ScreenshotService._shutting_down = True
+        ScreenshotService.reset_browser_session()
+        self.assertFalse(ScreenshotService._shutting_down)
+        self.assertEqual(ScreenshotService._browser_blacklist, {})
 
     async def test_cancel_before_registration_leaves_no_slot_leak(self):
         sweep_started = asyncio.Event()
@@ -876,7 +877,7 @@ class FakeBrowserTests(unittest.IsolatedAsyncioTestCase):
             await release_sweep.wait()
 
         # 每小时一次的残留清理是登记名额前的最后一个可取消点
-        WebAnalyzer._last_profile_sweep = 0
+        ScreenshotService._last_profile_sweep = 0
         with patch.object(
             analyzer_module, "sweep_stale_browser_artifacts", new=slow_sweep
         ):
@@ -886,11 +887,11 @@ class FakeBrowserTests(unittest.IsolatedAsyncioTestCase):
             with self.assertRaises(asyncio.CancelledError):
                 await task
         self.assertEqual(FakeBrowser.created, [])
-        self.assertEqual(WebAnalyzer._browser_instances, set())
+        self.assertEqual(ScreenshotService._browser_instances, set())
 
         # 名额未被占用，后续请求正常启动实例
         release_sweep.set()
-        WebAnalyzer._last_profile_sweep = time.time()
+        ScreenshotService._last_profile_sweep = time.time()
         instance, pooled = await asyncio.wait_for(self.acquire(), 5)
         self.assertFalse(pooled)
         self.assertEqual(len(FakeBrowser.created), 1)
@@ -905,15 +906,15 @@ class FakeBrowserTests(unittest.IsolatedAsyncioTestCase):
             await asyncio.Event().wait()
 
         dead.close = hang_close
-        WebAnalyzer._browser_pool.append(dead)
-        WebAnalyzer._browser_last_used[id(dead)] = time.time()
+        ScreenshotService._browser_pool.append(dead)
+        ScreenshotService._browser_last_used[id(dead)] = time.time()
         task = asyncio.create_task(self.acquire())
         await closing.wait()
         task.cancel()
         with self.assertRaises(asyncio.CancelledError):
             await task
         self.assertEqual(len(FakeBrowser.created), 1)
-        self.assertEqual(WebAnalyzer._browser_instances, set())
+        self.assertEqual(ScreenshotService._browser_instances, set())
 
         # 关闭被中断的失效实例不阻塞后续请求
         dead.close = AsyncMock()
@@ -922,7 +923,7 @@ class FakeBrowserTests(unittest.IsolatedAsyncioTestCase):
         self.assertIsNot(instance, dead)
 
     async def test_requests_at_the_cap_wait_and_reuse_returned_instances(self):
-        self.analyzer = WebAnalyzer(
+        self.analyzer = ScreenshotService(
             enable_memory_monitor=False, max_browser_instances=2
         )
         requests = [asyncio.create_task(self.acquire()) for _ in range(4)]
@@ -932,7 +933,7 @@ class FakeBrowserTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(FakeBrowser.created), 2)
         first, _ = finished[0].result()
         second, _ = finished[1].result()
-        self.assertLessEqual(len(WebAnalyzer._browser_instances), 2)
+        self.assertLessEqual(len(ScreenshotService._browser_instances), 2)
 
         # Returning an instance serves exactly one of the two waiting requests.
         await self.analyzer._recycle_browser(first)
@@ -953,10 +954,10 @@ class FakeBrowserTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(pooled)
         self.assertIsNot(last, first)
         self.assertEqual(len(FakeBrowser.created), 3)
-        self.assertLessEqual(len(WebAnalyzer._browser_instances), 2)
+        self.assertLessEqual(len(ScreenshotService._browser_instances), 2)
 
     async def test_waiting_request_fails_with_a_busy_error_at_the_deadline(self):
-        self.analyzer = WebAnalyzer(
+        self.analyzer = ScreenshotService(
             enable_memory_monitor=False, max_browser_instances=1
         )
         self.analyzer.timeout = 0.05
@@ -965,17 +966,17 @@ class FakeBrowserTests(unittest.IsolatedAsyncioTestCase):
             await self.acquire()
         self.assertIn("上限", str(caught.exception))
         # The request holding the instance is not affected.
-        self.assertIn(acquired, WebAnalyzer._browser_instances)
+        self.assertIn(acquired, ScreenshotService._browser_instances)
         self.assertFalse(acquired.closed)
 
     async def test_shutdown_releases_waiting_requests(self):
-        self.analyzer = WebAnalyzer(
+        self.analyzer = ScreenshotService(
             enable_memory_monitor=False, max_browser_instances=1
         )
         acquired, _ = await self.acquire()
         waiting = asyncio.create_task(self.acquire())
         await asyncio.sleep(0.02)
-        WebAnalyzer._shutting_down = True
+        ScreenshotService._shutting_down = True
         await acquired.close()  # what terminate() does with every instance
         with self.assertRaises(RuntimeError):
             await waiting
@@ -984,15 +985,15 @@ class FakeBrowserTests(unittest.IsolatedAsyncioTestCase):
         held = await asyncio.gather(*(self.acquire() for _ in range(3)))
         for instance, _ in held:
             await self.analyzer._recycle_browser(instance)
-        self.assertEqual(len(WebAnalyzer._browser_pool), 3)
+        self.assertEqual(len(ScreenshotService._browser_pool), 3)
         await self.analyzer.apply_runtime_config({"max_browser_instances": 1})
-        self.assertEqual(WebAnalyzer._max_browser_instances, 1)
-        self.assertEqual(len(WebAnalyzer._browser_pool), 1)
+        self.assertEqual(ScreenshotService._max_browser_instances, 1)
+        self.assertEqual(len(ScreenshotService._browser_pool), 1)
         self.assertEqual(sum(instance.closed for instance in FakeBrowser.created), 2)
-        self.assertEqual(len(WebAnalyzer._browser_instances), 1)
+        self.assertEqual(len(ScreenshotService._browser_instances), 1)
 
     async def test_raising_the_cap_lets_a_waiting_request_start_an_instance(self):
-        self.analyzer = WebAnalyzer(
+        self.analyzer = ScreenshotService(
             enable_memory_monitor=False, max_browser_instances=1
         )
         acquired, _ = await self.acquire()
@@ -1009,8 +1010,8 @@ class FakeBrowserTests(unittest.IsolatedAsyncioTestCase):
         cases = ((0, 1), (-3, 1), ("many", 3), (None, 3), ("2", 2), (8, 8))
         for value, expected in cases:
             with self.subTest(value=value):
-                WebAnalyzer._set_browser_instance_limit(value)
-                self.assertEqual(WebAnalyzer._max_browser_instances, expected)
+                ScreenshotService._set_browser_instance_limit(value)
+                self.assertEqual(ScreenshotService._max_browser_instances, expected)
 
 
 if __name__ == "__main__":

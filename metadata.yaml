@@ -1,10 +1,11 @@
 # 插件元数据文件
 name: astrbot_plugin_web_analyzer
-display_name: 网页分析插件
+display_name: 网页截图插件
 author: Sakura520222
-description: 自动识别并分析网页链接，支持内容提取、网页截图和缓存管理
-version: 1.7.3
+description: 自动识别聊天中的网页链接，支持命令和助手工具截图。可设置整页、视口、裁剪和加载等待方式。助手也可按需读取网页正文。
+version: 2.0.0
 repo: https://github.com/Sakura520222/astrbot_plugin_web_analyzer
+astrbot_version: ">=4.27.0"
 support_platforms:
   - aiocqhttp
   - telegram
@@ -12,4 +13,8 @@ support_platforms:
 views:
   - name: dashboard
     target: plugin_page
-    title: 网页分析插件
+    title: 网页截图插件
+  - name: screenshot_card
+    target: chat_message
+    title: 截图结果
+    version: 1

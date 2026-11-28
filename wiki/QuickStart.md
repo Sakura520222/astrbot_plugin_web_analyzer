@@ -1,96 +1,53 @@
 # 快速开始
 
-## 安装插件
+## 安装
 
-### 1. 下载插件
+1. 在 AstrBot WebUI 的插件市场搜索「网页截图插件」，或使用仓库地址安装：
+   `https://github.com/Sakura520222/astrbot_plugin_web_analyzer`
+2. 确认运行环境中已安装 Chrome、Edge 或 Chromium 之一（Docker 部署需在容器内安装）。
+3. 重载插件；依赖 `beautifulsoup4` 和 `lxml` 会自动安装。
 
-从GitHub Releases页面下载最新版本的插件压缩包，或者直接克隆代码库：
+最低兼容 AstrBot 4.27.0。插件 ID 与数据目录沿用旧版，v1.x 用户可原位升级。
 
-```bash
-git clone https://github.com/Sakura520222/astrbot_plugin_web_analyzer.git
+## 三种用法
+
+### 1. 自动识别
+
+保持默认配置（触发与发送 → 自动识别链接 = 开启），在聊天中直接发送含链接的消息：
+
+```text
+看看这个页面 https://example.com
 ```
 
-### 2. 复制到插件目录
+机器人会发送「正在截图」提示并返回截图。「自动截图后继续交给会话模型」决定截图后是否继续进入本轮对话模型。
 
-将插件目录复制到AstrBot的插件目录中：
+### 2. 手动命令
 
-```bash
-# 目录结构示例
-AstrBot/data/plugins/
-└── astrbot_plugin_web_analyzer/
-    ├── main.py
-    ├── requirements.txt
-    └── ...
+```text
+/网页截图 https://example.com
+/网页截图 https://a.com https://b.com
 ```
 
-### 3. 安装依赖
+`/网页分析` 保留为兼容别名。未提供链接时输出用法说明。
 
-进入插件目录，安装所需的依赖：
+### 3. 助手工具
 
-```bash
-# 进入插件目录
-cd AstrBot/data/plugins/astrbot_plugin_web_analyzer
-# 安装依赖
-pip install -r requirements.txt
-```
+在人格中启用工具后，对话中让助手截图或读网页：
 
-### 4. 重载插件
+- `capture_webpage(urls)`：截图并把原图发送到当前会话，向模型返回逐条结果；
+- `get_webpage_content(url)`：返回最终 URL、标题和可读正文。
 
-重启AstrBot或在WebUI插件管理中点击**重载插件**按钮，使插件生效。
+工具受宿主的人格与工具权限管理。
 
-## 基本使用
+## 从 v1.x 升级
 
-### 自动分析
+- 首次加载自动迁移旧配置：代理、User-Agent、截图尺寸与等待、访问规则、缓存限制。
+- 旧配置为手动、仅分析或关闭截图时，迁移后「自动识别链接」关闭，仅响应命令。
+- 旧截图缓存保留在原目录，管理面板中标记「旧版」，按有效期自然过期。
+- 历史导出文件留在原目录；已选择旧分析工具的人格需改选新工具。
 
-插件会自动检测消息中的URL链接并进行分析。当用户发送包含URL的消息时，插件会自动识别并处理：
+## 验证安装
 
-```
-用户：看看这个新闻 https://example.com/news/article
-机器人：检测到网页链接，正在分析: https://example.com/news/article
-       [分析结果...]
-       [网页截图...]
-```
-
-### 支持无协议头URL
-
-在配置中启用`enable_no_protocol_url`选项后，插件可以识别无协议头的URL：
-
-```
-用户：看看这个新闻 www.example.com/news/article
-机器人：检测到网页链接，正在分析: https://www.example.com/news/article
-       [分析结果...]
-       [网页截图...]
-```
-
-### 多链接处理
-
-插件支持同时处理多个链接，会合并成一条合并转发消息发送：
-
-```
-用户：看看这些新闻 https://example.com/news/article1 https://example.com/news/article2
-机器人：检测到2个网页链接，正在分析...
-       [合并转发的分析结果...]
-       [网页截图...]
-```
-
-### 手动分析
-
-使用命令手动分析指定链接：
-
-```
-/网页分析 https://example.com
-```
-
-### 查看帮助
-
-查看所有可用命令和帮助信息：
-
-```
-/web_help
-```
-
-## 下一步
-
-- 查看[命令参考](Commands.md)了解所有可用命令
-- 查看[配置指南](Configuration.md)了解如何配置插件
-- 查看[常见问题](FAQ.md)解决可能遇到的问题
+1. 发送 `/网页截图 https://example.com`，应返回截图。
+2. 打开 WebUI 插件页面，四个页签（截图概览 / 截图缓存 / 访问规则 / 浏览器诊断）应正常加载数据。
+3. 「浏览器诊断」页应显示检测到的浏览器路径和版本。

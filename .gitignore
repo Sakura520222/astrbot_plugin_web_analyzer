@@ -23,3 +23,6 @@ main_backup.py
 .mypy_cache/
 node_modules/
 .codegraph/
+.ruff_cache/
+.impeccable/
+.sakura/

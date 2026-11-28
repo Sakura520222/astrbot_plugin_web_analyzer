@@ -1,0 +1,102 @@
+{
+  "metadata": {
+    "display_name": "网页截图插件",
+    "short_desc": "自动识别聊天中的网页链接并截图，助手可按需读取网页正文。",
+    "desc": "自动识别聊天中的网页链接，支持命令和助手工具截图。可设置整页、视口、裁剪和加载等待方式。助手也可按需读取网页正文。"
+  },
+  "views": {
+    "dashboard": {
+      "nav": {
+        "title": "网页截图插件",
+        "overview": "截图概览",
+        "cache": "截图缓存",
+        "rules": "访问规则",
+        "diagnostics": "浏览器诊断"
+      },
+      "overview": {
+        "cacheTotal": "缓存总数",
+        "cacheValid": "有效缓存",
+        "cacheExpired": "过期缓存",
+        "browser": "系统浏览器",
+        "browserMissing": "未检测到",
+        "autoStatus": "自动截图",
+        "autoCapture": "自动识别链接",
+        "handoff": "继续交给会话模型",
+        "concurrency": "批量并发上限",
+        "captureParams": "截图参数"
+      },
+      "capture": {
+        "viewport": "视口尺寸",
+        "fullPage": "截取整页",
+        "format": "图片格式",
+        "wait": "加载等待",
+        "crop": "裁剪"
+      },
+      "cache": {
+        "total": "缓存总数",
+        "valid": "有效缓存",
+        "expired": "过期缓存",
+        "clearAll": "清空缓存",
+        "cacheList": "缓存列表",
+        "searchPlaceholder": "搜索 URL...",
+        "tableUrl": "URL",
+        "tableTitle": "标题",
+        "tableStatus": "状态",
+        "tableTime": "缓存时间",
+        "tableAction": "操作",
+        "loading": "加载中...",
+        "empty": "暂无缓存数据",
+        "legacy": "旧版",
+        "validLabel": "有效",
+        "expiredLabel": "已过期",
+        "preview": "预览",
+        "delete": "删除",
+        "confirmDelete": "确认删除此缓存？",
+        "confirmClear": "确认清空所有缓存？此操作不可恢复",
+        "cleared": "已清空",
+        "deleted": "缓存已删除",
+        "previewFailed": "预览加载失败: "
+      },
+      "rules": {
+        "allowed": "允许的域名",
+        "blocked": "禁止的域名",
+        "groups": "群聊黑名单",
+        "nativeEntry": "修改规则",
+        "nativeHint": "访问规则在插件配置中维护：打开 WebUI「插件管理 → 网页截图插件 → 配置」，编辑「访问规则」分组后保存即可生效。",
+        "empty": "暂无条目"
+      },
+      "diagnostics": {
+        "title": "系统浏览器状态",
+        "refresh": "刷新状态",
+        "recheck": "重新检测",
+        "browserType": "浏览器",
+        "browserVersion": "版本",
+        "browserPath": "路径",
+        "pool": "实例池",
+        "idle": "空闲",
+        "active": "在用+启动中",
+        "limit": "上限",
+        "detected": "检测结果",
+        "notFound": "未检测到系统浏览器，请安装 Chrome / Edge / Chromium",
+        "skipped": "暂时跳过",
+        "legacy": "旧版残留",
+        "legacyFound": "发现旧版残留",
+        "legacyNone": "无",
+        "cleanup": "清理旧版残留",
+        "cleanupHint": "清理旧版本通过 Playwright 下载的浏览器残留文件；当前版本直接使用系统已安装的浏览器，无需下载。",
+        "confirmCleanup": "确认清理旧版浏览器残留文件？"
+      },
+      "error": {
+        "loadFailed": "加载失败: ",
+        "actionFailed": "操作失败: "
+      },
+      "confirm": {
+        "cancel": "取消",
+        "ok": "确认"
+      }
+    },
+    "screenshot_card": {
+      "title": "截图结果"
+    }
+  }
+}
